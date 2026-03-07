@@ -1,0 +1,459 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { MatchResult, parseCSV, fetchWithRetry } from '../results/route';
+
+export interface H2HMatch extends MatchResult {
+  shHomeGoals: number;
+  shAwayGoals: number;
+  shResult: 'H' | 'D' | 'A';
+  bttsFullTime: boolean;
+  bttsFirstHalf: boolean;
+  bttsSecondHalf: boolean;
+  bttsBothHalves: boolean;
+  homeTeamIsHome: boolean;
+}
+
+export interface H2HAnalytics {
+  totalMatches: number;
+  homeTeamWins: number;
+  draws: number;
+  awayTeamWins: number;
+  homeTeamWinPercent: number;
+  drawPercent: number;
+  awayTeamWinPercent: number;
+  totalGoals: number;
+  avgGoalsPerGame: number;
+  bttsFullTime: { count: number; percent: number };
+  bttsFirstHalf: { count: number; percent: number };
+  bttsSecondHalf: { count: number; percent: number };
+  bttsBothHalves: { count: number; percent: number };
+  avgHomeTeamGoals: number;
+  avgAwayTeamGoals: number;
+  over25Goals: { count: number; percent: number };
+  over35Goals: { count: number; percent: number };
+  htHomeTeamLeads: number;
+  htDraws: number;
+  htAwayTeamLeads: number;
+  homeTeamComebacks: number;
+  awayTeamComebacks: number;
+  seasonsCount?: number;
+  seasonsPlayed?: string[];
+  avgHomeTeamShots: number;
+  avgAwayTeamShots: number;
+  avgHomeTeamShotsOnTarget: number;
+  avgAwayTeamShotsOnTarget: number;
+  avgHomeTeamCorners: number;
+  avgAwayTeamCorners: number;
+  avgHomeTeamFouls: number;
+  avgAwayTeamFouls: number;
+  totalCards: number;
+  oddsAnalysis: {
+    matchesWithOdds: number;
+    favoriteWins: number;
+    favoriteWinPercent: number;
+    underdogWins: number;
+    underdogWinPercent: number;
+    avgHomeTeamWinOdds: number;
+    avgDrawOdds: number;
+    avgAwayTeamWinOdds: number;
+  };
+}
+
+// Available seasons - European format
+// 11 seasons from 2015-16 to 2025-26
+const EUROPEAN_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
+
+const SEASON_NAMES: Record<string, string> = {
+  '2526': '2025-26',
+  '2425': '2024-25',
+  '2324': '2023-24',
+  '2223': '2022-23',
+  '2122': '2021-22',
+  '2021': '2020-21',
+  '1920': '2019-20',
+  '1819': '2018-19',
+  '1718': '2017-18',
+  '1617': '2016-17',
+  '1516': '2015-16',
+};
+
+const cache = new Map<string, { data: { matches: H2HMatch[]; analytics: H2HAnalytics }; timestamp: number }>();
+const CACHE_DURATION = 10 * 60 * 1000;
+const dataCache = new Map<string, { data: MatchResult[]; timestamp: number }>();
+
+async function fetchSeasonData(league: string, season: string): Promise<MatchResult[]> {
+  const cacheKey = `${league}-${season}`;
+  const cached = dataCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data;
+  }
+
+  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
+
+  try {
+    const response = await fetchWithRetry(url);
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const csvText = await response.text();
+    const results = parseCSV(csvText, season);
+
+    dataCache.set(cacheKey, { data: results, timestamp: Date.now() });
+    return results;
+  } catch (error) {
+    console.error(`Error fetching ${season}:`, error);
+    return [];
+  }
+}
+
+function analyzeH2H(
+  matches: MatchResult[],
+  team1: string,
+  team2: string,
+  seasonsCount?: number
+): { matches: H2HMatch[]; analytics: H2HAnalytics } {
+  const h2hMatches = matches.filter(
+    m => (m.homeTeam === team1 && m.awayTeam === team2) ||
+         (m.homeTeam === team2 && m.awayTeam === team1)
+  );
+
+  const h2hWithStats: H2HMatch[] = h2hMatches.map(m => {
+    const shHomeGoals = m.ftHomeGoals - m.htHomeGoals;
+    const shAwayGoals = m.ftAwayGoals - m.htAwayGoals;
+    
+    let shResult: 'H' | 'D' | 'A' = 'D';
+    if (shHomeGoals > shAwayGoals) shResult = 'H';
+    else if (shHomeGoals < shAwayGoals) shResult = 'A';
+
+    const bttsFullTime = m.ftHomeGoals > 0 && m.ftAwayGoals > 0;
+    const bttsFirstHalf = m.htHomeGoals > 0 && m.htAwayGoals > 0;
+    const bttsSecondHalf = shHomeGoals > 0 && shAwayGoals > 0;
+    const bttsBothHalves = bttsFirstHalf && bttsSecondHalf;
+    const homeTeamIsHome = m.homeTeam === team1;
+
+    return {
+      ...m,
+      shHomeGoals,
+      shAwayGoals,
+      shResult,
+      bttsFullTime,
+      bttsFirstHalf,
+      bttsSecondHalf,
+      bttsBothHalves,
+      homeTeamIsHome,
+    };
+  });
+
+  const totalMatches = h2hWithStats.length;
+  
+  const emptyAnalytics: H2HAnalytics = {
+    totalMatches: 0,
+    homeTeamWins: 0,
+    draws: 0,
+    awayTeamWins: 0,
+    homeTeamWinPercent: 0,
+    drawPercent: 0,
+    awayTeamWinPercent: 0,
+    totalGoals: 0,
+    avgGoalsPerGame: 0,
+    bttsFullTime: { count: 0, percent: 0 },
+    bttsFirstHalf: { count: 0, percent: 0 },
+    bttsSecondHalf: { count: 0, percent: 0 },
+    bttsBothHalves: { count: 0, percent: 0 },
+    avgHomeTeamGoals: 0,
+    avgAwayTeamGoals: 0,
+    over25Goals: { count: 0, percent: 0 },
+    over35Goals: { count: 0, percent: 0 },
+    htHomeTeamLeads: 0,
+    htDraws: 0,
+    htAwayTeamLeads: 0,
+    homeTeamComebacks: 0,
+    awayTeamComebacks: 0,
+    seasonsCount,
+    seasonsPlayed: [],
+    avgHomeTeamShots: 0,
+    avgAwayTeamShots: 0,
+    avgHomeTeamShotsOnTarget: 0,
+    avgAwayTeamShotsOnTarget: 0,
+    avgHomeTeamCorners: 0,
+    avgAwayTeamCorners: 0,
+    avgHomeTeamFouls: 0,
+    avgAwayTeamFouls: 0,
+    totalCards: 0,
+    oddsAnalysis: {
+      matchesWithOdds: 0,
+      favoriteWins: 0,
+      favoriteWinPercent: 0,
+      underdogWins: 0,
+      underdogWinPercent: 0,
+      avgHomeTeamWinOdds: 0,
+      avgDrawOdds: 0,
+      avgAwayTeamWinOdds: 0,
+    },
+  };
+
+  if (totalMatches === 0) {
+    return { matches: [], analytics: emptyAnalytics };
+  }
+
+  let homeTeamWins = 0;
+  let draws = 0;
+  let awayTeamWins = 0;
+  let totalGoals = 0;
+  let team1Goals = 0;
+  let team2Goals = 0;
+  let bttsFullTimeCount = 0;
+  let bttsFirstHalfCount = 0;
+  let bttsSecondHalfCount = 0;
+  let bttsBothHalvesCount = 0;
+  let over25Count = 0;
+  let over35Count = 0;
+  let htTeam1Leads = 0;
+  let htDrawCount = 0;
+  let htTeam2Leads = 0;
+  let team1Comebacks = 0;
+  let team2Comebacks = 0;
+  const seasonsWithMatches = new Set<string>();
+
+  let totalTeam1Shots = 0;
+  let totalTeam2Shots = 0;
+  let totalTeam1ShotsOnTarget = 0;
+  let totalTeam2ShotsOnTarget = 0;
+  let totalTeam1Corners = 0;
+  let totalTeam2Corners = 0;
+  let totalTeam1Fouls = 0;
+  let totalTeam2Fouls = 0;
+  let totalCards = 0;
+
+  let favoriteWins = 0;
+  let underdogWins = 0;
+  let totalTeam1Odds = 0;
+  let totalDrawOdds = 0;
+  let totalTeam2Odds = 0;
+  let oddsCount = 0;
+
+  for (const m of h2hWithStats) {
+    seasonsWithMatches.add(m.season);
+    
+    if (m.ftResult === 'D') {
+      draws++;
+    } else if ((m.ftResult === 'H' && m.homeTeamIsHome) || (m.ftResult === 'A' && !m.homeTeamIsHome)) {
+      homeTeamWins++;
+    } else {
+      awayTeamWins++;
+    }
+
+    totalGoals += m.ftHomeGoals + m.ftAwayGoals;
+    team1Goals += m.homeTeamIsHome ? m.ftHomeGoals : m.ftAwayGoals;
+    team2Goals += m.homeTeamIsHome ? m.ftAwayGoals : m.ftHomeGoals;
+
+    if (m.bttsFullTime) bttsFullTimeCount++;
+    if (m.bttsFirstHalf) bttsFirstHalfCount++;
+    if (m.bttsSecondHalf) bttsSecondHalfCount++;
+    if (m.bttsBothHalves) bttsBothHalvesCount++;
+
+    const totalMatchGoals = m.ftHomeGoals + m.ftAwayGoals;
+    if (totalMatchGoals > 2.5) over25Count++;
+    if (totalMatchGoals > 3.5) over35Count++;
+
+    if (m.htResult === 'D') {
+      htDrawCount++;
+    } else if ((m.htResult === 'H' && m.homeTeamIsHome) || (m.htResult === 'A' && !m.homeTeamIsHome)) {
+      htTeam1Leads++;
+    } else {
+      htTeam2Leads++;
+    }
+
+    if (m.homeTeamIsHome) {
+      if (m.htResult === 'A' && m.ftResult === 'H') team1Comebacks++;
+      if (m.htResult === 'H' && m.ftResult === 'A') team2Comebacks++;
+    } else {
+      if (m.htResult === 'H' && m.ftResult === 'A') team1Comebacks++;
+      if (m.htResult === 'A' && m.ftResult === 'H') team2Comebacks++;
+    }
+
+    totalTeam1Shots += m.homeTeamIsHome ? m.homeShots : m.awayShots;
+    totalTeam2Shots += m.homeTeamIsHome ? m.awayShots : m.homeShots;
+    totalTeam1ShotsOnTarget += m.homeTeamIsHome ? m.homeShotsOnTarget : m.awayShotsOnTarget;
+    totalTeam2ShotsOnTarget += m.homeTeamIsHome ? m.awayShotsOnTarget : m.homeShotsOnTarget;
+    totalTeam1Corners += m.homeTeamIsHome ? m.homeCorners : m.awayCorners;
+    totalTeam2Corners += m.homeTeamIsHome ? m.awayCorners : m.homeCorners;
+    totalTeam1Fouls += m.homeTeamIsHome ? m.homeFouls : m.awayFouls;
+    totalTeam2Fouls += m.homeTeamIsHome ? m.awayFouls : m.homeFouls;
+    totalCards += m.homeYellowCards + m.awayYellowCards + m.homeRedCards + m.awayRedCards;
+
+    if (m.oddsAvgHome && m.oddsAvgDraw && m.oddsAvgAway) {
+      oddsCount++;
+      
+      const team1Odds = m.homeTeamIsHome ? m.oddsAvgHome : m.oddsAvgAway;
+      const team2Odds = m.homeTeamIsHome ? m.oddsAvgAway : m.oddsAvgHome;
+      
+      totalTeam1Odds += team1Odds;
+      totalDrawOdds += m.oddsAvgDraw;
+      totalTeam2Odds += team2Odds;
+
+      const minOdds = Math.min(team1Odds, m.oddsAvgDraw, team2Odds);
+      const team1Win = (m.ftResult === 'H' && m.homeTeamIsHome) || (m.ftResult === 'A' && !m.homeTeamIsHome);
+      const team2Win = (m.ftResult === 'A' && m.homeTeamIsHome) || (m.ftResult === 'H' && !m.homeTeamIsHome);
+      
+      if (minOdds === team1Odds && team1Win) {
+        favoriteWins++;
+      } else if (minOdds === m.oddsAvgDraw && m.ftResult === 'D') {
+        favoriteWins++;
+      } else if (minOdds === team2Odds && team2Win) {
+        favoriteWins++;
+      } else if (team1Win || team2Win) {
+        underdogWins++;
+      }
+    }
+  }
+
+  const analytics: H2HAnalytics = {
+    totalMatches,
+    homeTeamWins,
+    draws,
+    awayTeamWins,
+    homeTeamWinPercent: Math.round((homeTeamWins / totalMatches) * 1000) / 10,
+    drawPercent: Math.round((draws / totalMatches) * 1000) / 10,
+    awayTeamWinPercent: Math.round((awayTeamWins / totalMatches) * 1000) / 10,
+    totalGoals,
+    avgGoalsPerGame: Math.round((totalGoals / totalMatches) * 100) / 100,
+    bttsFullTime: {
+      count: bttsFullTimeCount,
+      percent: Math.round((bttsFullTimeCount / totalMatches) * 1000) / 10,
+    },
+    bttsFirstHalf: {
+      count: bttsFirstHalfCount,
+      percent: Math.round((bttsFirstHalfCount / totalMatches) * 1000) / 10,
+    },
+    bttsSecondHalf: {
+      count: bttsSecondHalfCount,
+      percent: Math.round((bttsSecondHalfCount / totalMatches) * 1000) / 10,
+    },
+    bttsBothHalves: {
+      count: bttsBothHalvesCount,
+      percent: Math.round((bttsBothHalvesCount / totalMatches) * 1000) / 10,
+    },
+    avgHomeTeamGoals: Math.round((team1Goals / totalMatches) * 100) / 100,
+    avgAwayTeamGoals: Math.round((team2Goals / totalMatches) * 100) / 100,
+    over25Goals: {
+      count: over25Count,
+      percent: Math.round((over25Count / totalMatches) * 1000) / 10,
+    },
+    over35Goals: {
+      count: over35Count,
+      percent: Math.round((over35Count / totalMatches) * 1000) / 10,
+    },
+    htHomeTeamLeads: htTeam1Leads,
+    htDraws: htDrawCount,
+    htAwayTeamLeads: htTeam2Leads,
+    homeTeamComebacks: team1Comebacks,
+    awayTeamComebacks: team2Comebacks,
+    seasonsCount,
+    seasonsPlayed: Array.from(seasonsWithMatches).map(s => SEASON_NAMES[s] || s).sort(),
+    avgHomeTeamShots: Math.round((totalTeam1Shots / totalMatches) * 10) / 10,
+    avgAwayTeamShots: Math.round((totalTeam2Shots / totalMatches) * 10) / 10,
+    avgHomeTeamShotsOnTarget: Math.round((totalTeam1ShotsOnTarget / totalMatches) * 10) / 10,
+    avgAwayTeamShotsOnTarget: Math.round((totalTeam2ShotsOnTarget / totalMatches) * 10) / 10,
+    avgHomeTeamCorners: Math.round((totalTeam1Corners / totalMatches) * 10) / 10,
+    avgAwayTeamCorners: Math.round((totalTeam2Corners / totalMatches) * 10) / 10,
+    avgHomeTeamFouls: Math.round((totalTeam1Fouls / totalMatches) * 10) / 10,
+    avgAwayTeamFouls: Math.round((totalTeam2Fouls / totalMatches) * 10) / 10,
+    totalCards,
+    oddsAnalysis: {
+      matchesWithOdds: oddsCount,
+      favoriteWins,
+      favoriteWinPercent: oddsCount > 0 ? Math.round((favoriteWins / oddsCount) * 1000) / 10 : 0,
+      underdogWins,
+      underdogWinPercent: oddsCount > 0 ? Math.round((underdogWins / oddsCount) * 1000) / 10 : 0,
+      avgHomeTeamWinOdds: oddsCount > 0 ? Math.round((totalTeam1Odds / oddsCount) * 100) / 100 : 0,
+      avgDrawOdds: oddsCount > 0 ? Math.round((totalDrawOdds / oddsCount) * 100) / 100 : 0,
+      avgAwayTeamWinOdds: oddsCount > 0 ? Math.round((totalTeam2Odds / oddsCount) * 100) / 100 : 0,
+    },
+  };
+
+  h2hWithStats.sort((a, b) => {
+    const dateA = parseDate(a.date);
+    const dateB = parseDate(b.date);
+    return dateB.getTime() - dateA.getTime();
+  });
+
+  return { matches: h2hWithStats, analytics };
+}
+
+function parseDate(dateStr: string): Date {
+  if (!dateStr) return new Date(0);
+  
+  const parts = dateStr.split('/');
+  if (parts.length === 3) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    let year = parseInt(parts[2], 10);
+    
+    // Handle 2-digit years (e.g., "16" -> 2016, "99" -> 1999)
+    if (year < 100) {
+      year += year < 50 ? 2000 : 1900;
+    }
+    
+    return new Date(year, month, day);
+  }
+  
+  return new Date(dateStr) || new Date(0);
+}
+
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const league = searchParams.get('league');
+  const season = searchParams.get('season');
+  const team1 = searchParams.get('team1');
+  const team2 = searchParams.get('team2');
+
+  if (!league || !season) {
+    return NextResponse.json(
+      { error: 'Missing required parameters: league and season' },
+      { status: 400 }
+    );
+  }
+
+  if (!team1 || !team2) {
+    return NextResponse.json(
+      { error: 'Missing required parameters: team1 and team2 for H2H analysis' },
+      { status: 400 }
+    );
+  }
+
+  const cacheKey = `${league}-${season}-${team1}-${team2}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return NextResponse.json(cached.data);
+  }
+
+  try {
+    let allResults: MatchResult[] = [];
+    let seasonsCount: number | undefined;
+
+    if (season === 'all') {
+      const seasonPromises = EUROPEAN_SEASONS.map(s => fetchSeasonData(league, s));
+      const seasonResults = await Promise.all(seasonPromises);
+      allResults = seasonResults.flat();
+      seasonsCount = EUROPEAN_SEASONS.length;
+    } else {
+      allResults = await fetchSeasonData(league, season);
+    }
+
+    const h2hData = analyzeH2H(allResults, team1, team2, seasonsCount);
+
+    cache.set(cacheKey, { data: h2hData, timestamp: Date.now() });
+
+    return NextResponse.json(h2hData);
+  } catch (error) {
+    console.error('Error fetching H2H data:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch H2H data.' },
+      { status: 500 }
+    );
+  }
+}
