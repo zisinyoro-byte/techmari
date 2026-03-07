@@ -465,6 +465,11 @@ export default function Home() {
         result?: 'H' | 'D' | 'A'
         scoreline?: string
       } | null
+      odds: {
+        home: number | null
+        draw: number | null
+        away: number | null
+      }
       correct: { result: boolean; over15: boolean; over25: boolean; btts: boolean }
     }>
     calibrationData: Array<{ predicted: number; actual: number; count: number }>
@@ -476,6 +481,12 @@ export default function Home() {
         lastH2HDraw: { count: number; bttsRate: number; avgGoals: number }
         noH2H: { count: number; bttsRate: number; avgGoals: number }
       }
+      h2hScorelines: Array<{
+        scoreline: string
+        count: number
+        bttsCount: number
+        bttsRate: number
+      }>
       htResultPatterns: {
         htHomeWin: { count: number; bttsRate: number }
         htAwayWin: { count: number; bttsRate: number }
@@ -1770,12 +1781,15 @@ export default function Home() {
                             <TableHead className="text-center">2nd Half</TableHead>
                             <TableHead className="text-center">Full Time</TableHead>
                             <TableHead>Away</TableHead>
+                            <TableHead className="text-center">Odds H</TableHead>
+                            <TableHead className="text-center">Odds D</TableHead>
+                            <TableHead className="text-center">Odds A</TableHead>
                             <TableHead className="text-center">BTTS</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {h2hMatches.length === 0 ? (
-                            <TableRow><TableCell colSpan={isAllSeasons ? 8 : 7} className="text-center py-8 text-muted-foreground">No H2H matches found between these teams in this season.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={isAllSeasons ? 11 : 10} className="text-center py-8 text-muted-foreground">No H2H matches found between these teams in this season.</TableCell></TableRow>
                           ) : (
                             h2hMatches.map((match, index) => (
                               <TableRow key={index} className={match.bttsBothHalves ? 'bg-purple-50 dark:bg-purple-900/20' : ''}>
@@ -1796,6 +1810,33 @@ export default function Home() {
                                   <Badge variant="secondary" className="font-mono text-base">{match.ftHomeGoals} - {match.ftAwayGoals}</Badge>
                                 </TableCell>
                                 <TableCell className={!match.homeTeamIsHome ? 'font-bold' : ''}>{match.awayTeam}</TableCell>
+                                <TableCell className="text-center">
+                                  {match.oddsB365Home ? (
+                                    <span className={`text-sm font-mono ${match.ftResult === 'H' ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                                      {match.oddsB365Home.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {match.oddsB365Draw ? (
+                                    <span className={`text-sm font-mono ${match.ftResult === 'D' ? 'text-amber-600 font-bold' : 'text-muted-foreground'}`}>
+                                      {match.oddsB365Draw.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {match.oddsB365Away ? (
+                                    <span className={`text-sm font-mono ${match.ftResult === 'A' ? 'text-blue-600 font-bold' : 'text-muted-foreground'}`}>
+                                      {match.oddsB365Away.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
                                 <TableCell className="text-center">
                                   {match.bttsBothHalves ? (
                                     <Badge className="bg-purple-600 text-white"><Zap className="w-3 h-3 mr-1" />BOTH</Badge>
@@ -3943,6 +3984,45 @@ export default function Home() {
                           </div>
                         </div>
 
+                        {/* H2H Scorelines Leading to BTTS */}
+                        {backtestResult.bttsPatterns.h2hScorelines && backtestResult.bttsPatterns.h2hScorelines.length > 0 && (
+                          <div>
+                            <h4 className="font-semibold text-sm mb-3 text-purple-700">Top H2H Scorelines Leading to BTTS</h4>
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="text-xs">H2H Score</TableHead>
+                                    <TableHead className="text-center text-xs">Games</TableHead>
+                                    <TableHead className="text-center text-xs">BTTS</TableHead>
+                                    <TableHead className="text-center text-xs">BTTS Rate</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {backtestResult.bttsPatterns.h2hScorelines.slice(0, 8).map((item, i) => (
+                                    <TableRow key={i}>
+                                      <TableCell className="font-mono font-bold text-sm">{item.scoreline}</TableCell>
+                                      <TableCell className="text-center text-sm">{item.count}</TableCell>
+                                      <TableCell className="text-center text-sm">{item.bttsCount}</TableCell>
+                                      <TableCell className="text-center">
+                                        <Badge 
+                                          style={{ 
+                                            backgroundColor: item.bttsRate >= 60 ? '#22c55e' : 
+                                                            item.bttsRate >= 50 ? '#f59e0b' : '#6b7280' 
+                                          }} 
+                                          className="text-white text-xs"
+                                        >
+                                          {item.bttsRate.toFixed(0)}%
+                                        </Badge>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        )}
+
                         {/* HT Result vs BTTS */}
                         <div>
                           <h4 className="font-semibold text-sm mb-3 text-purple-700">Half-Time Result vs BTTS Rate</h4>
@@ -4012,7 +4092,7 @@ export default function Home() {
                     <CardHeader>
                       <CardTitle className="text-lg">Sample Predictions (First 20)</CardTitle>
                       <CardDescription>
-                        Comparison of predicted vs actual results with H2H and HT/SH data
+                        Comparison of predicted vs actual results with H2H, HT/SH data and odds
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -4023,6 +4103,7 @@ export default function Home() {
                               <TableHead className="text-xs">Date</TableHead>
                               <TableHead className="text-xs">Match</TableHead>
                               <TableHead className="text-center text-xs">Last H2H</TableHead>
+                              <TableHead className="text-center text-xs">Odds H/D/A</TableHead>
                               <TableHead className="text-center text-xs">Pred</TableHead>
                               <TableHead className="text-center text-xs">Actual FT</TableHead>
                               <TableHead className="text-center text-xs">HT</TableHead>
@@ -4057,6 +4138,23 @@ export default function Home() {
                                     </div>
                                   ) : (
                                     <span className="text-xs text-muted-foreground">N/A</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {pred.odds && (pred.odds.home || pred.odds.draw || pred.odds.away) ? (
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className={`text-xs font-mono ${pred.actual.result === 'H' ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                                        H: {pred.odds.home?.toFixed(2) || '-'}
+                                      </span>
+                                      <span className={`text-xs font-mono ${pred.actual.result === 'D' ? 'text-amber-600 font-bold' : 'text-muted-foreground'}`}>
+                                        D: {pred.odds.draw?.toFixed(2) || '-'}
+                                      </span>
+                                      <span className={`text-xs font-mono ${pred.actual.result === 'A' ? 'text-blue-600 font-bold' : 'text-muted-foreground'}`}>
+                                        A: {pred.odds.away?.toFixed(2) || '-'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
                                   )}
                                 </TableCell>
                                 <TableCell className="text-center">

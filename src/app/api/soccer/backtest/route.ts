@@ -39,6 +39,12 @@ interface PredictionRecord {
     shHomeGoals: number;
     shAwayGoals: number;
   };
+  // Odds from the match
+  odds: {
+    home: number | null;
+    draw: number | null;
+    away: number | null;
+  };
   // Last H2H before this match
   lastH2H: {
     found: boolean;
@@ -107,6 +113,13 @@ interface BacktestResult {
       lastH2HDraw: { count: number; bttsRate: number; avgGoals: number };
       noH2H: { count: number; bttsRate: number; avgGoals: number };
     };
+    // Most frequent H2H scorelines that led to BTTS
+    h2hScorelines: {
+      scoreline: string;
+      count: number;
+      bttsCount: number;
+      bttsRate: number;
+    }[];
     htResultPatterns: {
       htHomeWin: { count: number; bttsRate: number };
       htAwayWin: { count: number; bttsRate: number };
@@ -551,6 +564,11 @@ export async function GET(request: NextRequest) {
         },
         predicted,
         actual,
+        odds: {
+          home: match.oddsB365Home,
+          draw: match.oddsB365Draw,
+          away: match.oddsB365Away,
+        },
         lastH2H,
         correct: {
           result: predictedResult === actual.result,
@@ -644,6 +662,34 @@ export async function GET(request: NextRequest) {
     const overallBttsRate = predictions.length > 0 ? totalBttsMatches / predictions.length * 100 : 0;
     insights.push(`Overall BTTS rate: ${overallBttsRate.toFixed(1)}% across ${predictions.length} matches`);
 
+    // Calculate H2H scoreline patterns leading to BTTS
+    const scorelineMap = new Map<string, { count: number; bttsCount: number }>();
+    for (const pred of predictions) {
+      if (pred.lastH2H?.found && pred.lastH2H.scoreline) {
+        const current = scorelineMap.get(pred.lastH2H.scoreline) || { count: 0, bttsCount: 0 };
+        current.count++;
+        if (pred.actual.btts) current.bttsCount++;
+        scorelineMap.set(pred.lastH2H.scoreline, current);
+      }
+    }
+
+    // Sort by BTTS count (most BTTS outcomes) and get top 10
+    const h2hScorelines = Array.from(scorelineMap.entries())
+      .map(([scoreline, data]) => ({
+        scoreline,
+        count: data.count,
+        bttsCount: data.bttsCount,
+        bttsRate: data.count > 0 ? (data.bttsCount / data.count) * 100 : 0,
+      }))
+      .sort((a, b) => b.bttsCount - a.bttsCount)
+      .slice(0, 10);
+
+    // Add insight for top scoreline
+    if (h2hScorelines.length > 0 && h2hScorelines[0].count >= 3) {
+      const top = h2hScorelines[0];
+      insights.push(`Most BTTS after H2H scoreline ${top.scoreline}: ${top.bttsCount}/${top.count} (${top.bttsRate.toFixed(0)}%)`);
+    }
+
     const bttsPatterns = {
       totalBttsMatches,
       h2hPatterns: {
@@ -668,6 +714,7 @@ export async function GET(request: NextRequest) {
           avgGoals: noH2H.length > 0 ? noH2H.reduce((sum, p) => sum + p.actual.totalGoals, 0) / noH2H.length : 0,
         },
       },
+      h2hScorelines,
       htResultPatterns: {
         htHomeWin: {
           count: htHomeWin.length,
