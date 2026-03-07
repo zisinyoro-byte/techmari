@@ -885,6 +885,70 @@ export default function Home() {
     }
   }, [lastH2HResults, h2hTrackerSearch])
 
+  // Calculate team form based on last 5 matches
+  const teamForm = useMemo(() => {
+    if (results.length === 0) return new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>()
+
+    const teamMatches = new Map<string, Array<{ date: string; isHome: boolean; goalsFor: number; goalsAgainst: number; result: 'W' | 'D' | 'L' }>>()
+
+    // Sort results by date descending
+    const sortedResults = [...results].sort((a, b) => {
+      const parseDate = (dateStr: string) => {
+        if (!dateStr) return new Date(0)
+        const parts = dateStr.split('/')
+        if (parts.length === 3) {
+          let year = parseInt(parts[2], 10)
+          if (year < 100) {
+            year += year < 50 ? 2000 : 1900
+          }
+          return new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]))
+        }
+        return new Date(dateStr)
+      }
+      return parseDate(b.date).getTime() - parseDate(a.date).getTime()
+    })
+
+    // Collect matches for each team
+    for (const match of sortedResults) {
+      // Home team
+      const homeMatches = teamMatches.get(match.homeTeam) || []
+      const homeResult = match.ftResult === 'H' ? 'W' : match.ftResult === 'D' ? 'D' : 'L'
+      homeMatches.push({
+        date: match.date,
+        isHome: true,
+        goalsFor: match.ftHomeGoals,
+        goalsAgainst: match.ftAwayGoals,
+        result: homeResult
+      })
+      teamMatches.set(match.homeTeam, homeMatches)
+
+      // Away team
+      const awayMatches = teamMatches.get(match.awayTeam) || []
+      const awayResult = match.ftResult === 'A' ? 'W' : match.ftResult === 'D' ? 'D' : 'L'
+      awayMatches.push({
+        date: match.date,
+        isHome: false,
+        goalsFor: match.ftAwayGoals,
+        goalsAgainst: match.ftHomeGoals,
+        result: awayResult
+      })
+      teamMatches.set(match.awayTeam, awayMatches)
+    }
+
+    // Calculate form for each team (last 5 matches)
+    const formMap = new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>()
+    teamMatches.forEach((matches, team) => {
+      const last5 = matches.slice(0, 5)
+      const form = last5.map(m => m.result)
+      const points = last5.reduce((acc, m) => acc + (m.result === 'W' ? 3 : m.result === 'D' ? 1 : 0), 0)
+      // In form if 7+ points from last 5 (equivalent to 2+ wins and a draw, or better)
+      const inForm = points >= 7
+      formMap.set(team, { form, inForm, points })
+    })
+
+    return formMap
+  }, [results])
+
   const selectedLeagueName = leagues.find(l => l.code === selectedLeague)?.name || 'Premier League'
   const selectedSeasonName = selectedSeason === 'all' ? 'All Seasons' : (seasons.find(s => s.code === selectedSeason)?.name || '2025-26')
   const isAllSeasons = selectedSeason === 'all'
@@ -1566,6 +1630,34 @@ export default function Home() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {team1 && teamForm.has(team1) && (
+                      <div className="mt-2 flex items-center gap-2">
+                        {teamForm.get(team1)?.inForm ? (
+                          <Badge className="bg-green-500 text-white">
+                            <TrendingUp className="w-3 h-3 mr-1" />
+                            In Form
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-red-500 text-white">
+                            <TrendingUp className="w-3 h-3 mr-1 rotate-180" />
+                            Not In Form
+                          </Badge>
+                        )}
+                        <div className="flex gap-1">
+                          {teamForm.get(team1)?.form.map((r, i) => (
+                            <span
+                              key={i}
+                              className={`w-5 h-5 rounded text-xs flex items-center justify-center text-white font-bold ${
+                                r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
+                              }`}
+                            >
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                        <span className="text-xs text-muted-foreground">({teamForm.get(team1)?.points} pts)</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="text-2xl font-bold text-muted-foreground pb-2">VS</div>
@@ -1582,6 +1674,34 @@ export default function Home() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {team2 && teamForm.has(team2) && (
+                      <div className="mt-2 flex items-center gap-2">
+                        {teamForm.get(team2)?.inForm ? (
+                          <Badge className="bg-green-500 text-white">
+                            <TrendingUp className="w-3 h-3 mr-1" />
+                            In Form
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-red-500 text-white">
+                            <TrendingUp className="w-3 h-3 mr-1 rotate-180" />
+                            Not In Form
+                          </Badge>
+                        )}
+                        <div className="flex gap-1">
+                          {teamForm.get(team2)?.form.map((r, i) => (
+                            <span
+                              key={i}
+                              className={`w-5 h-5 rounded text-xs flex items-center justify-center text-white font-bold ${
+                                r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
+                              }`}
+                            >
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                        <span className="text-xs text-muted-foreground">({teamForm.get(team2)?.points} pts)</span>
+                      </div>
+                    )}
                   </div>
 
                   <Button onClick={fetchH2H} disabled={h2hLoading || !team1 || !team2}>
