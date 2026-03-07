@@ -441,10 +441,53 @@ export default function Home() {
     predictions: Array<{
       match: { date: string; homeTeam: string; awayTeam: string }
       predicted: { homeWin: number; draw: number; awayWin: number; over15: number; over25: number; btts: number }
-      actual: { homeGoals: number; awayGoals: number; result: 'H' | 'D' | 'A'; totalGoals: number; btts: boolean; over15: boolean; over25: boolean }
+      actual: {
+        homeGoals: number
+        awayGoals: number
+        result: 'H' | 'D' | 'A'
+        totalGoals: number
+        btts: boolean
+        over15: boolean
+        over25: boolean
+        htResult: 'H' | 'D' | 'A'
+        htHomeGoals: number
+        htAwayGoals: number
+        shResult: 'H' | 'D' | 'A'
+        shHomeGoals: number
+        shAwayGoals: number
+      }
+      lastH2H: {
+        found: boolean
+        date?: string
+        season?: string
+        homeGoals?: number
+        awayGoals?: number
+        result?: 'H' | 'D' | 'A'
+        scoreline?: string
+      } | null
       correct: { result: boolean; over15: boolean; over25: boolean; btts: boolean }
     }>
     calibrationData: Array<{ predicted: number; actual: number; count: number }>
+    bttsPatterns: {
+      totalBttsMatches: number
+      h2hPatterns: {
+        lastH2HHomeWin: { count: number; bttsRate: number; avgGoals: number }
+        lastH2HAwayWin: { count: number; bttsRate: number; avgGoals: number }
+        lastH2HDraw: { count: number; bttsRate: number; avgGoals: number }
+        noH2H: { count: number; bttsRate: number; avgGoals: number }
+      }
+      htResultPatterns: {
+        htHomeWin: { count: number; bttsRate: number }
+        htAwayWin: { count: number; bttsRate: number }
+        htDraw: { count: number; bttsRate: number }
+      }
+      shResultPatterns: {
+        shHomeWin: { count: number; bttsRate: number }
+        shAwayWin: { count: number; bttsRate: number }
+        shDraw: { count: number; bttsRate: number }
+      }
+      insights: string[]
+    }
   } | null>(null)
 
   const runBacktest = async () => {
@@ -1312,11 +1355,14 @@ export default function Home() {
                           <TableHead className="text-center">FT Score</TableHead>
                           <TableHead><Button variant="ghost" size="sm" onClick={() => handleSort('awayTeam')}>Away Team <ArrowUpDown className="ml-1 w-3 h-3" /></Button></TableHead>
                           <TableHead className="text-center">Result</TableHead>
+                          <TableHead className="text-center">Odds H</TableHead>
+                          <TableHead className="text-center">Odds D</TableHead>
+                          <TableHead className="text-center">Odds A</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredResults.length === 0 ? (
-                          <TableRow><TableCell colSpan={isAllSeasons ? 7 : 6} className="text-center py-8 text-muted-foreground">No matches found. Try adjusting your filters.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={isAllSeasons ? 10 : 9} className="text-center py-8 text-muted-foreground">No matches found. Try adjusting your filters.</TableCell></TableRow>
                         ) : (
                           filteredResults.slice(0, displayLimit).map((match, index) => (
                             <TableRow key={index} className="hover:bg-muted/50">
@@ -1330,6 +1376,33 @@ export default function Home() {
                                 <Badge style={{ backgroundColor: match.ftResult === 'H' ? COLORS.homeWin : match.ftResult === 'D' ? COLORS.draw : COLORS.awayWin }} className="text-white min-w-[60px]">
                                   {match.ftResult === 'H' ? 'HOME' : match.ftResult === 'D' ? 'DRAW' : 'AWAY'}
                                 </Badge>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {match.oddsB365Home ? (
+                                  <span className={`text-sm font-mono ${match.ftResult === 'H' ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+                                    {match.oddsB365Home.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {match.oddsB365Draw ? (
+                                  <span className={`text-sm font-mono ${match.ftResult === 'D' ? 'text-amber-600 font-bold' : 'text-muted-foreground'}`}>
+                                    {match.oddsB365Draw.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {match.oddsB365Away ? (
+                                  <span className={`text-sm font-mono ${match.ftResult === 'A' ? 'text-blue-600 font-bold' : 'text-muted-foreground'}`}>
+                                    {match.oddsB365Away.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">-</span>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))
@@ -3825,13 +3898,121 @@ export default function Home() {
                   </Card>
                 )}
 
+                {/* BTTS Pattern Analysis */}
+                {backtestResult.bttsPatterns && (
+                  <Card className="shadow-md border-2 border-purple-200 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-purple-600" />
+                        BTTS Pattern Analysis
+                      </CardTitle>
+                      <CardDescription>
+                        Relationships between Last H2H, HT/SH results and BTTS outcomes ({backtestResult.bttsPatterns.totalBttsMatches} BTTS matches)
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-6">
+                        {/* H2H vs BTTS Patterns */}
+                        <div>
+                          <h4 className="font-semibold text-sm mb-3 text-purple-700">Last H2H Result vs BTTS Rate</h4>
+                          <div className="grid grid-cols-4 gap-3">
+                            <div className="text-center p-3 rounded-lg bg-green-100 dark:bg-green-900/30 border border-green-200">
+                              <p className="text-xs text-muted-foreground">H2H Home Win</p>
+                              <p className="text-2xl font-bold text-green-600">{backtestResult.bttsPatterns.h2hPatterns.lastH2HHomeWin.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.h2hPatterns.lastH2HHomeWin.count} games)</p>
+                              <p className="text-xs text-muted-foreground">Avg: {backtestResult.bttsPatterns.h2hPatterns.lastH2HHomeWin.avgGoals.toFixed(1)} goals</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-blue-100 dark:bg-blue-900/30 border border-blue-200">
+                              <p className="text-xs text-muted-foreground">H2H Away Win</p>
+                              <p className="text-2xl font-bold text-blue-600">{backtestResult.bttsPatterns.h2hPatterns.lastH2HAwayWin.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.h2hPatterns.lastH2HAwayWin.count} games)</p>
+                              <p className="text-xs text-muted-foreground">Avg: {backtestResult.bttsPatterns.h2hPatterns.lastH2HAwayWin.avgGoals.toFixed(1)} goals</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-amber-100 dark:bg-amber-900/30 border border-amber-200">
+                              <p className="text-xs text-muted-foreground">H2H Draw</p>
+                              <p className="text-2xl font-bold text-amber-600">{backtestResult.bttsPatterns.h2hPatterns.lastH2HDraw.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.h2hPatterns.lastH2HDraw.count} games)</p>
+                              <p className="text-xs text-muted-foreground">Avg: {backtestResult.bttsPatterns.h2hPatterns.lastH2HDraw.avgGoals.toFixed(1)} goals</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-200">
+                              <p className="text-xs text-muted-foreground">No H2H Data</p>
+                              <p className="text-2xl font-bold text-gray-600">{backtestResult.bttsPatterns.h2hPatterns.noH2H.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.h2hPatterns.noH2H.count} games)</p>
+                              <p className="text-xs text-muted-foreground">Avg: {backtestResult.bttsPatterns.h2hPatterns.noH2H.avgGoals.toFixed(1)} goals</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* HT Result vs BTTS */}
+                        <div>
+                          <h4 className="font-semibold text-sm mb-3 text-purple-700">Half-Time Result vs BTTS Rate</h4>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="text-center p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border">
+                              <p className="text-xs text-muted-foreground">HT Home Win</p>
+                              <p className="text-xl font-bold text-green-600">{backtestResult.bttsPatterns.htResultPatterns.htHomeWin.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.htResultPatterns.htHomeWin.count} games)</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border">
+                              <p className="text-xs text-muted-foreground">HT Draw</p>
+                              <p className="text-xl font-bold text-amber-600">{backtestResult.bttsPatterns.htResultPatterns.htDraw.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.htResultPatterns.htDraw.count} games)</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border">
+                              <p className="text-xs text-muted-foreground">HT Away Win</p>
+                              <p className="text-xl font-bold text-blue-600">{backtestResult.bttsPatterns.htResultPatterns.htAwayWin.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.htResultPatterns.htAwayWin.count} games)</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 2nd Half Result vs BTTS */}
+                        <div>
+                          <h4 className="font-semibold text-sm mb-3 text-purple-700">2nd Half Result vs BTTS Rate</h4>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="text-center p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border">
+                              <p className="text-xs text-muted-foreground">2H Home Win</p>
+                              <p className="text-xl font-bold text-green-600">{backtestResult.bttsPatterns.shResultPatterns.shHomeWin.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.shResultPatterns.shHomeWin.count} games)</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border">
+                              <p className="text-xs text-muted-foreground">2H Draw</p>
+                              <p className="text-xl font-bold text-amber-600">{backtestResult.bttsPatterns.shResultPatterns.shDraw.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.shResultPatterns.shDraw.count} games)</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border">
+                              <p className="text-xs text-muted-foreground">2H Away Win</p>
+                              <p className="text-xl font-bold text-blue-600">{backtestResult.bttsPatterns.shResultPatterns.shAwayWin.bttsRate.toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">({backtestResult.bttsPatterns.shResultPatterns.shAwayWin.count} games)</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Insights */}
+                        {backtestResult.bttsPatterns.insights.length > 0 && (
+                          <div className="p-4 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200">
+                            <h4 className="font-semibold text-sm mb-2 text-indigo-700">💡 Key Insights</h4>
+                            <ul className="space-y-1">
+                              {backtestResult.bttsPatterns.insights.map((insight, i) => (
+                                <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
+                                  <span className="text-indigo-500 mt-0.5">•</span>
+                                  {insight}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Sample Predictions */}
                 {backtestResult.predictions.length > 0 && (
                   <Card className="shadow-md">
                     <CardHeader>
                       <CardTitle className="text-lg">Sample Predictions (First 20)</CardTitle>
                       <CardDescription>
-                        Comparison of predicted vs actual results
+                        Comparison of predicted vs actual results with H2H and HT/SH data
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -3839,40 +4020,86 @@ export default function Home() {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Match</TableHead>
-                              <TableHead className="text-center">Predicted</TableHead>
-                              <TableHead className="text-center">Actual</TableHead>
-                              <TableHead className="text-center">O2.5</TableHead>
-                              <TableHead className="text-center">BTTS</TableHead>
+                              <TableHead className="text-xs">Date</TableHead>
+                              <TableHead className="text-xs">Match</TableHead>
+                              <TableHead className="text-center text-xs">Last H2H</TableHead>
+                              <TableHead className="text-center text-xs">Pred</TableHead>
+                              <TableHead className="text-center text-xs">Actual FT</TableHead>
+                              <TableHead className="text-center text-xs">HT</TableHead>
+                              <TableHead className="text-center text-xs">2nd H</TableHead>
+                              <TableHead className="text-center text-xs">O2.5</TableHead>
+                              <TableHead className="text-center text-xs">BTTS</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {backtestResult.predictions.slice(0, 20).map((pred, i) => (
                               <TableRow key={i} className={pred.correct.result ? 'bg-green-50/50' : 'bg-red-50/50'}>
-                                <TableCell className="text-sm">{pred.match.date}</TableCell>
-                                <TableCell className="text-sm">
-                                  {pred.match.homeTeam} vs {pred.match.awayTeam}
+                                <TableCell className="text-xs">{pred.match.date}</TableCell>
+                                <TableCell className="text-xs">
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{pred.match.homeTeam}</span>
+                                    <span className="text-muted-foreground">vs {pred.match.awayTeam}</span>
+                                  </div>
                                 </TableCell>
                                 <TableCell className="text-center">
-                                  <Badge variant="outline">
+                                  {pred.lastH2H?.found ? (
+                                    <div className="flex flex-col items-center">
+                                      <Badge 
+                                        style={{ 
+                                          backgroundColor: pred.lastH2H.result === 'H' ? COLORS.homeWin : 
+                                                          pred.lastH2H.result === 'D' ? COLORS.draw : COLORS.awayWin 
+                                        }} 
+                                        className="text-white text-xs"
+                                      >
+                                        {pred.lastH2H.result}
+                                      </Badge>
+                                      <span className="text-xs text-muted-foreground mt-1">{pred.lastH2H.scoreline}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">N/A</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="outline" className="text-xs">
                                     {pred.predicted.homeWin > pred.predicted.draw && pred.predicted.homeWin > pred.predicted.awayWin ? 'H' :
                                      pred.predicted.awayWin > pred.predicted.draw ? 'A' : 'D'}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-center">
-                                  <Badge style={{ backgroundColor: pred.actual.result === 'H' ? COLORS.homeWin : pred.actual.result === 'D' ? COLORS.draw : COLORS.awayWin }} className="text-white">
+                                  <Badge style={{ backgroundColor: pred.actual.result === 'H' ? COLORS.homeWin : pred.actual.result === 'D' ? COLORS.draw : COLORS.awayWin }} className="text-white text-xs">
                                     {pred.actual.result} ({pred.actual.homeGoals}-{pred.actual.awayGoals})
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-center">
-                                  <span className={pred.correct.over25 ? 'text-green-600' : 'text-red-600'}>
-                                    {pred.predicted.over25}% → {pred.actual.over25 ? 'O' : 'U'}
+                                  <Badge 
+                                    style={{ 
+                                      backgroundColor: pred.actual.htResult === 'H' ? COLORS.homeWin : 
+                                                      pred.actual.htResult === 'D' ? COLORS.draw : COLORS.awayWin 
+                                    }} 
+                                    className="text-white text-xs"
+                                  >
+                                    {pred.actual.htResult} ({pred.actual.htHomeGoals}-{pred.actual.htAwayGoals})
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge 
+                                    style={{ 
+                                      backgroundColor: pred.actual.shResult === 'H' ? COLORS.homeWin : 
+                                                      pred.actual.shResult === 'D' ? COLORS.draw : COLORS.awayWin 
+                                    }} 
+                                    className="text-white text-xs"
+                                  >
+                                    {pred.actual.shResult} ({pred.actual.shHomeGoals}-{pred.actual.shAwayGoals})
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <span className={`text-xs ${pred.correct.over25 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {pred.predicted.over25}%→{pred.actual.over25 ? 'O' : 'U'}
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-center">
-                                  <span className={pred.correct.btts ? 'text-green-600' : 'text-red-600'}>
-                                    {pred.predicted.btts}% → {pred.actual.btts ? 'Y' : 'N'}
+                                  <span className={`text-xs ${pred.correct.btts ? 'text-green-600' : 'text-red-600'}`}>
+                                    {pred.predicted.btts}%→{pred.actual.btts ? 'Y' : 'N'}
                                   </span>
                                 </TableCell>
                               </TableRow>

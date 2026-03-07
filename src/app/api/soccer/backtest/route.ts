@@ -31,7 +31,24 @@ interface PredictionRecord {
     btts: boolean;
     over15: boolean;
     over25: boolean;
+    // New fields
+    htResult: 'H' | 'D' | 'A';
+    htHomeGoals: number;
+    htAwayGoals: number;
+    shResult: 'H' | 'D' | 'A';
+    shHomeGoals: number;
+    shAwayGoals: number;
   };
+  // Last H2H before this match
+  lastH2H: {
+    found: boolean;
+    date?: string;
+    season?: string;
+    homeGoals?: number;
+    awayGoals?: number;
+    result?: 'H' | 'D' | 'A';
+    scoreline?: string;
+  } | null;
   correct: {
     result: boolean;
     over15: boolean;
@@ -80,6 +97,27 @@ interface BacktestResult {
     bestModelO25: string;
     bestModelBTTS: string;
     bestOverallROI: string;
+  };
+  // BTTS Pattern Analysis
+  bttsPatterns: {
+    totalBttsMatches: number;
+    h2hPatterns: {
+      lastH2HHomeWin: { count: number; bttsRate: number; avgGoals: number };
+      lastH2HAwayWin: { count: number; bttsRate: number; avgGoals: number };
+      lastH2HDraw: { count: number; bttsRate: number; avgGoals: number };
+      noH2H: { count: number; bttsRate: number; avgGoals: number };
+    };
+    htResultPatterns: {
+      htHomeWin: { count: number; bttsRate: number };
+      htAwayWin: { count: number; bttsRate: number };
+      htDraw: { count: number; bttsRate: number };
+    };
+    shResultPatterns: {
+      shHomeWin: { count: number; bttsRate: number };
+      shAwayWin: { count: number; bttsRate: number };
+      shDraw: { count: number; bttsRate: number };
+    };
+    insights: string[];
   };
 }
 
@@ -169,6 +207,79 @@ function calculateLeagueAverages(results: MatchResult[]) {
     homeWinRate: homeWins / results.length,
     drawRate: draws / results.length,
     awayWinRate: awayWins / results.length,
+  };
+}
+
+// Find the last H2H match before a given date
+function findLastH2H(
+  allData: MatchResult[],
+  homeTeam: string,
+  awayTeam: string,
+  beforeDate: string,
+  currentSeason: string
+): { found: boolean; date?: string; season?: string; homeGoals?: number; awayGoals?: number; result?: 'H' | 'D' | 'A'; scoreline?: string } | null {
+  // Parse date for comparison (DD/MM/YYYY format)
+  const parseDate = (dateStr: string): Date => {
+    if (!dateStr) return new Date(0);
+    const parts = dateStr.split('/');
+    if (parts.length === 3) {
+      let year = parseInt(parts[2], 10);
+      if (year < 100) {
+        year += year < 50 ? 2000 : 1900;
+      }
+      return new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]));
+    }
+    return new Date(dateStr);
+  };
+
+  const matchDate = parseDate(beforeDate);
+
+  // Find all matches between these two teams before this date
+  const h2hMatches = allData.filter(m => {
+    const isSameTeams = (m.homeTeam === homeTeam && m.awayTeam === awayTeam) ||
+                        (m.homeTeam === awayTeam && m.awayTeam === homeTeam);
+    const matchDateM = parseDate(m.date);
+    const isBefore = matchDateM < matchDate;
+    return isSameTeams && isBefore;
+  });
+
+  if (h2hMatches.length === 0) {
+    return { found: false };
+  }
+
+  // Sort by date descending to get the most recent
+  h2hMatches.sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
+
+  const lastMatch = h2hMatches[0];
+
+  // Determine the result from perspective of the current home team
+  // If the current home team was home in the H2H match, use the result as is
+  // If the current home team was away, flip the result
+  const currentHomeWasHome = lastMatch.homeTeam === homeTeam;
+
+  let h2hResult: 'H' | 'D' | 'A';
+  let h2hHomeGoals: number;
+  let h2hAwayGoals: number;
+
+  if (currentHomeWasHome) {
+    h2hResult = lastMatch.ftResult;
+    h2hHomeGoals = lastMatch.ftHomeGoals;
+    h2hAwayGoals = lastMatch.ftAwayGoals;
+  } else {
+    // Flip the result - if original was H (home win), that's now an A (away win) from current home team's perspective
+    h2hResult = lastMatch.ftResult === 'H' ? 'A' : lastMatch.ftResult === 'A' ? 'H' : 'D';
+    h2hHomeGoals = lastMatch.ftAwayGoals;
+    h2hAwayGoals = lastMatch.ftHomeGoals;
+  }
+
+  return {
+    found: true,
+    date: lastMatch.date,
+    season: lastMatch.season,
+    homeGoals: h2hHomeGoals,
+    awayGoals: h2hAwayGoals,
+    result: h2hResult,
+    scoreline: `${h2hHomeGoals}-${h2hAwayGoals}`
   };
 }
 
@@ -388,18 +499,26 @@ export async function GET(request: NextRequest) {
     // Calculate league averages from training data
     const leagueAvgs = calculateLeagueAverages(trainingData);
 
+    // Combine all data for H2H lookup (training + test data before current match)
+    const allData = [...trainingData, ...testData];
+
     // Generate predictions for each test match
     const predictions: PredictionRecord[] = [];
-    
+
     for (const match of testData) {
       // Only predict if both teams have historical data
       const homeTeamInTraining = trainingData.some(m => m.homeTeam === match.homeTeam || m.awayTeam === match.homeTeam);
       const awayTeamInTraining = trainingData.some(m => m.homeTeam === match.awayTeam || m.awayTeam === match.awayTeam);
-      
+
       if (!homeTeamInTraining || !awayTeamInTraining) continue;
 
       const predicted = generatePredictions(trainingData, match.homeTeam, match.awayTeam, leagueAvgs);
-      
+
+      // Calculate 2nd half result
+      const shHomeGoals = match.ftHomeGoals - match.htHomeGoals;
+      const shAwayGoals = match.ftAwayGoals - match.htAwayGoals;
+      const shResult: 'H' | 'D' | 'A' = shHomeGoals > shAwayGoals ? 'H' : shHomeGoals < shAwayGoals ? 'A' : 'D';
+
       const actual = {
         homeGoals: match.ftHomeGoals,
         awayGoals: match.ftAwayGoals,
@@ -408,7 +527,17 @@ export async function GET(request: NextRequest) {
         btts: match.ftHomeGoals > 0 && match.ftAwayGoals > 0,
         over15: match.ftHomeGoals + match.ftAwayGoals > 1.5,
         over25: match.ftHomeGoals + match.ftAwayGoals > 2.5,
+        // New fields
+        htResult: match.htResult,
+        htHomeGoals: match.htHomeGoals,
+        htAwayGoals: match.htAwayGoals,
+        shResult,
+        shHomeGoals,
+        shAwayGoals,
       };
+
+      // Find last H2H before this match
+      const lastH2H = findLastH2H(allData, match.homeTeam, match.awayTeam, match.date, testSeason);
 
       // Determine if predictions were correct
       const predictedResult = predicted.homeWin > predicted.draw && predicted.homeWin > predicted.awayWin ? 'H' :
@@ -422,6 +551,7 @@ export async function GET(request: NextRequest) {
         },
         predicted,
         actual,
+        lastH2H,
         correct: {
           result: predictedResult === actual.result,
           over15: (predicted.over15 >= 50) === actual.over15,
@@ -455,6 +585,120 @@ export async function GET(request: NextRequest) {
       }))
       .sort((a, b) => a.predicted - b.predicted);
 
+    // Calculate BTTS patterns based on last H2H, HT result, and SH result
+    const bttsMatches = predictions.filter(p => p.actual.btts);
+    const totalBttsMatches = bttsMatches.length;
+
+    // H2H patterns
+    const lastH2HHomeWin = predictions.filter(p => p.lastH2H?.found && p.lastH2H.result === 'H');
+    const lastH2HAwayWin = predictions.filter(p => p.lastH2H?.found && p.lastH2H.result === 'A');
+    const lastH2HDraw = predictions.filter(p => p.lastH2H?.found && p.lastH2H.result === 'D');
+    const noH2H = predictions.filter(p => !p.lastH2H?.found);
+
+    // HT result patterns
+    const htHomeWin = predictions.filter(p => p.actual.htResult === 'H');
+    const htAwayWin = predictions.filter(p => p.actual.htResult === 'A');
+    const htDraw = predictions.filter(p => p.actual.htResult === 'D');
+
+    // SH result patterns
+    const shHomeWin = predictions.filter(p => p.actual.shResult === 'H');
+    const shAwayWin = predictions.filter(p => p.actual.shResult === 'A');
+    const shDraw = predictions.filter(p => p.actual.shResult === 'D');
+
+    // Generate insights
+    const insights: string[] = [];
+
+    // H2H insights
+    if (lastH2HHomeWin.length > 0) {
+      const bttsRate = lastH2HHomeWin.filter(p => p.actual.btts).length / lastH2HHomeWin.length * 100;
+      if (bttsRate > 55) {
+        insights.push(`When last H2H was home win, BTTS rate is ${bttsRate.toFixed(1)}% (above average)`);
+      }
+    }
+    if (lastH2HAwayWin.length > 0) {
+      const bttsRate = lastH2HAwayWin.filter(p => p.actual.btts).length / lastH2HAwayWin.length * 100;
+      if (bttsRate > 55) {
+        insights.push(`When last H2H was away win, BTTS rate is ${bttsRate.toFixed(1)}% (above average)`);
+      }
+    }
+    if (lastH2HDraw.length > 0) {
+      const bttsRate = lastH2HDraw.filter(p => p.actual.btts).length / lastH2HDraw.length * 100;
+      if (bttsRate > 55) {
+        insights.push(`When last H2H was draw, BTTS rate is ${bttsRate.toFixed(1)}% (above average)`);
+      }
+    }
+
+    // HT result insights
+    const htDrawBttsRate = htDraw.length > 0 ? htDraw.filter(p => p.actual.btts).length / htDraw.length * 100 : 0;
+    if (htDrawBttsRate > 60) {
+      insights.push(`HT draws have ${htDrawBttsRate.toFixed(1)}% BTTS rate - strong indicator`);
+    }
+
+    // SH result insights
+    const shDrawBttsRate = shDraw.length > 0 ? shDraw.filter(p => p.actual.btts).length / shDraw.length * 100 : 0;
+    if (shDrawBttsRate > 60) {
+      insights.push(`SH draws have ${shDrawBttsRate.toFixed(1)}% BTTS rate`);
+    }
+
+    // Overall BTTS rate
+    const overallBttsRate = predictions.length > 0 ? totalBttsMatches / predictions.length * 100 : 0;
+    insights.push(`Overall BTTS rate: ${overallBttsRate.toFixed(1)}% across ${predictions.length} matches`);
+
+    const bttsPatterns = {
+      totalBttsMatches,
+      h2hPatterns: {
+        lastH2HHomeWin: {
+          count: lastH2HHomeWin.length,
+          bttsRate: lastH2HHomeWin.length > 0 ? lastH2HHomeWin.filter(p => p.actual.btts).length / lastH2HHomeWin.length * 100 : 0,
+          avgGoals: lastH2HHomeWin.length > 0 ? lastH2HHomeWin.reduce((sum, p) => sum + p.actual.totalGoals, 0) / lastH2HHomeWin.length : 0,
+        },
+        lastH2HAwayWin: {
+          count: lastH2HAwayWin.length,
+          bttsRate: lastH2HAwayWin.length > 0 ? lastH2HAwayWin.filter(p => p.actual.btts).length / lastH2HAwayWin.length * 100 : 0,
+          avgGoals: lastH2HAwayWin.length > 0 ? lastH2HAwayWin.reduce((sum, p) => sum + p.actual.totalGoals, 0) / lastH2HAwayWin.length : 0,
+        },
+        lastH2HDraw: {
+          count: lastH2HDraw.length,
+          bttsRate: lastH2HDraw.length > 0 ? lastH2HDraw.filter(p => p.actual.btts).length / lastH2HDraw.length * 100 : 0,
+          avgGoals: lastH2HDraw.length > 0 ? lastH2HDraw.reduce((sum, p) => sum + p.actual.totalGoals, 0) / lastH2HDraw.length : 0,
+        },
+        noH2H: {
+          count: noH2H.length,
+          bttsRate: noH2H.length > 0 ? noH2H.filter(p => p.actual.btts).length / noH2H.length * 100 : 0,
+          avgGoals: noH2H.length > 0 ? noH2H.reduce((sum, p) => sum + p.actual.totalGoals, 0) / noH2H.length : 0,
+        },
+      },
+      htResultPatterns: {
+        htHomeWin: {
+          count: htHomeWin.length,
+          bttsRate: htHomeWin.length > 0 ? htHomeWin.filter(p => p.actual.btts).length / htHomeWin.length * 100 : 0,
+        },
+        htAwayWin: {
+          count: htAwayWin.length,
+          bttsRate: htAwayWin.length > 0 ? htAwayWin.filter(p => p.actual.btts).length / htAwayWin.length * 100 : 0,
+        },
+        htDraw: {
+          count: htDraw.length,
+          bttsRate: htDrawBttsRate,
+        },
+      },
+      shResultPatterns: {
+        shHomeWin: {
+          count: shHomeWin.length,
+          bttsRate: shHomeWin.length > 0 ? shHomeWin.filter(p => p.actual.btts).length / shHomeWin.length * 100 : 0,
+        },
+        shAwayWin: {
+          count: shAwayWin.length,
+          bttsRate: shAwayWin.length > 0 ? shAwayWin.filter(p => p.actual.btts).length / shAwayWin.length * 100 : 0,
+        },
+        shDraw: {
+          count: shDraw.length,
+          bttsRate: shDrawBttsRate,
+        },
+      },
+      insights,
+    };
+
     // Build result
     const result: BacktestResult = {
       success: true,
@@ -464,6 +708,7 @@ export async function GET(request: NextRequest) {
       ensemble: ensembleMetrics,
       predictions: predictions.slice(0, 100), // Return first 100 for UI
       calibrationData,
+      bttsPatterns,
       summary: {
         bestModel1X2: `ensemble (${ensembleMetrics.overallAccuracy}%)`,
         bestModelO25: `ensemble (${ensembleMetrics.over25Accuracy}%)`,
