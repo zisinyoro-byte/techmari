@@ -112,6 +112,70 @@ interface H2HAnalytics {
     avgDrawOdds: number
     avgAwayTeamWinOdds: number
   }
+  h2hGoalAverages?: {
+    team1Home: { scored: number; conceded: number; matches: number }
+    team1Away: { scored: number; conceded: number; matches: number }
+    team2Home: { scored: number; conceded: number; matches: number }
+    team2Away: { scored: number; conceded: number; matches: number }
+    overall: { avgTotalGoals: number; avgTeam1Goals: number; avgTeam2Goals: number }
+  }
+  team1Form?: TeamGoalForm
+  team2Form?: TeamGoalForm
+  // BTTS Enhanced Analysis
+  goalTimingPatterns?: {
+    firstHalfGoals: number
+    secondHalfGoals: number
+    avgFirstHalfGoals: number
+    avgSecondHalfGoals: number
+    team1FirstHalfGoals: number
+    team1SecondHalfGoals: number
+    team2FirstHalfGoals: number
+    team2SecondHalfGoals: number
+    secondHalfRescueRate: number
+  }
+  cleanSheetAnalysis?: {
+    team1CleanSheets: number
+    team1CleanSheetPercent: number
+    team2CleanSheets: number
+    team2CleanSheetPercent: number
+    team1FailedToScore: number
+    team1FailedToScorePercent: number
+    team2FailedToScore: number
+    team2FailedToScorePercent: number
+    bothTeamsScored: number
+    neitherTeamScored: number
+  }
+  scorelineDistribution?: {
+    scoreline: string
+    count: number
+    percent: number
+    btts: boolean
+  }[]
+  defensiveWeakness?: {
+    team1: {
+      avgConceded: number
+      conceded0: number
+      conceded1: number
+      conceded2Plus: number
+      cleanSheetRate: number
+      avgConcededWhenConcedes: number
+    }
+    team2: {
+      avgConceded: number
+      conceded0: number
+      conceded1: number
+      conceded2Plus: number
+      cleanSheetRate: number
+      avgConcededWhenConcedes: number
+    }
+  }
+}
+
+interface TeamGoalForm {
+  last5Overall: { scored: number; conceded: number; matches: number }
+  last5Home: { scored: number; conceded: number; matches: number }
+  last5Away: { scored: number; conceded: number; matches: number }
+  games: { date: string; opponent: string; venue: 'H' | 'A'; scored: number; conceded: number }[]
 }
 
 interface Analytics {
@@ -2002,6 +2066,246 @@ export default function Home() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Goal Timing Patterns */}
+                {h2hAnalytics.goalTimingPatterns && (
+                  <Card className="shadow-md border-2 border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-orange-600" />
+                        Goal Timing Patterns
+                      </CardTitle>
+                      <CardDescription>When goals happen in H2H matches - key for live BTTS betting</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <div className="text-center p-3 rounded-lg bg-white/50 dark:bg-gray-800/50">
+                          <p className="text-xs text-muted-foreground">1st Half Goals</p>
+                          <p className="text-2xl font-bold text-blue-600">{h2hAnalytics.goalTimingPatterns.firstHalfGoals}</p>
+                          <p className="text-xs text-muted-foreground">Avg: {h2hAnalytics.goalTimingPatterns.avgFirstHalfGoals}/game</p>
+                        </div>
+                        <div className="text-center p-3 rounded-lg bg-white/50 dark:bg-gray-800/50">
+                          <p className="text-xs text-muted-foreground">2nd Half Goals</p>
+                          <p className="text-2xl font-bold text-green-600">{h2hAnalytics.goalTimingPatterns.secondHalfGoals}</p>
+                          <p className="text-xs text-muted-foreground">Avg: {h2hAnalytics.goalTimingPatterns.avgSecondHalfGoals}/game</p>
+                        </div>
+                        <div className="text-center p-3 rounded-lg bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-800/50 dark:to-amber-800/50 ring-2 ring-orange-400">
+                          <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">2nd Half Rescue</p>
+                          <p className="text-2xl font-bold text-orange-600">{h2hAnalytics.goalTimingPatterns.secondHalfRescueRate}%</p>
+                          <p className="text-xs text-orange-600">BTTS saved in 2nd half</p>
+                        </div>
+                        <div className="text-center p-3 rounded-lg bg-white/50 dark:bg-gray-800/50">
+                          <p className="text-xs text-muted-foreground">Goal Split</p>
+                          <p className="text-lg font-bold">
+                            <span className="text-blue-600">{Math.round((h2hAnalytics.goalTimingPatterns.firstHalfGoals / (h2hAnalytics.goalTimingPatterns.firstHalfGoals + h2hAnalytics.goalTimingPatterns.secondHalfGoals)) * 100) || 0}%</span>
+                            <span className="text-muted-foreground mx-1">/</span>
+                            <span className="text-green-600">{Math.round((h2hAnalytics.goalTimingPatterns.secondHalfGoals / (h2hAnalytics.goalTimingPatterns.firstHalfGoals + h2hAnalytics.goalTimingPatterns.secondHalfGoals)) * 100) || 0}%</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">1st / 2nd Half</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20">
+                          <p className="text-sm font-medium text-green-700 dark:text-green-300 mb-2">{team1} Timing</p>
+                          <div className="flex justify-between text-sm">
+                            <span>1st Half: <strong className="text-blue-600">{h2hAnalytics.goalTimingPatterns.team1FirstHalfGoals}</strong></span>
+                            <span>2nd Half: <strong className="text-green-600">{h2hAnalytics.goalTimingPatterns.team1SecondHalfGoals}</strong></span>
+                          </div>
+                        </div>
+                        <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20">
+                          <p className="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">{team2} Timing</p>
+                          <div className="flex justify-between text-sm">
+                            <span>1st Half: <strong className="text-blue-600">{h2hAnalytics.goalTimingPatterns.team2FirstHalfGoals}</strong></span>
+                            <span>2nd Half: <strong className="text-green-600">{h2hAnalytics.goalTimingPatterns.team2SecondHalfGoals}</strong></span>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Clean Sheet Analysis */}
+                {h2hAnalytics.cleanSheetAnalysis && (
+                  <Card className="shadow-md border-2 border-red-300 bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Target className="w-5 h-5 text-red-600" />
+                        Clean Sheet Analysis (H2H)
+                      </CardTitle>
+                      <CardDescription>How often each team keeps a clean sheet or fails to score in H2H matches</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-6">
+                        {/* Team 1 */}
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-green-700 dark:text-green-300 flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                            {team1}
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="p-3 rounded-lg bg-green-100/50 dark:bg-green-800/30 text-center">
+                              <p className="text-xs text-muted-foreground">Clean Sheets</p>
+                              <p className="text-xl font-bold text-green-600">{h2hAnalytics.cleanSheetAnalysis.team1CleanSheetPercent}%</p>
+                              <p className="text-xs text-muted-foreground">{h2hAnalytics.cleanSheetAnalysis.team1CleanSheets}/{h2hAnalytics.totalMatches}</p>
+                            </div>
+                            <div className="p-3 rounded-lg bg-red-100/50 dark:bg-red-800/30 text-center">
+                              <p className="text-xs text-muted-foreground">Failed to Score</p>
+                              <p className="text-xl font-bold text-red-600">{h2hAnalytics.cleanSheetAnalysis.team1FailedToScorePercent}%</p>
+                              <p className="text-xs text-muted-foreground">{h2hAnalytics.cleanSheetAnalysis.team1FailedToScore}/{h2hAnalytics.totalMatches}</p>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Team 2 */}
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                            {team2}
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="p-3 rounded-lg bg-green-100/50 dark:bg-green-800/30 text-center">
+                              <p className="text-xs text-muted-foreground">Clean Sheets</p>
+                              <p className="text-xl font-bold text-green-600">{h2hAnalytics.cleanSheetAnalysis.team2CleanSheetPercent}%</p>
+                              <p className="text-xs text-muted-foreground">{h2hAnalytics.cleanSheetAnalysis.team2CleanSheets}/{h2hAnalytics.totalMatches}</p>
+                            </div>
+                            <div className="p-3 rounded-lg bg-red-100/50 dark:bg-red-800/30 text-center">
+                              <p className="text-xs text-muted-foreground">Failed to Score</p>
+                              <p className="text-xl font-bold text-red-600">{h2hAnalytics.cleanSheetAnalysis.team2FailedToScorePercent}%</p>
+                              <p className="text-xs text-muted-foreground">{h2hAnalytics.cleanSheetAnalysis.team2FailedToScore}/{h2hAnalytics.totalMatches}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-red-200 dark:border-red-700 grid grid-cols-2 gap-4 text-center">
+                        <div className="p-2 rounded bg-purple-100/50 dark:bg-purple-800/30">
+                          <p className="text-xs text-muted-foreground">Both Teams Scored</p>
+                          <p className="text-lg font-bold text-purple-600">{h2hAnalytics.cleanSheetAnalysis.bothTeamsScored} matches</p>
+                        </div>
+                        <div className="p-2 rounded bg-gray-100/50 dark:bg-gray-800/30">
+                          <p className="text-xs text-muted-foreground">Neither Scored (0-0)</p>
+                          <p className="text-lg font-bold text-gray-600">{h2hAnalytics.cleanSheetAnalysis.neitherTeamScored} matches</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Scoreline Distribution */}
+                {h2hAnalytics.scorelineDistribution && h2hAnalytics.scorelineDistribution.length > 0 && (
+                  <Card className="shadow-md border-2 border-indigo-300 bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-900/20 dark:to-violet-900/20">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <BarChart3 className="w-5 h-5 text-indigo-600" />
+                        Scoreline Distribution
+                      </CardTitle>
+                      <CardDescription>Most common scorelines between these teams</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {h2hAnalytics.scorelineDistribution.slice(0, 8).map((s, idx) => (
+                          <div key={idx} className={`flex items-center justify-between p-2 rounded-lg ${s.btts ? 'bg-purple-100/50 dark:bg-purple-800/30' : 'bg-gray-100/50 dark:bg-gray-800/30'}`}>
+                            <div className="flex items-center gap-3">
+                              <span className="text-lg font-mono font-bold">{s.scoreline}</span>
+                              {s.btts && <Badge className="bg-purple-500 text-white text-xs">BTTS</Badge>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-muted-foreground">{s.count}x</span>
+                              <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full ${s.btts ? 'bg-purple-500' : 'bg-gray-400'}`}
+                                  style={{ width: `${s.percent}%` }}
+                                />
+                              </div>
+                              <span className="text-sm font-medium w-12 text-right">{s.percent}%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-3">
+                        Highlighted scorelines indicate BTTS matches
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Defensive Weakness */}
+                {h2hAnalytics.defensiveWeakness && (
+                  <Card className="shadow-md border-2 border-yellow-300 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                        Defensive Weakness (H2H)
+                      </CardTitle>
+                      <CardDescription>Goals conceded patterns - key for BTTS prediction</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-6">
+                        {/* Team 1 Defense */}
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-green-700 dark:text-green-300 flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                            {team1} Defense
+                          </h4>
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+                              <span className="text-sm">Avg Conceded</span>
+                              <span className="font-bold text-red-600">{h2hAnalytics.defensiveWeakness.team1.avgConceded}/game</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-green-100/50 dark:bg-green-800/30">
+                              <span className="text-sm">0 goals conceded</span>
+                              <span className="font-medium">{h2hAnalytics.defensiveWeakness.team1.conceded0} ({h2hAnalytics.defensiveWeakness.team1.cleanSheetRate}%)</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-yellow-100/50 dark:bg-yellow-800/30">
+                              <span className="text-sm">1 goal conceded</span>
+                              <span className="font-medium">{h2hAnalytics.defensiveWeakness.team1.conceded1}</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-red-100/50 dark:bg-red-800/30">
+                              <span className="text-sm">2+ goals conceded</span>
+                              <span className="font-medium text-red-600">{h2hAnalytics.defensiveWeakness.team1.conceded2Plus}</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-orange-100/50 dark:bg-orange-800/30">
+                              <span className="text-sm text-orange-700">Avg when concedes</span>
+                              <span className="font-bold text-orange-600">{h2hAnalytics.defensiveWeakness.team1.avgConcededWhenConcedes}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Team 2 Defense */}
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                            {team2} Defense
+                          </h4>
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+                              <span className="text-sm">Avg Conceded</span>
+                              <span className="font-bold text-red-600">{h2hAnalytics.defensiveWeakness.team2.avgConceded}/game</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-green-100/50 dark:bg-green-800/30">
+                              <span className="text-sm">0 goals conceded</span>
+                              <span className="font-medium">{h2hAnalytics.defensiveWeakness.team2.conceded0} ({h2hAnalytics.defensiveWeakness.team2.cleanSheetRate}%)</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-yellow-100/50 dark:bg-yellow-800/30">
+                              <span className="text-sm">1 goal conceded</span>
+                              <span className="font-medium">{h2hAnalytics.defensiveWeakness.team2.conceded1}</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-red-100/50 dark:bg-red-800/30">
+                              <span className="text-sm">2+ goals conceded</span>
+                              <span className="font-medium text-red-600">{h2hAnalytics.defensiveWeakness.team2.conceded2Plus}</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded bg-orange-100/50 dark:bg-orange-800/30">
+                              <span className="text-sm text-orange-700">Avg when concedes</span>
+                              <span className="font-bold text-orange-600">{h2hAnalytics.defensiveWeakness.team2.avgConcededWhenConcedes}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 p-3 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 text-center">
+                        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                          <strong>BTTS Insight:</strong> Lower clean sheet rates + higher "avg when concedes" = better BTTS potential
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* H2H General Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

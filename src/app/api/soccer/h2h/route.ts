@@ -74,6 +74,54 @@ export interface H2HAnalytics {
   // Team Form (Goals Focus)
   team1Form: TeamGoalForm;
   team2Form: TeamGoalForm;
+  // BTTS Enhanced Analysis
+  goalTimingPatterns: {
+    firstHalfGoals: number;
+    secondHalfGoals: number;
+    avgFirstHalfGoals: number;
+    avgSecondHalfGoals: number;
+    team1FirstHalfGoals: number;
+    team1SecondHalfGoals: number;
+    team2FirstHalfGoals: number;
+    team2SecondHalfGoals: number;
+    secondHalfRescueRate: number; // % of matches where BTTS achieved in 2nd half after 0-0 or 1-0 HT
+  };
+  cleanSheetAnalysis: {
+    team1CleanSheets: number;
+    team1CleanSheetPercent: number;
+    team2CleanSheets: number;
+    team2CleanSheetPercent: number;
+    team1FailedToScore: number;
+    team1FailedToScorePercent: number;
+    team2FailedToScore: number;
+    team2FailedToScorePercent: number;
+    bothTeamsScored: number;
+    neitherTeamScored: number;
+  };
+  scorelineDistribution: {
+    scoreline: string;
+    count: number;
+    percent: number;
+    btts: boolean;
+  }[];
+  defensiveWeakness: {
+    team1: {
+      avgConceded: number;
+      conceded0: number;
+      conceded1: number;
+      conceded2Plus: number;
+      cleanSheetRate: number;
+      avgConcededWhenConcedes: number; // avg goals conceded when they don't keep clean sheet
+    };
+    team2: {
+      avgConceded: number;
+      conceded0: number;
+      conceded1: number;
+      conceded2Plus: number;
+      cleanSheetRate: number;
+      avgConcededWhenConcedes: number;
+    };
+  };
 }
 
 // Available seasons - European format
@@ -306,6 +354,34 @@ function analyzeH2H(
     },
     team1Form: emptyTeamForm,
     team2Form: emptyTeamForm,
+    goalTimingPatterns: {
+      firstHalfGoals: 0,
+      secondHalfGoals: 0,
+      avgFirstHalfGoals: 0,
+      avgSecondHalfGoals: 0,
+      team1FirstHalfGoals: 0,
+      team1SecondHalfGoals: 0,
+      team2FirstHalfGoals: 0,
+      team2SecondHalfGoals: 0,
+      secondHalfRescueRate: 0,
+    },
+    cleanSheetAnalysis: {
+      team1CleanSheets: 0,
+      team1CleanSheetPercent: 0,
+      team2CleanSheets: 0,
+      team2CleanSheetPercent: 0,
+      team1FailedToScore: 0,
+      team1FailedToScorePercent: 0,
+      team2FailedToScore: 0,
+      team2FailedToScorePercent: 0,
+      bothTeamsScored: 0,
+      neitherTeamScored: 0,
+    },
+    scorelineDistribution: [],
+    defensiveWeakness: {
+      team1: { avgConceded: 0, conceded0: 0, conceded1: 0, conceded2Plus: 0, cleanSheetRate: 0, avgConcededWhenConcedes: 0 },
+      team2: { avgConceded: 0, conceded0: 0, conceded1: 0, conceded2Plus: 0, cleanSheetRate: 0, avgConcededWhenConcedes: 0 },
+    },
   };
 
   if (totalMatches === 0) {
@@ -353,6 +429,31 @@ function analyzeH2H(
   let team1AwayScored = 0, team1AwayConceded = 0, team1AwayMatches = 0;
   let team2HomeScored = 0, team2HomeConceded = 0, team2HomeMatches = 0;
   let team2AwayScored = 0, team2AwayConceded = 0, team2AwayMatches = 0;
+
+  // Goal Timing Patterns
+  let totalFirstHalfGoals = 0;
+  let totalSecondHalfGoals = 0;
+  let team1FirstHalfGoals = 0;
+  let team1SecondHalfGoals = 0;
+  let team2FirstHalfGoals = 0;
+  let team2SecondHalfGoals = 0;
+  let secondHalfRescueCount = 0; // matches where BTTS achieved in 2nd half after no BTTS in 1st
+
+  // Clean Sheet Analysis
+  let team1CleanSheets = 0;
+  let team2CleanSheets = 0;
+  let team1FailedToScore = 0;
+  let team2FailedToScore = 0;
+  let neitherTeamScored = 0;
+
+  // Defensive Weakness
+  let team1Conceded0 = 0, team1Conceded1 = 0, team1Conceded2Plus = 0;
+  let team2Conceded0 = 0, team2Conceded1 = 0, team2Conceded2Plus = 0;
+  let team1TotalConceded = 0;
+  let team2TotalConceded = 0;
+
+  // Scoreline Distribution
+  const scorelineMap = new Map<string, { count: number; btts: boolean }>();
 
   for (const m of h2hWithStats) {
     seasonsWithMatches.add(m.season);
@@ -449,6 +550,60 @@ function analyzeH2H(
       team1AwayConceded += m.ftHomeGoals;
       team1AwayMatches++;
     }
+
+    // Goal Timing Patterns
+    const firstHalfGoals = m.htHomeGoals + m.htAwayGoals;
+    const secondHalfGoals = m.shHomeGoals + m.shAwayGoals;
+    totalFirstHalfGoals += firstHalfGoals;
+    totalSecondHalfGoals += secondHalfGoals;
+
+    // Team-specific timing goals
+    const team1HTGoals = m.homeTeamIsHome ? m.htHomeGoals : m.htAwayGoals;
+    const team1SHGoals = m.homeTeamIsHome ? m.shHomeGoals : m.shAwayGoals;
+    const team2HTGoals = m.homeTeamIsHome ? m.htAwayGoals : m.htHomeGoals;
+    const team2SHGoals = m.homeTeamIsHome ? m.shAwayGoals : m.shHomeGoals;
+    team1FirstHalfGoals += team1HTGoals;
+    team1SecondHalfGoals += team1SHGoals;
+    team2FirstHalfGoals += team2HTGoals;
+    team2SecondHalfGoals += team2SHGoals;
+
+    // Second Half Rescue: BTTS achieved in 2nd half after no BTTS in 1st half
+    if (!m.bttsFirstHalf && m.bttsSecondHalf) {
+      secondHalfRescueCount++;
+    }
+
+    // Clean Sheet Analysis
+    const team1GoalsScored = m.homeTeamIsHome ? m.ftHomeGoals : m.ftAwayGoals;
+    const team2GoalsScored = m.homeTeamIsHome ? m.ftAwayGoals : m.ftHomeGoals;
+    const team1GoalsConceded = m.homeTeamIsHome ? m.ftAwayGoals : m.ftHomeGoals;
+    const team2GoalsConceded = m.homeTeamIsHome ? m.ftHomeGoals : m.ftAwayGoals;
+
+    if (team1GoalsConceded === 0) team1CleanSheets++;
+    if (team2GoalsConceded === 0) team2CleanSheets++;
+    if (team1GoalsScored === 0) team1FailedToScore++;
+    if (team2GoalsScored === 0) team2FailedToScore++;
+    if (team1GoalsScored === 0 && team2GoalsScored === 0) neitherTeamScored++;
+
+    // Defensive Weakness
+    team1TotalConceded += team1GoalsConceded;
+    team2TotalConceded += team2GoalsConceded;
+    if (team1GoalsConceded === 0) team1Conceded0++;
+    else if (team1GoalsConceded === 1) team1Conceded1++;
+    else team1Conceded2Plus++;
+    if (team2GoalsConceded === 0) team2Conceded0++;
+    else if (team2GoalsConceded === 1) team2Conceded1++;
+    else team2Conceded2Plus++;
+
+    // Scoreline Distribution
+    const homeGoals = m.ftHomeGoals;
+    const awayGoals = m.ftAwayGoals;
+    const scoreline = `${homeGoals}-${awayGoals}`;
+    const existing = scorelineMap.get(scoreline);
+    if (existing) {
+      existing.count++;
+    } else {
+      scorelineMap.set(scoreline, { count: 1, btts: m.bttsFullTime });
+    }
   }
 
   const analytics: H2HAnalytics = {
@@ -542,6 +697,59 @@ function analyzeH2H(
     },
     team1Form: calculateTeamForm(allMatches, team1),
     team2Form: calculateTeamForm(allMatches, team2),
+    goalTimingPatterns: {
+      firstHalfGoals: totalFirstHalfGoals,
+      secondHalfGoals: totalSecondHalfGoals,
+      avgFirstHalfGoals: Math.round((totalFirstHalfGoals / totalMatches) * 100) / 100,
+      avgSecondHalfGoals: Math.round((totalSecondHalfGoals / totalMatches) * 100) / 100,
+      team1FirstHalfGoals,
+      team1SecondHalfGoals,
+      team2FirstHalfGoals,
+      team2SecondHalfGoals,
+      secondHalfRescueRate: Math.round((secondHalfRescueCount / totalMatches) * 1000) / 10,
+    },
+    cleanSheetAnalysis: {
+      team1CleanSheets,
+      team1CleanSheetPercent: Math.round((team1CleanSheets / totalMatches) * 1000) / 10,
+      team2CleanSheets,
+      team2CleanSheetPercent: Math.round((team2CleanSheets / totalMatches) * 1000) / 10,
+      team1FailedToScore,
+      team1FailedToScorePercent: Math.round((team1FailedToScore / totalMatches) * 1000) / 10,
+      team2FailedToScore,
+      team2FailedToScorePercent: Math.round((team2FailedToScore / totalMatches) * 1000) / 10,
+      bothTeamsScored: bttsFullTimeCount,
+      neitherTeamScored,
+    },
+    scorelineDistribution: Array.from(scorelineMap.entries())
+      .map(([scoreline, data]) => ({
+        scoreline,
+        count: data.count,
+        percent: Math.round((data.count / totalMatches) * 1000) / 10,
+        btts: data.btts,
+      }))
+      .sort((a, b) => b.count - a.count),
+    defensiveWeakness: {
+      team1: {
+        avgConceded: Math.round((team1TotalConceded / totalMatches) * 100) / 100,
+        conceded0: team1Conceded0,
+        conceded1: team1Conceded1,
+        conceded2Plus: team1Conceded2Plus,
+        cleanSheetRate: Math.round((team1Conceded0 / totalMatches) * 1000) / 10,
+        avgConcededWhenConcedes: team1Conceded0 < totalMatches
+          ? Math.round((team1TotalConceded / (totalMatches - team1Conceded0)) * 100) / 100
+          : 0,
+      },
+      team2: {
+        avgConceded: Math.round((team2TotalConceded / totalMatches) * 100) / 100,
+        conceded0: team2Conceded0,
+        conceded1: team2Conceded1,
+        conceded2Plus: team2Conceded2Plus,
+        cleanSheetRate: Math.round((team2Conceded0 / totalMatches) * 1000) / 10,
+        avgConcededWhenConcedes: team2Conceded0 < totalMatches
+          ? Math.round((team2TotalConceded / (totalMatches - team2Conceded0)) * 100) / 100
+          : 0,
+      },
+    },
   };
 
   h2hWithStats.sort((a, b) => {
