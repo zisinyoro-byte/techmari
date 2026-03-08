@@ -12,6 +12,13 @@ export interface H2HMatch extends MatchResult {
   homeTeamIsHome: boolean;
 }
 
+export interface TeamGoalForm {
+  last5Overall: { scored: number; conceded: number; matches: number };
+  last5Home: { scored: number; conceded: number; matches: number };
+  last5Away: { scored: number; conceded: number; matches: number };
+  games: { date: string; opponent: string; venue: 'H' | 'A'; scored: number; conceded: number }[];
+}
+
 export interface H2HAnalytics {
   totalMatches: number;
   homeTeamWins: number;
@@ -56,6 +63,17 @@ export interface H2HAnalytics {
     avgDrawOdds: number;
     avgAwayTeamWinOdds: number;
   };
+  // H2H Goal Averages
+  h2hGoalAverages: {
+    team1Home: { scored: number; conceded: number; matches: number };
+    team1Away: { scored: number; conceded: number; matches: number };
+    team2Home: { scored: number; conceded: number; matches: number };
+    team2Away: { scored: number; conceded: number; matches: number };
+    overall: { avgTotalGoals: number; avgTeam1Goals: number; avgTeam2Goals: number };
+  };
+  // Team Form (Goals Focus)
+  team1Form: TeamGoalForm;
+  team2Form: TeamGoalForm;
 }
 
 // Available seasons - European format
@@ -108,8 +126,88 @@ async function fetchSeasonData(league: string, season: string): Promise<MatchRes
   }
 }
 
+function parseDate(dateStr: string): Date {
+  if (!dateStr) return new Date(0);
+  
+  const parts = dateStr.split('/');
+  if (parts.length === 3) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    let year = parseInt(parts[2], 10);
+    
+    // Handle 2-digit years (e.g., "16" -> 2016, "99" -> 1999)
+    if (year < 100) {
+      year += year < 50 ? 2000 : 1900;
+    }
+    
+    return new Date(year, month, day);
+  }
+  
+  return new Date(dateStr) || new Date(0);
+}
+
+// Calculate team form (goals focus) for last 5 games
+function calculateTeamForm(allMatches: MatchResult[], team: string): TeamGoalForm {
+  // Get all matches for this team
+  const teamMatches = allMatches.filter(
+    m => m.homeTeam === team || m.awayTeam === team
+  );
+
+  // Sort by date descending
+  const sortedMatches = teamMatches.sort((a, b) => {
+    const dateA = parseDate(a.date);
+    const dateB = parseDate(b.date);
+    return dateB.getTime() - dateA.getTime();
+  });
+
+  // Take last 5 matches
+  const last5 = sortedMatches.slice(0, 5);
+
+  const form: TeamGoalForm = {
+    last5Overall: { scored: 0, conceded: 0, matches: 0 },
+    last5Home: { scored: 0, conceded: 0, matches: 0 },
+    last5Away: { scored: 0, conceded: 0, matches: 0 },
+    games: [],
+  };
+
+  for (const m of last5) {
+    const isHome = m.homeTeam === team;
+    const scored = isHome ? m.ftHomeGoals : m.ftAwayGoals;
+    const conceded = isHome ? m.ftAwayGoals : m.ftHomeGoals;
+    const opponent = isHome ? m.awayTeam : m.homeTeam;
+
+    // Overall stats
+    form.last5Overall.scored += scored;
+    form.last5Overall.conceded += conceded;
+    form.last5Overall.matches++;
+
+    // Home/Away split
+    if (isHome) {
+      form.last5Home.scored += scored;
+      form.last5Home.conceded += conceded;
+      form.last5Home.matches++;
+    } else {
+      form.last5Away.scored += scored;
+      form.last5Away.conceded += conceded;
+      form.last5Away.matches++;
+    }
+
+    // Individual game record
+    form.games.push({
+      date: m.date,
+      opponent,
+      venue: isHome ? 'H' : 'A',
+      scored,
+      conceded,
+    });
+  }
+
+  return form;
+}
+
 function analyzeH2H(
   matches: MatchResult[],
+  allMatches: MatchResult[],
   team1: string,
   team2: string,
   seasonsCount?: number
@@ -148,6 +246,13 @@ function analyzeH2H(
 
   const totalMatches = h2hWithStats.length;
   
+  const emptyTeamForm: TeamGoalForm = {
+    last5Overall: { scored: 0, conceded: 0, matches: 0 },
+    last5Home: { scored: 0, conceded: 0, matches: 0 },
+    last5Away: { scored: 0, conceded: 0, matches: 0 },
+    games: [],
+  };
+
   const emptyAnalytics: H2HAnalytics = {
     totalMatches: 0,
     homeTeamWins: 0,
@@ -155,7 +260,7 @@ function analyzeH2H(
     awayTeamWins: 0,
     homeTeamWinPercent: 0,
     drawPercent: 0,
-    awayTeamWinPercent: 0,
+    awayWinPercent: 0,
     totalGoals: 0,
     avgGoalsPerGame: 0,
     bttsFullTime: { count: 0, percent: 0 },
@@ -192,6 +297,15 @@ function analyzeH2H(
       avgDrawOdds: 0,
       avgAwayTeamWinOdds: 0,
     },
+    h2hGoalAverages: {
+      team1Home: { scored: 0, conceded: 0, matches: 0 },
+      team1Away: { scored: 0, conceded: 0, matches: 0 },
+      team2Home: { scored: 0, conceded: 0, matches: 0 },
+      team2Away: { scored: 0, conceded: 0, matches: 0 },
+      overall: { avgTotalGoals: 0, avgTeam1Goals: 0, avgTeam2Goals: 0 },
+    },
+    team1Form: emptyTeamForm,
+    team2Form: emptyTeamForm,
   };
 
   if (totalMatches === 0) {
@@ -233,6 +347,12 @@ function analyzeH2H(
   let totalDrawOdds = 0;
   let totalTeam2Odds = 0;
   let oddsCount = 0;
+
+  // H2H Goal Averages
+  let team1HomeScored = 0, team1HomeConceded = 0, team1HomeMatches = 0;
+  let team1AwayScored = 0, team1AwayConceded = 0, team1AwayMatches = 0;
+  let team2HomeScored = 0, team2HomeConceded = 0, team2HomeMatches = 0;
+  let team2AwayScored = 0, team2AwayConceded = 0, team2AwayMatches = 0;
 
   for (const m of h2hWithStats) {
     seasonsWithMatches.add(m.season);
@@ -308,6 +428,27 @@ function analyzeH2H(
         underdogWins++;
       }
     }
+
+    // H2H Goal Averages calculation
+    if (m.homeTeamIsHome) {
+      // Team1 is playing at home
+      team1HomeScored += m.ftHomeGoals;
+      team1HomeConceded += m.ftAwayGoals;
+      team1HomeMatches++;
+      // Team2 is playing away
+      team2AwayScored += m.ftAwayGoals;
+      team2AwayConceded += m.ftHomeGoals;
+      team2AwayMatches++;
+    } else {
+      // Team2 is playing at home
+      team2HomeScored += m.ftHomeGoals;
+      team2HomeConceded += m.ftAwayGoals;
+      team2HomeMatches++;
+      // Team1 is playing away
+      team1AwayScored += m.ftAwayGoals;
+      team1AwayConceded += m.ftHomeGoals;
+      team1AwayMatches++;
+    }
   }
 
   const analytics: H2HAnalytics = {
@@ -372,6 +513,35 @@ function analyzeH2H(
       avgDrawOdds: oddsCount > 0 ? Math.round((totalDrawOdds / oddsCount) * 100) / 100 : 0,
       avgAwayTeamWinOdds: oddsCount > 0 ? Math.round((totalTeam2Odds / oddsCount) * 100) / 100 : 0,
     },
+    h2hGoalAverages: {
+      team1Home: { 
+        scored: team1HomeMatches > 0 ? Math.round((team1HomeScored / team1HomeMatches) * 100) / 100 : 0,
+        conceded: team1HomeMatches > 0 ? Math.round((team1HomeConceded / team1HomeMatches) * 100) / 100 : 0,
+        matches: team1HomeMatches 
+      },
+      team1Away: { 
+        scored: team1AwayMatches > 0 ? Math.round((team1AwayScored / team1AwayMatches) * 100) / 100 : 0,
+        conceded: team1AwayMatches > 0 ? Math.round((team1AwayConceded / team1AwayMatches) * 100) / 100 : 0,
+        matches: team1AwayMatches 
+      },
+      team2Home: { 
+        scored: team2HomeMatches > 0 ? Math.round((team2HomeScored / team2HomeMatches) * 100) / 100 : 0,
+        conceded: team2HomeMatches > 0 ? Math.round((team2HomeConceded / team2HomeMatches) * 100) / 100 : 0,
+        matches: team2HomeMatches 
+      },
+      team2Away: { 
+        scored: team2AwayMatches > 0 ? Math.round((team2AwayScored / team2AwayMatches) * 100) / 100 : 0,
+        conceded: team2AwayMatches > 0 ? Math.round((team2AwayConceded / team2AwayMatches) * 100) / 100 : 0,
+        matches: team2AwayMatches 
+      },
+      overall: { 
+        avgTotalGoals: Math.round((totalGoals / totalMatches) * 100) / 100,
+        avgTeam1Goals: Math.round((team1Goals / totalMatches) * 100) / 100,
+        avgTeam2Goals: Math.round((team2Goals / totalMatches) * 100) / 100,
+      },
+    },
+    team1Form: calculateTeamForm(allMatches, team1),
+    team2Form: calculateTeamForm(allMatches, team2),
   };
 
   h2hWithStats.sort((a, b) => {
@@ -381,26 +551,6 @@ function analyzeH2H(
   });
 
   return { matches: h2hWithStats, analytics };
-}
-
-function parseDate(dateStr: string): Date {
-  if (!dateStr) return new Date(0);
-  
-  const parts = dateStr.split('/');
-  if (parts.length === 3) {
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    let year = parseInt(parts[2], 10);
-    
-    // Handle 2-digit years (e.g., "16" -> 2016, "99" -> 1999)
-    if (year < 100) {
-      year += year < 50 ? 2000 : 1900;
-    }
-    
-    return new Date(year, month, day);
-  }
-  
-  return new Date(dateStr) || new Date(0);
 }
 
 export async function GET(request: NextRequest) {
@@ -444,7 +594,7 @@ export async function GET(request: NextRequest) {
       allResults = await fetchSeasonData(league, season);
     }
 
-    const h2hData = analyzeH2H(allResults, team1, team2, seasonsCount);
+    const h2hData = analyzeH2H(allResults, allResults, team1, team2, seasonsCount);
 
     cache.set(cacheKey, { data: h2hData, timestamp: Date.now() });
 

@@ -1755,6 +1755,254 @@ export default function Home() {
                   </CardContent>
                 </Card>
 
+                {/* H2H Goal Averages - NEW */}
+                <Card className="shadow-md border-2 border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Target className="w-5 h-5 text-green-600" />
+                      H2H Goal Averages
+                    </CardTitle>
+                    <CardDescription>Goals scored & conceded when these teams faced each other</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Team 1 Stats */}
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-green-700 dark:text-green-300 flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                          {team1}
+                        </h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/50 text-center">
+                            <p className="text-xs text-muted-foreground">At Home</p>
+                            <p className="text-lg font-bold text-green-600">
+                              {h2hAnalytics.h2hGoalAverages?.team1Home?.scored?.toFixed(2) || '0.00'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">scored/game</p>
+                            <p className="text-sm text-red-500 mt-1">
+                              {h2hAnalytics.h2hGoalAverages?.team1Home?.conceded?.toFixed(2) || '0.00'} conceded
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              ({h2hAnalytics.h2hGoalAverages?.team1Home?.matches || 0} games)
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/50 text-center">
+                            <p className="text-xs text-muted-foreground">Away</p>
+                            <p className="text-lg font-bold text-blue-600">
+                              {h2hAnalytics.h2hGoalAverages?.team1Away?.scored?.toFixed(2) || '0.00'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">scored/game</p>
+                            <p className="text-sm text-red-500 mt-1">
+                              {h2hAnalytics.h2hGoalAverages?.team1Away?.conceded?.toFixed(2) || '0.00'} conceded
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              ({h2hAnalytics.h2hGoalAverages?.team1Away?.matches || 0} games)
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Team 2 Stats */}
+                      <div className="space-y-3">
+                        <h4 className="font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                          {team2}
+                        </h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/50 text-center">
+                            <p className="text-xs text-muted-foreground">At Home</p>
+                            <p className="text-lg font-bold text-green-600">
+                              {h2hAnalytics.h2hGoalAverages?.team2Home?.scored?.toFixed(2) || '0.00'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">scored/game</p>
+                            <p className="text-sm text-red-500 mt-1">
+                              {h2hAnalytics.h2hGoalAverages?.team2Home?.conceded?.toFixed(2) || '0.00'} conceded
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              ({h2hAnalytics.h2hGoalAverages?.team2Home?.matches || 0} games)
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/50 text-center">
+                            <p className="text-xs text-muted-foreground">Away</p>
+                            <p className="text-lg font-bold text-blue-600">
+                              {h2hAnalytics.h2hGoalAverages?.team2Away?.scored?.toFixed(2) || '0.00'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">scored/game</p>
+                            <p className="text-sm text-red-500 mt-1">
+                              {h2hAnalytics.h2hGoalAverages?.team2Away?.conceded?.toFixed(2) || '0.00'} conceded
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              ({h2hAnalytics.h2hGoalAverages?.team2Away?.matches || 0} games)
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Overall Averages */}
+                    <div className="mt-4 pt-4 border-t border-green-200 dark:border-green-700">
+                      <div className="grid grid-cols-3 gap-4 text-center">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Avg Total Goals</p>
+                          <p className="text-xl font-bold text-gray-700 dark:text-gray-300">
+                            {h2hAnalytics.h2hGoalAverages?.overall?.avgTotalGoals?.toFixed(2) || h2hAnalytics.avgGoalsPerGame}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">{team1} Avg</p>
+                          <p className="text-xl font-bold text-green-600">
+                            {h2hAnalytics.h2hGoalAverages?.overall?.avgTeam1Goals?.toFixed(2) || h2hAnalytics.avgHomeTeamGoals}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">{team2} Avg</p>
+                          <p className="text-xl font-bold text-blue-600">
+                            {h2hAnalytics.h2hGoalAverages?.overall?.avgTeam2Goals?.toFixed(2) || h2hAnalytics.avgAwayTeamGoals}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Team Form (Goals Focus) - NEW */}
+                <Card className="shadow-md border-2 border-blue-300">
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-blue-600" />
+                      Team Form - Goals (Last 5 Games)
+                    </CardTitle>
+                    <CardDescription>Goals scored and conceded in recent matches</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Team 1 Form */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-green-700 dark:text-green-300 flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                          {team1}
+                        </h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center p-2 rounded bg-gray-50 dark:bg-gray-800">
+                            <span className="text-sm">Overall</span>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-green-600 font-medium">
+                                Scored: {h2hAnalytics.team1Form?.last5Overall?.scored ?? 0}
+                              </span>
+                              <span className="text-red-500">
+                                Conceded: {h2hAnalytics.team1Form?.last5Overall?.conceded ?? 0}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center p-2 rounded bg-green-50 dark:bg-green-900/20">
+                            <span className="text-sm">At Home</span>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-green-600 font-medium">
+                                Scored: {h2hAnalytics.team1Form?.last5Home?.scored ?? 0}
+                              </span>
+                              <span className="text-red-500">
+                                Conceded: {h2hAnalytics.team1Form?.last5Home?.conceded ?? 0}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                ({h2hAnalytics.team1Form?.last5Home?.matches ?? 0} games)
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center p-2 rounded bg-blue-50 dark:bg-blue-900/20">
+                            <span className="text-sm">Away</span>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-green-600 font-medium">
+                                Scored: {h2hAnalytics.team1Form?.last5Away?.scored ?? 0}
+                              </span>
+                              <span className="text-red-500">
+                                Conceded: {h2hAnalytics.team1Form?.last5Away?.conceded ?? 0}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                ({h2hAnalytics.team1Form?.last5Away?.matches ?? 0} games)
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Recent Games List */}
+                        {h2hAnalytics.team1Form?.games && h2hAnalytics.team1Form.games.length > 0 && (
+                          <div className="mt-3 pt-3 border-t">
+                            <p className="text-xs text-muted-foreground mb-2">Recent Games:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {h2hAnalytics.team1Form.games.slice(0, 5).map((game, idx) => (
+                                <Badge key={idx} variant="outline" className={`text-xs ${game.venue === 'H' ? 'border-green-400' : 'border-blue-400'}`}>
+                                  {game.venue === 'H' ? '🏠' : '✈️'} {game.scored}-{game.conceded} vs {game.opponent.slice(0, 8)}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Team 2 Form */}
+                      <div className="space-y-4">
+                        <h4 className="font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                          {team2}
+                        </h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center p-2 rounded bg-gray-50 dark:bg-gray-800">
+                            <span className="text-sm">Overall</span>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-green-600 font-medium">
+                                Scored: {h2hAnalytics.team2Form?.last5Overall?.scored ?? 0}
+                              </span>
+                              <span className="text-red-500">
+                                Conceded: {h2hAnalytics.team2Form?.last5Overall?.conceded ?? 0}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center p-2 rounded bg-green-50 dark:bg-green-900/20">
+                            <span className="text-sm">At Home</span>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-green-600 font-medium">
+                                Scored: {h2hAnalytics.team2Form?.last5Home?.scored ?? 0}
+                              </span>
+                              <span className="text-red-500">
+                                Conceded: {h2hAnalytics.team2Form?.last5Home?.conceded ?? 0}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                ({h2hAnalytics.team2Form?.last5Home?.matches ?? 0} games)
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center p-2 rounded bg-blue-50 dark:bg-blue-900/20">
+                            <span className="text-sm">Away</span>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-green-600 font-medium">
+                                Scored: {h2hAnalytics.team2Form?.last5Away?.scored ?? 0}
+                              </span>
+                              <span className="text-red-500">
+                                Conceded: {h2hAnalytics.team2Form?.last5Away?.conceded ?? 0}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                ({h2hAnalytics.team2Form?.last5Away?.matches ?? 0} games)
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Recent Games List */}
+                        {h2hAnalytics.team2Form?.games && h2hAnalytics.team2Form.games.length > 0 && (
+                          <div className="mt-3 pt-3 border-t">
+                            <p className="text-xs text-muted-foreground mb-2">Recent Games:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {h2hAnalytics.team2Form.games.slice(0, 5).map((game, idx) => (
+                                <Badge key={idx} variant="outline" className={`text-xs ${game.venue === 'H' ? 'border-green-400' : 'border-blue-400'}`}>
+                                  {game.venue === 'H' ? '🏠' : '✈️'} {game.scored}-{game.conceded} vs {game.opponent.slice(0, 8)}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 {/* H2H General Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <Card className="shadow-md">
