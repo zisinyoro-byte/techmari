@@ -169,6 +169,16 @@ interface H2HAnalytics {
       avgConcededWhenConcedes: number
     }
   }
+  bttsHomeDistribution?: {
+    team1Home: { count: number; percent: number }
+    team2Home: { count: number; percent: number }
+  }
+  bttsTimingDistribution?: {
+    htOnly: { count: number; percent: number; desc: string }
+    shOnly: { count: number; percent: number; desc: string }
+    bothHalves: { count: number; percent: number; desc: string }
+    ftOnly: { count: number; percent: number; desc: string }
+  }
 }
 
 interface TeamGoalForm {
@@ -1794,7 +1804,7 @@ export default function Home() {
                     <CardDescription>Key scoring patterns in H2H matches</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                       <div className="text-center p-4 rounded-lg bg-white/50 dark:bg-gray-800/50">
                         <p className="text-sm text-muted-foreground">BTTS Full Time</p>
                         <p className="text-3xl font-bold text-purple-600">{h2hAnalytics.bttsFullTime.percent}%</p>
@@ -1816,6 +1826,79 @@ export default function Home() {
                         <p className="text-xs text-purple-600 dark:text-purple-400">{h2hAnalytics.bttsBothHalves.count}/{h2hAnalytics.totalMatches} matches</p>
                       </div>
                     </div>
+
+                    {/* BTTS Home Distribution - Who is home when BTTS occurs */}
+                    {h2hAnalytics.bttsHomeDistribution && (
+                      <div className="mt-4 pt-4 border-t border-purple-200 dark:border-purple-700">
+                        <p className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
+                          <Users className="w-4 h-4" />
+                          When BTTS occurs, who is the HOME team?
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className={`p-3 rounded-lg text-center ${
+                            h2hAnalytics.bttsHomeDistribution.team1Home.percent > h2hAnalytics.bttsHomeDistribution.team2Home.percent
+                              ? 'bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-800/50 dark:to-emerald-800/50 ring-2 ring-green-400'
+                              : 'bg-white/50 dark:bg-gray-800/50'
+                          }`}>
+                            <p className="text-sm text-muted-foreground">{team1} at HOME</p>
+                            <p className="text-2xl font-bold text-green-600">{h2hAnalytics.bttsHomeDistribution.team1Home.percent}%</p>
+                            <p className="text-xs text-muted-foreground">{h2hAnalytics.bttsHomeDistribution.team1Home.count} BTTS matches</p>
+                            {h2hAnalytics.bttsHomeDistribution.team1Home.percent > h2hAnalytics.bttsHomeDistribution.team2Home.percent && (
+                              <Badge className="mt-2 bg-green-500 text-white text-xs">More likely</Badge>
+                            )}
+                          </div>
+                          <div className={`p-3 rounded-lg text-center ${
+                            h2hAnalytics.bttsHomeDistribution.team2Home.percent > h2hAnalytics.bttsHomeDistribution.team1Home.percent
+                              ? 'bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-800/50 dark:to-indigo-800/50 ring-2 ring-blue-400'
+                              : 'bg-white/50 dark:bg-gray-800/50'
+                          }`}>
+                            <p className="text-sm text-muted-foreground">{team2} at HOME</p>
+                            <p className="text-2xl font-bold text-blue-600">{h2hAnalytics.bttsHomeDistribution.team2Home.percent}%</p>
+                            <p className="text-xs text-muted-foreground">{h2hAnalytics.bttsHomeDistribution.team2Home.count} BTTS matches</p>
+                            {h2hAnalytics.bttsHomeDistribution.team2Home.percent > h2hAnalytics.bttsHomeDistribution.team1Home.percent && (
+                              <Badge className="mt-2 bg-blue-500 text-white text-xs">More likely</Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* BTTS Timing Distribution */}
+                    {h2hAnalytics.bttsTimingDistribution && (
+                      <div className="mt-4 pt-4 border-t border-purple-200 dark:border-purple-700">
+                        <p className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4" />
+                          BTTS Timing Distribution
+                        </p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="p-3 rounded-lg bg-blue-100/50 dark:bg-blue-800/30 text-center">
+                            <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">By Halftime</p>
+                            <p className="text-xl font-bold text-blue-600">{h2hAnalytics.bttsTimingDistribution.htOnly.percent}%</p>
+                            <p className="text-xs text-muted-foreground">{h2hAnalytics.bttsTimingDistribution.htOnly.count} matches</p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-green-100/50 dark:bg-green-800/30 text-center">
+                            <p className="text-xs text-green-700 dark:text-green-300 font-medium">2nd Half Only</p>
+                            <p className="text-xl font-bold text-green-600">{h2hAnalytics.bttsTimingDistribution.shOnly.percent}%</p>
+                            <p className="text-xs text-muted-foreground">{h2hAnalytics.bttsTimingDistribution.shOnly.count} matches</p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-800/30 dark:to-pink-800/30 text-center ring-2 ring-purple-300">
+                            <p className="text-xs text-purple-700 dark:text-purple-300 font-medium">Both Halves</p>
+                            <p className="text-xl font-bold text-purple-600">{h2hAnalytics.bttsTimingDistribution.bothHalves.percent}%</p>
+                            <p className="text-xs text-muted-foreground">{h2hAnalytics.bttsTimingDistribution.bothHalves.count} matches</p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-gray-100/50 dark:bg-gray-800/30 text-center">
+                            <p className="text-xs text-gray-700 dark:text-gray-300 font-medium">Total FT</p>
+                            <p className="text-xl font-bold text-gray-600">{h2hAnalytics.bttsTimingDistribution.ftOnly.percent}%</p>
+                            <p className="text-xs text-muted-foreground">{h2hAnalytics.bttsTimingDistribution.ftOnly.count} matches</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 p-2 rounded bg-purple-50 dark:bg-purple-900/20 text-center">
+                          <p className="text-xs text-purple-700 dark:text-purple-300">
+                            <strong>Insight:</strong> "By Halftime" = BTTS achieved in 1st half | "2nd Half Only" = late BTTS | "Both Halves" = most exciting matches
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 

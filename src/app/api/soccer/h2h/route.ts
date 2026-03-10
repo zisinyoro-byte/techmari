@@ -122,6 +122,17 @@ export interface H2HAnalytics {
       avgConcededWhenConcedes: number;
     };
   };
+  // BTTS Distribution Analysis
+  bttsHomeDistribution: {
+    team1Home: { count: number; percent: number }; // BTTS occurred when team1 was home
+    team2Home: { count: number; percent: number }; // BTTS occurred when team2 was home
+  };
+  bttsTimingDistribution: {
+    htOnly: { count: number; percent: number; desc: string }; // BTTS by halftime
+    shOnly: { count: number; percent: number; desc: string }; // BTTS in 2nd half only
+    bothHalves: { count: number; percent: number; desc: string }; // BTTS in both halves
+    ftOnly: { count: number; percent: number; desc: string }; // BTTS at FT (total)
+  };
 }
 
 // Available seasons - European format
@@ -382,6 +393,16 @@ function analyzeH2H(
       team1: { avgConceded: 0, conceded0: 0, conceded1: 0, conceded2Plus: 0, cleanSheetRate: 0, avgConcededWhenConcedes: 0 },
       team2: { avgConceded: 0, conceded0: 0, conceded1: 0, conceded2Plus: 0, cleanSheetRate: 0, avgConcededWhenConcedes: 0 },
     },
+    bttsHomeDistribution: {
+      team1Home: { count: 0, percent: 0 },
+      team2Home: { count: 0, percent: 0 },
+    },
+    bttsTimingDistribution: {
+      htOnly: { count: 0, percent: 0, desc: 'BTTS achieved by halftime' },
+      shOnly: { count: 0, percent: 0, desc: 'BTTS achieved in 2nd half only' },
+      bothHalves: { count: 0, percent: 0, desc: 'BTTS in BOTH halves' },
+      ftOnly: { count: 0, percent: 0, desc: 'BTTS at Full Time (total)' },
+    },
   };
 
   if (totalMatches === 0) {
@@ -454,6 +475,15 @@ function analyzeH2H(
 
   // Scoreline Distribution
   const scorelineMap = new Map<string, { count: number; btts: boolean }>();
+
+  // BTTS Home Distribution
+  let bttsTeam1HomeCount = 0; // BTTS when team1 was home
+  let bttsTeam2HomeCount = 0; // BTTS when team2 was home
+
+  // BTTS Timing Distribution
+  let bttsHtOnlyCount = 0; // BTTS in 1st half only (not 2nd)
+  let bttsShOnlyCount = 0; // BTTS in 2nd half only (not 1st)
+  let bttsBothHalvesTimingCount = 0; // BTTS in both halves
 
   for (const m of h2hWithStats) {
     seasonsWithMatches.add(m.season);
@@ -604,6 +634,24 @@ function analyzeH2H(
     } else {
       scorelineMap.set(scoreline, { count: 1, btts: m.bttsFullTime });
     }
+
+    // BTTS Home Distribution
+    if (m.bttsFullTime) {
+      if (m.homeTeamIsHome) {
+        bttsTeam1HomeCount++; // Team1 was home when BTTS occurred
+      } else {
+        bttsTeam2HomeCount++; // Team2 was home when BTTS occurred
+      }
+    }
+
+    // BTTS Timing Distribution
+    if (m.bttsFirstHalf && m.bttsSecondHalf) {
+      bttsBothHalvesTimingCount++;
+    } else if (m.bttsFirstHalf) {
+      bttsHtOnlyCount++;
+    } else if (m.bttsSecondHalf) {
+      bttsShOnlyCount++;
+    }
   }
 
   const analytics: H2HAnalytics = {
@@ -748,6 +796,38 @@ function analyzeH2H(
         avgConcededWhenConcedes: team2Conceded0 < totalMatches
           ? Math.round((team2TotalConceded / (totalMatches - team2Conceded0)) * 100) / 100
           : 0,
+      },
+    },
+    bttsHomeDistribution: {
+      team1Home: {
+        count: bttsTeam1HomeCount,
+        percent: bttsFullTimeCount > 0 ? Math.round((bttsTeam1HomeCount / bttsFullTimeCount) * 1000) / 10 : 0,
+      },
+      team2Home: {
+        count: bttsTeam2HomeCount,
+        percent: bttsFullTimeCount > 0 ? Math.round((bttsTeam2HomeCount / bttsFullTimeCount) * 1000) / 10 : 0,
+      },
+    },
+    bttsTimingDistribution: {
+      htOnly: {
+        count: bttsHtOnlyCount,
+        percent: Math.round((bttsHtOnlyCount / totalMatches) * 1000) / 10,
+        desc: 'BTTS achieved by halftime',
+      },
+      shOnly: {
+        count: bttsShOnlyCount,
+        percent: Math.round((bttsShOnlyCount / totalMatches) * 1000) / 10,
+        desc: 'BTTS achieved in 2nd half only',
+      },
+      bothHalves: {
+        count: bttsBothHalvesTimingCount,
+        percent: Math.round((bttsBothHalvesTimingCount / totalMatches) * 1000) / 10,
+        desc: 'BTTS in BOTH halves',
+      },
+      ftOnly: {
+        count: bttsFullTimeCount,
+        percent: Math.round((bttsFullTimeCount / totalMatches) * 1000) / 10,
+        desc: 'BTTS at Full Time (total)',
       },
     },
   };
