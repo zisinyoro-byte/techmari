@@ -3102,6 +3102,118 @@ export default function Home() {
                   </CardContent>
                 </Card>
 
+                {/* Strong Bet Indicator */}
+                {(() => {
+                  // Calculate Strong Bet indicator
+                  const bttsProbValue = prediction.prediction.btts;
+                  const o25ProbValue = prediction.prediction.over25;
+                  
+                  // Calculate xG for Strong Bet check
+                  const teamXgStatsQuick = new Map<string, { matches: number; totalXg: number; actualGoals: number; }>();
+                  results.forEach(r => {
+                    const homeXg = (r.homeShotsOnTarget * 0.30) + ((r.homeShots - r.homeShotsOnTarget) * 0.08);
+                    const awayXg = (r.awayShotsOnTarget * 0.30) + ((r.awayShots - r.awayShotsOnTarget) * 0.08);
+                    
+                    const homeStats = teamXgStatsQuick.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                    homeStats.matches++; homeStats.totalXg += homeXg; homeStats.actualGoals += r.ftHomeGoals;
+                    teamXgStatsQuick.set(r.homeTeam, homeStats);
+                    
+                    const awayStats = teamXgStatsQuick.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                    awayStats.matches++; awayStats.totalXg += awayXg; awayStats.actualGoals += r.ftAwayGoals;
+                    teamXgStatsQuick.set(r.awayTeam, awayStats);
+                  });
+                  
+                  const homeXgDataQuick = teamXgStatsQuick.get(predHomeTeam);
+                  const awayXgDataQuick = teamXgStatsQuick.get(predAwayTeam);
+                  
+                  let xgSignalQuick = 'Neutral';
+                  if (homeXgDataQuick && awayXgDataQuick) {
+                    const totalXgDiff = ((homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches)) +
+                                       ((awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches));
+                    if (totalXgDiff <= -0.3) xgSignalQuick = 'Over';
+                    if (totalXgDiff <= -0.7) xgSignalQuick = 'Strong Over';
+                  }
+                  
+                  // Calculate BTTS Check list count
+                  const bttsChecksQuick: string[] = [];
+                  if (analytics.avgGoalsPerGame >= 2.5) bttsChecksQuick.push('');
+                  if (analytics.over25Percent >= 50) bttsChecksQuick.push('');
+                  if (bttsProbValue >= 50) bttsChecksQuick.push('');
+                  if (analytics.avgHomeGoals >= 1.2) bttsChecksQuick.push('');
+                  if (analytics.avgAwayGoals >= 1.0) bttsChecksQuick.push('');
+                  if (analytics.over25Percent >= 45) bttsChecksQuick.push('');
+                  if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecksQuick.push('');
+                  
+                  // BTTS Confidence
+                  const bttsConf = bttsProbValue >= 60 ? 'High' : bttsProbValue >= 50 ? 'Medium' : 'Low';
+                  
+                  const strongBetChecks = [
+                    bttsProbValue >= 50 && bttsProbValue <= 57,
+                    o25ProbValue >= 45 && o25ProbValue <= 55,
+                    bttsConf === 'Medium',
+                    xgSignalQuick === 'Over' || xgSignalQuick === 'Strong Over',
+                    bttsChecksQuick.length >= 6
+                  ];
+                  
+                  const score = strongBetChecks.filter(Boolean).length;
+                  const isStrongBet = score >= 4;
+                  
+                  return (
+                    <Card className={`shadow-md border-2 ${isStrongBet ? 'border-green-400 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <CheckCircle className={`w-5 h-5 ${isStrongBet ? 'text-green-600' : 'text-gray-400'}`} />
+                          🎯 Strong Bet Indicator
+                        </CardTitle>
+                        <CardDescription>
+                          Based on historical winning patterns from your betting data
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {/* Result Badge */}
+                          <div className={`text-center p-4 rounded-lg ${isStrongBet ? 'bg-green-100 dark:bg-green-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
+                            <p className={`text-2xl font-bold ${isStrongBet ? 'text-green-600' : 'text-gray-500'}`}>
+                              {isStrongBet ? '✅ STRONG BET' : `⚠️ ${score}/5 Checks Passed`}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {isStrongBet ? 'This match meets the criteria for a strong BTTS + O2.5 bet' : 'Needs 4+ checks to qualify as a Strong Bet'}
+                            </p>
+                          </div>
+                          
+                          {/* Checklist */}
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 text-sm">
+                            <div className={`p-2 rounded-lg text-center ${strongBetChecks[0] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {strongBetChecks[0] ? '✅' : '❌'} BTTS 50-57%
+                              <p className="text-xs text-muted-foreground">{bttsProbValue.toFixed(1)}%</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${strongBetChecks[1] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {strongBetChecks[1] ? '✅' : '❌'} O2.5 45-55%
+                              <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(1)}%</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${strongBetChecks[2] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {strongBetChecks[2] ? '✅' : '❌'} BTTS Conf Medium
+                              <p className="text-xs text-muted-foreground">{bttsConf}</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${strongBetChecks[3] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {strongBetChecks[3] ? '✅' : '❌'} xG Over Signal
+                              <p className="text-xs text-muted-foreground">{xgSignalQuick}</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${strongBetChecks[4] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {strongBetChecks[4] ? '✅' : '❌'} BTTS Check 6+/7
+                              <p className="text-xs text-muted-foreground">{bttsChecksQuick.length}/7</p>
+                            </div>
+                          </div>
+                          
+                          <p className="text-xs text-muted-foreground text-center">
+                            💡 <strong>Insight:</strong> Matches with Medium BTTS confidence and moderate probabilities (50-55%) historically outperform High confidence bets.
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
                 {/* Value Bet Calculator for O1.5 & BTTS */}
                 <Card className="shadow-md border-2 border-yellow-300 bg-gradient-to-r from-yellow-50 to-amber-50">
                   <CardHeader>
@@ -5599,6 +5711,29 @@ export default function Home() {
                               else if (totalXgDiff >= 0.3) xgOverallSignal = 'Under';
                             }
 
+                            // Calculate Strong Bet indicator
+                            // Checklist:
+                            // 1. BTTS Prob between 50-57%
+                            // 2. O2.5 Prob between 45-55%
+                            // 3. BTTS Confidence Medium (not High)
+                            // 4. xG Signal Over or Strong Over
+                            // 5. BTTS Check list 6 or 7 of 7
+                            // If 4+ YES → STRONG BET
+
+                            const o25ProbForBet = prediction.prediction.over25;
+
+                            const strongBetChecks = [
+                              bttsProb >= 50 && bttsProb <= 57, // BTTS Prob 50-57%
+                              o25ProbForBet >= 45 && o25ProbForBet <= 55,  // O2.5 Prob 45-55%
+                              bttsConfidence === 'Medium',      // BTTS Confidence Medium
+                              xgOverallSignal === 'Over' || xgOverallSignal === 'Strong Over', // xG Over
+                              bttsChecks.length >= 6            // BTTS Check list 6+
+                            ];
+
+                            const strongBetScore = strongBetChecks.filter(Boolean).length;
+                            const isStrongBet = strongBetScore >= 4;
+                            const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetScore}/5 checks`;
+
                             // Build CSV row with exact headers
                             const headers = [
                               'League',
@@ -5617,7 +5752,8 @@ export default function Home() {
                               'Z-Score Analysis & Confidence Intervals Overall Signal',
                               'xG Overperformance Signal',
                               'BTTS Check list',
-                              'Over 3.5 Check list'
+                              'Over 3.5 Check list',
+                              'Strong Bet'
                             ]
 
                             const row = [
@@ -5637,7 +5773,8 @@ export default function Home() {
                               zScoreOverallSignal,
                               xgOverallSignal,
                               bttsChecklist,
-                              over35Checklist
+                              over35Checklist,
+                              strongBetIndicator
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')
