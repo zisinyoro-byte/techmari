@@ -3107,33 +3107,98 @@ export default function Home() {
                   // Calculate Strong Bet indicator
                   const bttsProbValue = prediction.prediction.btts;
                   const o25ProbValue = prediction.prediction.over25;
-                  
-                  // Calculate xG for Strong Bet check
-                  const teamXgStatsQuick = new Map<string, { matches: number; totalXg: number; actualGoals: number; }>();
-                  results.forEach(r => {
-                    const homeXg = (r.homeShotsOnTarget * 0.30) + ((r.homeShots - r.homeShotsOnTarget) * 0.08);
-                    const awayXg = (r.awayShotsOnTarget * 0.30) + ((r.awayShots - r.awayShotsOnTarget) * 0.08);
-                    
-                    const homeStats = teamXgStatsQuick.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
-                    homeStats.matches++; homeStats.totalXg += homeXg; homeStats.actualGoals += r.ftHomeGoals;
-                    teamXgStatsQuick.set(r.homeTeam, homeStats);
-                    
-                    const awayStats = teamXgStatsQuick.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
-                    awayStats.matches++; awayStats.totalXg += awayXg; awayStats.actualGoals += r.ftAwayGoals;
-                    teamXgStatsQuick.set(r.awayTeam, awayStats);
+
+                  // Calculate Regression to Mean signal for Strong Bet check
+                  const sortedResultsForRegression = [...results].sort((a, b) => {
+                    const dateA = new Date(a.date.split('/').reverse().join('-') || '1970-01-01')
+                    const dateB = new Date(b.date.split('/').reverse().join('-') || '1970-01-01')
+                    return dateB.getTime() - dateA.getTime()
                   });
-                  
-                  const homeXgDataQuick = teamXgStatsQuick.get(predHomeTeam);
-                  const awayXgDataQuick = teamXgStatsQuick.get(predAwayTeam);
-                  
-                  let xgSignalQuick = 'Neutral';
-                  if (homeXgDataQuick && awayXgDataQuick) {
-                    const totalXgDiff = ((homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches)) +
-                                       ((awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches));
-                    if (totalXgDiff <= -0.3) xgSignalQuick = 'Over';
-                    if (totalXgDiff <= -0.7) xgSignalQuick = 'Strong Over';
+
+                  const teamGoalStatsQuick = new Map<string, {
+                    matches: number;
+                    goalsScored: number;
+                    goalsConceded: number;
+                    matchesThisSeason: number;
+                    scoredThisSeason: number;
+                    concededThisSeason: number;
+                    last10Matches: { totalGoals: number }[];
+                    last3Matches: { totalGoals: number }[];
+                  }>();
+
+                  sortedResultsForRegression.forEach(r => {
+                    const totalGoals = r.ftHomeGoals + r.ftAwayGoals;
+
+                    const homeStats = teamGoalStatsQuick.get(r.homeTeam) || {
+                      matches: 0, goalsScored: 0, goalsConceded: 0,
+                      matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0,
+                      last10Matches: [], last3Matches: []
+                    };
+                    homeStats.matches++;
+                    homeStats.goalsScored += r.ftHomeGoals;
+                    homeStats.goalsConceded += r.ftAwayGoals;
+                    homeStats.matchesThisSeason++;
+                    homeStats.scoredThisSeason += r.ftHomeGoals;
+                    homeStats.concededThisSeason += r.ftAwayGoals;
+                    homeStats.last10Matches.push({ totalGoals });
+                    homeStats.last3Matches.push({ totalGoals });
+                    teamGoalStatsQuick.set(r.homeTeam, homeStats);
+
+                    const awayStats = teamGoalStatsQuick.get(r.awayTeam) || {
+                      matches: 0, goalsScored: 0, goalsConceded: 0,
+                      matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0,
+                      last10Matches: [], last3Matches: []
+                    };
+                    awayStats.matches++;
+                    awayStats.goalsScored += r.ftAwayGoals;
+                    awayStats.goalsConceded += r.ftHomeGoals;
+                    awayStats.matchesThisSeason++;
+                    awayStats.scoredThisSeason += r.ftAwayGoals;
+                    awayStats.concededThisSeason += r.ftHomeGoals;
+                    awayStats.last10Matches.push({ totalGoals });
+                    awayStats.last3Matches.push({ totalGoals });
+                    teamGoalStatsQuick.set(r.awayTeam, awayStats);
+                  });
+
+                  const homeTeamDataQuick = teamGoalStatsQuick.get(predHomeTeam);
+                  const awayTeamDataQuick = teamGoalStatsQuick.get(predAwayTeam);
+
+                  let regressionSignalQuick = 'NEUTRAL';
+                  if (homeTeamDataQuick && awayTeamDataQuick) {
+                    const homeSeasonAvg = homeTeamDataQuick.matchesThisSeason > 0
+                      ? (homeTeamDataQuick.scoredThisSeason + homeTeamDataQuick.concededThisSeason) / homeTeamDataQuick.matchesThisSeason
+                      : 0;
+                    const homeLast10 = homeTeamDataQuick.last10Matches.slice(0, 10);
+                    const homeLast10Avg = homeLast10.length > 0
+                      ? homeLast10.reduce((sum, m) => sum + m.totalGoals, 0) / homeLast10.length
+                      : 0;
+                    const homeLast3 = homeTeamDataQuick.last3Matches.slice(0, 3);
+                    const homeLast3Avg = homeLast3.length > 0
+                      ? homeLast3.reduce((sum, m) => sum + m.totalGoals, 0) / homeLast3.length
+                      : 0;
+
+                    const awaySeasonAvg = awayTeamDataQuick.matchesThisSeason > 0
+                      ? (awayTeamDataQuick.scoredThisSeason + awayTeamDataQuick.concededThisSeason) / awayTeamDataQuick.matchesThisSeason
+                      : 0;
+                    const awayLast10 = awayTeamDataQuick.last10Matches.slice(0, 10);
+                    const awayLast10Avg = awayLast10.length > 0
+                      ? awayLast10.reduce((sum, m) => sum + m.totalGoals, 0) / awayLast10.length
+                      : 0;
+                    const awayLast3 = awayTeamDataQuick.last3Matches.slice(0, 3);
+                    const awayLast3Avg = awayLast3.length > 0
+                      ? awayLast3.reduce((sum, m) => sum + m.totalGoals, 0) / awayLast3.length
+                      : 0;
+
+                    const homeDeviation = (homeLast3Avg - homeSeasonAvg) * 0.4 + (homeLast3Avg - homeLast10Avg) * 0.3;
+                    const awayDeviation = (awayLast3Avg - awaySeasonAvg) * 0.4 + (awayLast3Avg - awayLast10Avg) * 0.3;
+                    const totalSignal = homeDeviation + awayDeviation;
+
+                    if (totalSignal <= -0.8) regressionSignalQuick = 'STRONG UP';
+                    else if (totalSignal <= -0.3) regressionSignalQuick = 'UP';
+                    else if (totalSignal >= 0.8) regressionSignalQuick = 'STRONG DOWN';
+                    else if (totalSignal >= 0.3) regressionSignalQuick = 'DOWN';
                   }
-                  
+
                   // Calculate BTTS Check list count
                   const bttsChecksQuick: string[] = [];
                   if (analytics.avgGoalsPerGame >= 2.5) bttsChecksQuick.push('');
@@ -3143,18 +3208,18 @@ export default function Home() {
                   if (analytics.avgAwayGoals >= 1.0) bttsChecksQuick.push('');
                   if (analytics.over25Percent >= 45) bttsChecksQuick.push('');
                   if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecksQuick.push('');
-                  
+
                   // BTTS Confidence
                   const bttsConf = bttsProbValue >= 60 ? 'High' : bttsProbValue >= 50 ? 'Medium' : 'Low';
-                  
+
                   const strongBetChecks = [
                     bttsProbValue >= 50 && bttsProbValue <= 57,
                     o25ProbValue >= 45 && o25ProbValue <= 55,
                     bttsConf === 'Medium',
-                    xgSignalQuick === 'Over' || xgSignalQuick === 'Strong Over',
+                    regressionSignalQuick === 'UP' || regressionSignalQuick === 'STRONG UP',
                     bttsChecksQuick.length >= 6
                   ];
-                  
+
                   const score = strongBetChecks.filter(Boolean).length;
                   const isStrongBet = score >= 4;
                   
@@ -3196,8 +3261,8 @@ export default function Home() {
                               <p className="text-xs text-muted-foreground">{bttsConf}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[3] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[3] ? '✅' : '❌'} xG Over Signal
-                              <p className="text-xs text-muted-foreground">{xgSignalQuick}</p>
+                              {strongBetChecks[3] ? '✅' : '❌'} Regression Over
+                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'UP' ? 'Over' : regressionSignalQuick === 'STRONG UP' ? 'Strong Over' : regressionSignalQuick}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[4] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {strongBetChecks[4] ? '✅' : '❌'} BTTS Check 6+/7
