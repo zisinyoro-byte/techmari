@@ -3108,7 +3108,7 @@ export default function Home() {
                   const bttsProbValue = prediction.prediction.btts;
                   const o25ProbValue = prediction.prediction.over25;
 
-                  // Calculate Regression to Mean signal for Strong Bet check
+                  // Calculate Regression to Mean signal for Strong Bet check (matching main Regression to Mean Analysis)
                   const sortedResultsForRegression = [...results].sort((a, b) => {
                     const dateA = new Date(a.date.split('/').reverse().join('-') || '1970-01-01')
                     const dateB = new Date(b.date.split('/').reverse().join('-') || '1970-01-01')
@@ -3163,40 +3163,85 @@ export default function Home() {
                   const homeTeamDataQuick = teamGoalStatsQuick.get(predHomeTeam);
                   const awayTeamDataQuick = teamGoalStatsQuick.get(predAwayTeam);
 
+                  // Calculate H2H data (matching main Regression to Mean Analysis)
+                  const h2hDataQuick = results.filter(r => 
+                    (r.homeTeam === predHomeTeam && r.awayTeam === predAwayTeam) ||
+                    (r.homeTeam === predAwayTeam && r.awayTeam === predHomeTeam)
+                  ).sort((a, b) => {
+                    const dateA = new Date(a.date.split('/').reverse().join('-') || '1970-01-01')
+                    const dateB = new Date(b.date.split('/').reverse().join('-') || '1970-01-01')
+                    return dateB.getTime() - dateA.getTime()
+                  });
+                  
+                  const lastH2HQuick = h2hDataQuick.length > 0 ? h2hDataQuick[0] : null;
+                  const h2hAvgGoalsQuick = h2hDataQuick.length > 0 
+                    ? h2hDataQuick.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / h2hDataQuick.length 
+                    : null;
+
                   let regressionSignalQuick = 'NEUTRAL';
+                  
                   if (homeTeamDataQuick && awayTeamDataQuick) {
-                    const homeSeasonAvg = homeTeamDataQuick.matchesThisSeason > 0
-                      ? (homeTeamDataQuick.scoredThisSeason + homeTeamDataQuick.concededThisSeason) / homeTeamDataQuick.matchesThisSeason
-                      : 0;
-                    const homeLast10 = homeTeamDataQuick.last10Matches.slice(0, 10);
-                    const homeLast10Avg = homeLast10.length > 0
-                      ? homeLast10.reduce((sum, m) => sum + m.totalGoals, 0) / homeLast10.length
-                      : 0;
-                    const homeLast3 = homeTeamDataQuick.last3Matches.slice(0, 3);
-                    const homeLast3Avg = homeLast3.length > 0
-                      ? homeLast3.reduce((sum, m) => sum + m.totalGoals, 0) / homeLast3.length
-                      : 0;
+                    // Calculate means for each team (matching main analysis)
+                    const calculateTeamMeans = (teamData: typeof homeTeamDataQuick, teamName: string) => {
+                      const seasonAvg = teamData.matchesThisSeason > 0 
+                        ? (teamData.scoredThisSeason + teamData.concededThisSeason) / teamData.matchesThisSeason 
+                        : 0;
+                      
+                      const last10 = teamData.last10Matches.slice(0, 10);
+                      const last10Avg = last10.length > 0 
+                        ? last10.reduce((sum, m) => sum + m.totalGoals, 0) / last10.length 
+                        : 0;
+                      
+                      const last3 = teamData.last3Matches.slice(0, 3);
+                      const last3Avg = last3.length > 0 
+                        ? last3.reduce((sum, m) => sum + m.totalGoals, 0) / last3.length 
+                        : 0;
 
-                    const awaySeasonAvg = awayTeamDataQuick.matchesThisSeason > 0
-                      ? (awayTeamDataQuick.scoredThisSeason + awayTeamDataQuick.concededThisSeason) / awayTeamDataQuick.matchesThisSeason
-                      : 0;
-                    const awayLast10 = awayTeamDataQuick.last10Matches.slice(0, 10);
-                    const awayLast10Avg = awayLast10.length > 0
-                      ? awayLast10.reduce((sum, m) => sum + m.totalGoals, 0) / awayLast10.length
-                      : 0;
-                    const awayLast3 = awayTeamDataQuick.last3Matches.slice(0, 3);
-                    const awayLast3Avg = awayLast3.length > 0
-                      ? awayLast3.reduce((sum, m) => sum + m.totalGoals, 0) / awayLast3.length
-                      : 0;
+                      const teamH2H = h2hDataQuick.filter(m => 
+                        m.homeTeam === teamName || m.awayTeam === teamName
+                      );
+                      const teamH2HAvg = teamH2H.length > 0 
+                        ? teamH2H.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / teamH2H.length 
+                        : null;
 
-                    const homeDeviation = (homeLast3Avg - homeSeasonAvg) * 0.4 + (homeLast3Avg - homeLast10Avg) * 0.3;
-                    const awayDeviation = (awayLast3Avg - awaySeasonAvg) * 0.4 + (awayLast3Avg - awayLast10Avg) * 0.3;
-                    const totalSignal = homeDeviation + awayDeviation;
+                      const teamLastH2H = lastH2HQuick;
+                      const lastH2HGoals = teamLastH2H ? teamLastH2H.ftHomeGoals + teamLastH2H.ftAwayGoals : null;
 
-                    if (totalSignal <= -0.8) regressionSignalQuick = 'STRONG UP';
-                    else if (totalSignal <= -0.3) regressionSignalQuick = 'UP';
-                    else if (totalSignal >= 0.8) regressionSignalQuick = 'STRONG DOWN';
-                    else if (totalSignal >= 0.3) regressionSignalQuick = 'DOWN';
+                      return { seasonAvg, last10Avg, last3Avg, h2hAvg: teamH2HAvg, lastH2HGoals };
+                    };
+
+                    const homeMeans = calculateTeamMeans(homeTeamDataQuick, predHomeTeam);
+                    const awayMeans = calculateTeamMeans(awayTeamDataQuick, predAwayTeam);
+
+                    // Calculate deviation for each team (matching main analysis exactly)
+                    const calculateDeviation = (means: typeof homeMeans) => {
+                      const deviationFromSeason = means.last3Avg - means.seasonAvg;
+                      const deviationFromLast10 = means.last3Avg - means.last10Avg;
+                      const h2hDeviation = means.h2hAvg && means.lastH2HGoals !== null
+                        ? means.lastH2HGoals - means.h2hAvg
+                        : 0;
+
+                      // Combined signal with H2H component (0.4 + 0.3 + 0.3 = 1.0)
+                      const combinedSignal = (deviationFromSeason * 0.4) + (deviationFromLast10 * 0.3) + (h2hDeviation * 0.3);
+                      
+                      return { combinedSignal };
+                    };
+
+                    const homeDeviation = calculateDeviation(homeMeans);
+                    const awayDeviation = calculateDeviation(awayMeans);
+
+                    // Combined match signal (matching main analysis thresholds)
+                    const totalSignal = homeDeviation.combinedSignal + awayDeviation.combinedSignal;
+
+                    if (totalSignal <= -1.2) {
+                      regressionSignalQuick = 'STRONG UP';
+                    } else if (totalSignal <= -0.5) {
+                      regressionSignalQuick = 'UP';
+                    } else if (totalSignal >= 1.2) {
+                      regressionSignalQuick = 'STRONG DOWN';
+                    } else if (totalSignal >= 0.5) {
+                      regressionSignalQuick = 'DOWN';
+                    }
                   }
 
                   // Calculate BTTS Check list count
