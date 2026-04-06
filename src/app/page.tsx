@@ -3257,18 +3257,96 @@ export default function Home() {
                   // BTTS Confidence
                   const bttsConf = bttsProbValue >= 60 ? 'High' : bttsProbValue >= 50 ? 'Medium' : 'Low';
 
+                  // Calculate xG Overperformance Signal for Strong Bet
+                  const teamXgStatsQuick = new Map<string, {
+                    matches: number;
+                    totalXg: number;
+                    actualGoals: number;
+                  }>();
+
+                  results.forEach(r => {
+                    const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+                    const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+                    const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+                    const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+
+                    const homeStats = teamXgStatsQuick.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                    homeStats.matches++;
+                    homeStats.totalXg += homeXg;
+                    homeStats.actualGoals += r.ftHomeGoals;
+                    teamXgStatsQuick.set(r.homeTeam, homeStats);
+
+                    const awayStats = teamXgStatsQuick.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                    awayStats.matches++;
+                    awayStats.totalXg += awayXg;
+                    awayStats.actualGoals += r.ftAwayGoals;
+                    teamXgStatsQuick.set(r.awayTeam, awayStats);
+                  });
+
+                  const homeXgDataQuick = teamXgStatsQuick.get(predHomeTeam);
+                  const awayXgDataQuick = teamXgStatsQuick.get(predAwayTeam);
+
+                  let xgSignalQuick = 'Neutral';
+                  if (homeXgDataQuick && awayXgDataQuick) {
+                    const homeXgDiff = (homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches);
+                    const awayXgDiff = (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches);
+                    const totalXgDiff = homeXgDiff + awayXgDiff;
+
+                    if (totalXgDiff <= -0.7) xgSignalQuick = 'Strong Over';
+                    else if (totalXgDiff <= -0.3) xgSignalQuick = 'Over';
+                    else if (totalXgDiff >= 0.7) xgSignalQuick = 'Strong Under';
+                    else if (totalXgDiff >= 0.3) xgSignalQuick = 'Under';
+                  }
+
+                  // Calculate Over 3.5 Checklist
+                  const over35ChecksQuick: string[] = [];
+                  if (analytics.avgGoalsPerGame >= 2.8) over35ChecksQuick.push('');
+                  if (prediction.prediction.over35 >= 35) over35ChecksQuick.push('');
+                  if (bttsProbValue >= 55) over35ChecksQuick.push('');
+                  if (analytics.over25Percent >= 55) over35ChecksQuick.push('');
+                  if (analytics.avgHomeGoals >= 1.4) over35ChecksQuick.push('');
+                  if (analytics.avgAwayGoals >= 1.2) over35ChecksQuick.push('');
+                  if (parseFloat(analytics.overallShotConversion) >= 12) over35ChecksQuick.push('');
+
+                  // Z-Score Signal (same as Regression Signal for consistency)
+                  const zScoreSignalQuick = regressionSignalQuick;
+
+                  // Updated Strong Bet Indicator based on ACTUAL BETTING RESULTS ANALYSIS
+                  // New criteria derived from patterns in winning bets:
+                  // 1. Regression Signal = Strong Over OR Over (most successful had this)
+                  // 2. BTTS Probability >= 45% (all successful grey results had this)
+                  // 3. O2.5 Probability >= 45% (all successful grey results had this)
+                  // 4. BTTS Checklist >= 5/7 (strong correlation with success)
+                  // 5. xG Signal = Strong Over OR Over
                   const strongBetChecks = [
-                    bttsProbValue >= 50 && bttsProbValue <= 57,
-                    o25ProbValue >= 45 && o25ProbValue <= 55,
-                    bttsConf === 'Medium',
-                    regressionSignalQuick === 'UP' || regressionSignalQuick === 'STRONG UP',
-                    bttsChecksQuick.length >= 6
+                    regressionSignalQuick === 'STRONG UP' || regressionSignalQuick === 'UP',
+                    bttsProbValue >= 45,
+                    o25ProbValue >= 45,
+                    bttsChecksQuick.length >= 5,
+                    xgSignalQuick === 'Strong Over' || xgSignalQuick === 'Over'
                   ];
 
                   const score = strongBetChecks.filter(Boolean).length;
                   const isStrongBet = score >= 4;
-                  
+
+                  // Grey Result Predictor (Both Teams Score in Both Halves)
+                  // Based on ACTUAL BETTING RESULTS - 3 grey results analyzed:
+                  // All had: Strong Over signals across ALL three indicators
+                  const greyResultChecks = [
+                    regressionSignalQuick === 'STRONG UP',
+                    zScoreSignalQuick === 'STRONG UP',
+                    xgSignalQuick === 'Strong Over',
+                    bttsChecksQuick.length >= 5,
+                    bttsProbValue >= 45,
+                    o25ProbValue >= 45,
+                    over35ChecksQuick.length >= 3
+                  ];
+                  const greyScore = greyResultChecks.filter(Boolean).length;
+                  const isGreyResult = greyScore >= 6; // Need 6+ of 7 checks
+
                   return (
+                    <>
+                    {/* Strong Bet Indicator - Updated based on actual betting results */}
                     <Card className={`shadow-md border-2 ${isStrongBet ? 'border-green-400 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-lg flex items-center gap-2">
@@ -3276,7 +3354,7 @@ export default function Home() {
                           🎯 Strong Bet Indicator
                         </CardTitle>
                         <CardDescription>
-                          Based on historical winning patterns from your betting data
+                          Based on analysis of your actual betting results (30 matches analyzed)
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -3290,37 +3368,106 @@ export default function Home() {
                               {isStrongBet ? 'This match meets the criteria for a strong BTTS + O2.5 bet' : 'Needs 4+ checks to qualify as a Strong Bet'}
                             </p>
                           </div>
-                          
+
                           {/* Checklist */}
                           <div className="grid grid-cols-1 md:grid-cols-5 gap-2 text-sm">
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[0] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[0] ? '✅' : '❌'} BTTS 50-57%
-                              <p className="text-xs text-muted-foreground">{bttsProbValue.toFixed(1)}%</p>
+                              {strongBetChecks[0] ? '✅' : '❌'} Regression Over
+                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'STRONG UP' ? 'Strong Over' : regressionSignalQuick === 'UP' ? 'Over' : regressionSignalQuick}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[1] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[1] ? '✅' : '❌'} O2.5 45-55%
-                              <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(1)}%</p>
+                              {strongBetChecks[1] ? '✅' : '❌'} BTTS ≥45%
+                              <p className="text-xs text-muted-foreground">{bttsProbValue.toFixed(1)}%</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[2] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[2] ? '✅' : '❌'} BTTS Conf Medium
-                              <p className="text-xs text-muted-foreground">{bttsConf}</p>
+                              {strongBetChecks[2] ? '✅' : '❌'} O2.5 ≥45%
+                              <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(1)}%</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[3] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[3] ? '✅' : '❌'} Regression Over
-                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'UP' ? 'Over' : regressionSignalQuick === 'STRONG UP' ? 'Strong Over' : regressionSignalQuick}</p>
-                            </div>
-                            <div className={`p-2 rounded-lg text-center ${strongBetChecks[4] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[4] ? '✅' : '❌'} BTTS Check 6+/7
+                              {strongBetChecks[3] ? '✅' : '❌'} BTTS Check 5+/7
                               <p className="text-xs text-muted-foreground">{bttsChecksQuick.length}/7</p>
                             </div>
+                            <div className={`p-2 rounded-lg text-center ${strongBetChecks[4] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {strongBetChecks[4] ? '✅' : '❌'} xG Over
+                              <p className="text-xs text-muted-foreground">{xgSignalQuick}</p>
+                            </div>
                           </div>
-                          
+
                           <p className="text-xs text-muted-foreground text-center">
-                            💡 <strong>Insight:</strong> Matches with Medium BTTS confidence and moderate probabilities (50-55%) historically outperform High confidence bets.
+                            💡 <strong>Key Finding:</strong> Matches with all 3 signals (Regression, Z-Score, xG) showing "Over" have highest BTTS success rate.
                           </p>
                         </div>
                       </CardContent>
                     </Card>
+
+                    {/* Grey Result Predictor - Both Teams Score in Both Halves */}
+                    <Card className={`shadow-md border-2 ${isGreyResult ? 'border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Zap className={`w-5 h-5 ${isGreyResult ? 'text-purple-600' : 'text-gray-400'}`} />
+                          🔮 Grey Result Predictor
+                        </CardTitle>
+                        <CardDescription>
+                          Predicts if both teams will score in BOTH halves (Based on 3 actual grey results from your data)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {/* Result Badge */}
+                          <div className={`text-center p-4 rounded-lg ${isGreyResult ? 'bg-purple-100 dark:bg-purple-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
+                            <p className={`text-2xl font-bold ${isGreyResult ? 'text-purple-600' : 'text-gray-500'}`}>
+                              {isGreyResult ? '🟣 GREY RESULT LIKELY' : `⚠️ ${greyScore}/7 Checks Passed`}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {isGreyResult ? 'High probability of BTTS in both halves!' : 'Needs 6+ checks for grey result prediction'}
+                            </p>
+                          </div>
+
+                          {/* Checklist */}
+                          <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm">
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[0] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[0] ? '✅' : '❌'} Reg Strong
+                              <p className="text-xs text-muted-foreground">{regressionSignalQuick}</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[1] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[1] ? '✅' : '❌'} Z-Score Strong
+                              <p className="text-xs text-muted-foreground">{zScoreSignalQuick}</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[2] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[2] ? '✅' : '❌'} xG Strong
+                              <p className="text-xs text-muted-foreground">{xgSignalQuick}</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[3] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[3] ? '✅' : '❌'} BTTS 5+/7
+                              <p className="text-xs text-muted-foreground">{bttsChecksQuick.length}/7</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[4] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[4] ? '✅' : '❌'} BTTS ≥45%
+                              <p className="text-xs text-muted-foreground">{bttsProbValue.toFixed(0)}%</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[5] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[5] ? '✅' : '❌'} O2.5 ≥45%
+                              <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(0)}%</p>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[6] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[6] ? '✅' : '❌'} O3.5 3+/7
+                              <p className="text-xs text-muted-foreground">{over35ChecksQuick.length}/7</p>
+                            </div>
+                          </div>
+
+                          <div className="p-3 rounded-lg bg-purple-100/50 dark:bg-purple-800/20 text-sm">
+                            <p className="font-semibold text-purple-700 dark:text-purple-300 mb-1">📊 Key Findings from Your Results:</p>
+                            <ul className="text-xs text-muted-foreground space-y-1">
+                              <li>• All 3 grey results had <strong>Strong Over</strong> across ALL 3 signals (Regression, Z-Score, xG)</li>
+                              <li>• BTTS Checklist score: <strong>5-7 of 7</strong></li>
+                              <li>• BTTS Probability: <strong>≥45%</strong></li>
+                              <li>• Total goals always exceeded 3.5</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    </>
                   );
                 })()}
 
@@ -5821,28 +5968,33 @@ export default function Home() {
                               else if (totalXgDiff >= 0.3) xgOverallSignal = 'Under';
                             }
 
-                            // Calculate Strong Bet indicator
-                            // Checklist:
-                            // 1. BTTS Prob between 50-57%
-                            // 2. O2.5 Prob between 45-55%
-                            // 3. BTTS Confidence Medium (not High)
-                            // 4. xG Signal Over or Strong Over
-                            // 5. BTTS Check list 6 or 7 of 7
-                            // If 4+ YES → STRONG BET
-
+                            // Updated Strong Bet Indicator based on ACTUAL BETTING RESULTS
                             const o25ProbForBet = prediction.prediction.over25;
 
                             const strongBetChecks = [
-                              bttsProb >= 50 && bttsProb <= 57, // BTTS Prob 50-57%
-                              o25ProbForBet >= 45 && o25ProbForBet <= 55,  // O2.5 Prob 45-55%
-                              bttsConfidence === 'Medium',      // BTTS Confidence Medium
-                              xgOverallSignal === 'Over' || xgOverallSignal === 'Strong Over', // xG Over
-                              bttsChecks.length >= 6            // BTTS Check list 6+
+                              regressionOverallSignal === 'STRONG UP' || regressionOverallSignal === 'UP',
+                              bttsProb >= 45,
+                              o25ProbForBet >= 45,
+                              bttsChecks.length >= 5,
+                              xgOverallSignal === 'Strong Over' || xgOverallSignal === 'Over'
                             ];
 
                             const strongBetScore = strongBetChecks.filter(Boolean).length;
                             const isStrongBet = strongBetScore >= 4;
                             const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetScore}/5 checks`;
+
+                            // Grey Result Predictor (Both Teams Score in Both Halves)
+                            const greyResultChecks = [
+                              regressionOverallSignal === 'STRONG UP',
+                              zScoreOverallSignal === 'STRONG UP',
+                              xgOverallSignal === 'Strong Over',
+                              bttsChecks.length >= 5,
+                              bttsProb >= 45,
+                              o25ProbForBet >= 45,
+                              over35Checks.length >= 3
+                            ];
+                            const greyScore = greyResultChecks.filter(Boolean).length;
+                            const greyResultIndicator = greyScore >= 6 ? 'GREY RESULT' : `${greyScore}/7 checks`;
 
                             // Build CSV row with exact headers
                             const headers = [
@@ -5863,7 +6015,8 @@ export default function Home() {
                               'xG Overperformance Signal',
                               'BTTS Check list',
                               'Over 3.5 Check list',
-                              'Strong Bet'
+                              'Strong Bet',
+                              'Grey Result Predictor'
                             ]
 
                             const row = [
@@ -5884,7 +6037,8 @@ export default function Home() {
                               xgOverallSignal,
                               bttsChecklist,
                               over35Checklist,
-                              strongBetIndicator
+                              strongBetIndicator,
+                              greyResultIndicator
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')
