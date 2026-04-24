@@ -3345,8 +3345,8 @@ export default function Home() {
                   // Based on ACTUAL BETTING RESULTS - 3 grey results analyzed:
                   // All had: Strong Over signals across ALL three indicators
                   const greyResultChecks = [
-                    regressionSignalQuick === 'Strong Over',
-                    zScoreSignalQuick === 'Strong Over',
+                    regressionSignalQuick === 'STRONG UP',
+                    zScoreSignalQuick === 'STRONG UP',
                     xgSignalQuick === 'Strong Over',
                     bttsChecksQuick.length >= 5,
                     bttsProbValue >= 45,
@@ -3443,11 +3443,11 @@ export default function Home() {
                           <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm">
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[0] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[0] ? '✅' : '❌'} Reg Strong
-                              <p className="text-xs text-muted-foreground">{regressionSignalQuick}</p>
+                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'STRONG UP' ? 'Strong Over' : regressionSignalQuick === 'UP' ? 'Over' : regressionSignalQuick === 'STRONG DOWN' ? 'Strong Under' : regressionSignalQuick === 'DOWN' ? 'Under' : regressionSignalQuick}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[1] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[1] ? '✅' : '❌'} Z-Score Strong
-                              <p className="text-xs text-muted-foreground">{zScoreSignalQuick}</p>
+                              <p className="text-xs text-muted-foreground">{zScoreSignalQuick === 'STRONG UP' ? 'Strong Over' : zScoreSignalQuick === 'UP' ? 'Over' : zScoreSignalQuick === 'STRONG DOWN' ? 'Strong Under' : zScoreSignalQuick === 'DOWN' ? 'Under' : zScoreSignalQuick}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[2] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[2] ? '✅' : '❌'} xG Strong
