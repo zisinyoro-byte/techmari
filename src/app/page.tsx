@@ -3304,10 +3304,10 @@ export default function Home() {
                   if (analytics.avgGoalsPerGame >= 2.8) over35ChecksQuick.push('');
                   // 2. Model O3.5 Prob ≥ 35%
                   if (prediction.prediction.over35 >= 35) over35ChecksQuick.push('');
-                  // 3. BTTS Prob ≥ 55%
-                  if (bttsProbValue >= 55) over35ChecksQuick.push('');
-                  // 4. O2.5 Rate ≥ 55%
-                  if (analytics.over25Percent >= 55) over35ChecksQuick.push('');
+                  // 3. BTTS Prob ≥ 53%
+                  if (bttsProbValue >= 53) over35ChecksQuick.push('');
+                  // 4. O2.5 Rate ≥ 68%
+                  if (analytics.over25Percent >= 68) over35ChecksQuick.push('');
                   // 5. Home Avg Goals ≥ 1.4
                   if (analytics.avgHomeGoals >= 1.4) over35ChecksQuick.push('');
                   // 6. Away Avg Goals ≥ 1.2
@@ -5928,10 +5928,10 @@ export default function Home() {
                             if (analytics.avgGoalsPerGame >= 2.8) over35Checks.push('League Avg Goals ≥2.8')
                             // 2. Model O3.5 Prob ≥ 35%
                             if (prediction.prediction.over35 >= 35) over35Checks.push('Model O3.5 Prob ≥35%')
-                            // 3. BTTS Prob ≥ 55%
-                            if (bttsProb >= 55) over35Checks.push('BTTS Prob ≥55%')
-                            // 4. O2.5 Rate ≥ 55%
-                            if (analytics.over25Percent >= 55) over35Checks.push('O2.5 Rate ≥55%')
+                            // 3. BTTS Prob ≥ 53%
+                            if (bttsProb >= 53) over35Checks.push('BTTS Prob ≥53%')
+                            // 4. O2.5 Rate ≥ 68%
+                            if (analytics.over25Percent >= 68) over35Checks.push('O2.5 Rate ≥68%')
                             // 5. Home Avg Goals ≥ 1.4%
                             if (analytics.avgHomeGoals >= 1.4) over35Checks.push('Home Avg Goals ≥1.4')
                             // 6. Away Avg Goals ≥ 1.2
@@ -7805,19 +7805,19 @@ export default function Home() {
                         },
                         {
                           id: 3,
-                          label: "BTTS Probability ≥ 55%",
+                          label: "BTTS Probability ≥ 53%",
                           description: `BTTS probability indicates goal-scoring potential for O3.5`,
-                          passing: prediction?.prediction?.btts >= 55,
+                          passing: prediction?.prediction?.btts >= 53,
                           value: `${prediction?.prediction?.btts?.toFixed(1) || 'N/A'}%`,
-                          threshold: "≥ 55%"
+                          threshold: "≥ 53%"
                         },
                         {
                           id: 4,
-                          label: "Over 2.5 Goals Rate ≥ 55%",
+                          label: "Over 2.5 Goals Rate ≥ 68%",
                           description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (foundation for O3.5)`,
-                          passing: analytics.over25Percent >= 55,
+                          passing: analytics.over25Percent >= 68,
                           value: `${analytics.over25Percent.toFixed(1)}%`,
-                          threshold: "≥ 55%"
+                          threshold: "≥ 68%"
                         },
                         {
                           id: 5,
