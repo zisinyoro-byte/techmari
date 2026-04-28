@@ -3247,11 +3247,11 @@ export default function Home() {
                   // Calculate BTTS Check list count (7 criteria based on analysis)
                   const bttsChecksQuick: string[] = [];
                   if (analytics.avgGoalsPerGame >= 2.5) bttsChecksQuick.push('');
-                  if (analytics.over25Percent >= 50) bttsChecksQuick.push('');
-                  if (bttsProbValue >= 53) bttsChecksQuick.push(''); // BTTS Prob ≥ 53%
+                  if (analytics.over25Percent >= 50) bttsChecksQuick.push(''); // League O2.5 Rate ≥ 50%
+                  if (bttsProbValue >= 53) bttsChecksQuick.push(''); // Model BTTS Prob ≥ 53%
                   if (analytics.avgHomeGoals >= 1.2) bttsChecksQuick.push('');
                   if (analytics.avgAwayGoals >= 1.0) bttsChecksQuick.push('');
-                  if (analytics.over25Percent >= 55) bttsChecksQuick.push(''); // O2.5 rate ≥ 55%
+                  if (o25ProbValue >= 68) bttsChecksQuick.push(''); // Model O2.5 Prob ≥ 68%
                   if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecksQuick.push('');
 
                   // BTTS Confidence
@@ -3333,12 +3333,11 @@ export default function Home() {
                   // 5. xG Signal = Over OR Strong Over
                   // 6. Regression Signal = Strong Over OR Over
                   const o25StrongCheck = o25ProbValue >= 68; // 100% win rate
-                  const o25GoodCheck = o25ProbValue >= 55; // 76.5% win rate
                   
                   const strongBetChecks = [
                     o25StrongCheck, // O2.5 >= 68% (100% win rate - CRITICAL)
-                    o25GoodCheck, // O2.5 >= 55% (76.5% win rate)
-                    bttsProbValue >= 53, // BTTS >= 53% (consistent across all sections)
+                    o35ProbValue >= 35, // O3.5 >= 35% (more goals = more BTTS potential)
+                    bttsProbValue >= 53, // BTTS >= 53%
                     bttsChecksQuick.length >= 6, // BTTS Checklist >= 6/7
                     xgSignalQuick === 'Strong Over' || xgSignalQuick === 'Over', // xG Over
                     regressionSignalQuick === 'STRONG UP' || regressionSignalQuick === 'UP' // Regression Over
@@ -3397,8 +3396,8 @@ export default function Home() {
                               <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(1)}% {o25ProbValue >= 68 ? '(100% win)' : ''}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[1] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[1] ? '✅' : '❌'} O2.5 ≥55%
-                              <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(1)}%</p>
+                              {strongBetChecks[1] ? '✅' : '❌'} O3.5 ≥35%
+                              <p className="text-xs text-muted-foreground">{o35ProbValue.toFixed(1)}%</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[2] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {strongBetChecks[2] ? '✅' : '❌'} BTTS ≥53%
@@ -5943,11 +5942,11 @@ export default function Home() {
                             // BTTS Check items (7 criteria matching display - based on analysis)
                             const bttsChecks: string[] = []
                             if (analytics.avgGoalsPerGame >= 2.5) bttsChecks.push('League Avg Goals ≥2.5')
-                            if (analytics.over25Percent >= 50) bttsChecks.push('O2.5 Rate ≥50%')
-                            if (prediction.prediction.btts >= 53) bttsChecks.push('Model BTTS Prob ≥53%') // Updated to 53% (consistent)
+                            if (analytics.over25Percent >= 50) bttsChecks.push('League O2.5 Rate ≥50%')
+                            if (prediction.prediction.btts >= 53) bttsChecks.push('Model BTTS Prob ≥53%')
                             if (analytics.avgHomeGoals >= 1.2) bttsChecks.push('Home Avg Goals ≥1.2')
                             if (analytics.avgAwayGoals >= 1.0) bttsChecks.push('Away Avg Goals ≥1.0')
-                            if (analytics.over25Percent >= 55) bttsChecks.push('O2.5 Rate ≥55%')
+                            if (prediction.prediction.over25 >= 68) bttsChecks.push('Model O2.5 Prob ≥68%')
                             if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecks.push('Shot Conversion ≥10%')
                             const bttsChecklist = `${bttsChecks.length} of 7`
 
@@ -6001,13 +6000,13 @@ export default function Home() {
                             // Updated Strong Bet Indicator based on ACTUAL BETTING RESULTS
                             // Analysis showed O2.5 >= 68% has 100% BTTS win rate
                             const o25ProbForBet = prediction.prediction.over25;
+                            const o35ProbForBet = prediction.prediction.over35;
                             const o25StrongCheckDownload = o25ProbForBet >= 68; // 100% win rate
-                            const o25GoodCheckDownload = o25ProbForBet >= 55; // 76.5% win rate
 
                             const strongBetChecks = [
                               o25StrongCheckDownload, // O2.5 >= 68% (CRITICAL)
-                              o25GoodCheckDownload, // O2.5 >= 55%
-                              bttsProb >= 53, // BTTS >= 53% (consistent across all sections)
+                              o35ProbForBet >= 35, // O3.5 >= 35% (more goals = more BTTS potential)
+                              bttsProb >= 53, // BTTS >= 53%
                               bttsChecks.length >= 6, // BTTS Checklist >= 6/7
                               xgOverallSignal === 'Strong Over' || xgOverallSignal === 'Over',
                               regressionOverallSignal === 'Strong Over' || regressionOverallSignal === 'Over'
@@ -6019,7 +6018,6 @@ export default function Home() {
 
                             // Grey Result Predictor (Both Teams Score in Both Halves)
                             // Based on ACTUAL BETTING RESULTS - 7 grey results analyzed
-                            const o35ProbForBet = prediction.prediction.over35;
                             const greyResultChecks = [
                               regressionOverallSignal === 'Strong Over',
                               zScoreOverallSignal === 'Strong Over',
@@ -6028,7 +6026,7 @@ export default function Home() {
                               bttsProb >= 53, // Updated from 45% to 53%
                               o25ProbForBet >= 68, // O2.5 >= 68% (consistent across all sections)
                               over35Checks.length >= 3,
-                              o35ProbForBet >= 35 // New: O3.5 Prob >= 35% bonus check
+                              o35ProbForBet >= 35 // O3.5 Prob >= 35% bonus check
                             ];
                             const greyScore = greyResultChecks.filter(Boolean).length;
                             const greyResultIndicator = greyScore >= 6 ? 'GREY RESULT' : `${greyScore}/8 checks`;
@@ -7508,11 +7506,11 @@ export default function Home() {
                         },
                         {
                           id: 7,
-                          label: "Over 2.5 Goals Rate ≥ 55%",
-                          description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (76.5% win rate)`,
-                          passing: analytics.over25Percent >= 55,
-                          value: `${analytics.over25Percent.toFixed(1)}%`,
-                          threshold: "≥ 55%"
+                          label: "Model O2.5 Probability ≥ 68%",
+                          description: `Model predicts ${prediction?.prediction?.over25?.toFixed(1) || 'N/A'}% O2.5 chance (100% win rate)`,
+                          passing: prediction?.prediction?.over25 >= 68,
+                          value: `${prediction?.prediction?.over25?.toFixed(1) || 'N/A'}%`,
+                          threshold: "≥ 68%"
                         },
                         {
                           id: 8,
