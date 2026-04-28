@@ -3178,7 +3178,7 @@ export default function Home() {
                     ? h2hDataQuick.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / h2hDataQuick.length 
                     : null;
 
-                  let regressionSignalQuick = 'NEUTRAL';
+                  let regressionSignalQuick = 'Neutral';
                   
                   if (homeTeamDataQuick && awayTeamDataQuick) {
                     // Calculate means for each team (matching main analysis)
@@ -3234,13 +3234,13 @@ export default function Home() {
                     const totalSignal = homeDeviation.combinedSignal + awayDeviation.combinedSignal;
 
                     if (totalSignal <= -1.2) {
-                      regressionSignalQuick = 'STRONG UP';
+                      regressionSignalQuick = 'Strong Over';
                     } else if (totalSignal <= -0.5) {
-                      regressionSignalQuick = 'UP';
+                      regressionSignalQuick = 'Over';
                     } else if (totalSignal >= 1.2) {
-                      regressionSignalQuick = 'STRONG DOWN';
+                      regressionSignalQuick = 'Strong Under';
                     } else if (totalSignal >= 0.5) {
-                      regressionSignalQuick = 'DOWN';
+                      regressionSignalQuick = 'Under';
                     }
                   }
 
@@ -3340,7 +3340,7 @@ export default function Home() {
                     bttsProbValue >= 53, // BTTS >= 53%
                     bttsChecksQuick.length >= 6, // BTTS Checklist >= 6/7
                     xgSignalQuick === 'Strong Over' || xgSignalQuick === 'Over', // xG Over
-                    regressionSignalQuick === 'STRONG UP' || regressionSignalQuick === 'UP' // Regression Over
+                    regressionSignalQuick === 'Strong Over' || regressionSignalQuick === 'Over' // Regression Over
                   ];
 
                   const score = strongBetChecks.filter(Boolean).length;
@@ -3352,8 +3352,8 @@ export default function Home() {
                   // All had: Strong Over signals across Regression & Z-Score (100%)
                   const o35ProbValue = prediction.prediction.over35;
                   const greyResultChecks = [
-                    regressionSignalQuick === 'STRONG UP',
-                    zScoreSignalQuick === 'STRONG UP',
+                    regressionSignalQuick === 'Strong Over',
+                    zScoreSignalQuick === 'Strong Over',
                     xgSignalQuick === 'Strong Over',
                     bttsChecksQuick.length >= 5,
                     bttsProbValue >= 53, // Updated from 45% to 53%
@@ -3413,7 +3413,7 @@ export default function Home() {
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[5] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {strongBetChecks[5] ? '✅' : '❌'} Regression Over
-                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'STRONG UP' ? 'Strong Over' : regressionSignalQuick === 'UP' ? 'Over' : regressionSignalQuick}</p>
+                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'Strong Over' ? 'Strong Over' : regressionSignalQuick === 'Over' ? 'Over' : regressionSignalQuick}</p>
                             </div>
                           </div>
 
@@ -3451,11 +3451,11 @@ export default function Home() {
                           <div className="grid grid-cols-1 md:grid-cols-8 gap-2 text-sm">
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[0] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[0] ? '✅' : '❌'} Reg Strong
-                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'STRONG UP' ? 'Strong Over' : regressionSignalQuick === 'UP' ? 'Over' : regressionSignalQuick === 'STRONG DOWN' ? 'Strong Under' : regressionSignalQuick === 'DOWN' ? 'Under' : regressionSignalQuick}</p>
+                              <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'Strong Over' ? 'Strong Over' : regressionSignalQuick === 'Over' ? 'Over' : regressionSignalQuick}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[1] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[1] ? '✅' : '❌'} Z-Score Strong
-                              <p className="text-xs text-muted-foreground">{zScoreSignalQuick === 'STRONG UP' ? 'Strong Over' : zScoreSignalQuick === 'UP' ? 'Over' : zScoreSignalQuick === 'STRONG DOWN' ? 'Strong Under' : zScoreSignalQuick === 'DOWN' ? 'Under' : zScoreSignalQuick}</p>
+                              <p className="text-xs text-muted-foreground">{zScoreSignalQuick === 'Strong Over' ? 'Strong Over' : zScoreSignalQuick === 'Over' ? 'Over' : zScoreSignalQuick}</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[2] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[2] ? '✅' : '❌'} xG Strong
@@ -4142,28 +4142,28 @@ export default function Home() {
                         // Negative = last 3 games below mean = likely to regress UP (Over)
                         const combinedSignal = (deviationFromSeason * 0.4) + (deviationFromLast10 * 0.3) + (h2hDeviation * 0.3);
                         
-                        let signal: 'STRONG UP' | 'UP' | 'NEUTRAL' | 'DOWN' | 'STRONG DOWN' = 'NEUTRAL';
+                        let signal: 'Strong Over' | 'Over' | 'Neutral' | 'Under' | 'Strong Under' = 'Neutral';
                         let signalColor = 'text-gray-600';
                         let signalBg = 'bg-gray-100';
                         let signalEmoji = '➡️';
 
                         if (combinedSignal <= -0.8) {
-                          signal = 'STRONG UP';
+                          signal = 'Strong Over';
                           signalColor = 'text-green-600';
                           signalBg = 'bg-green-100';
                           signalEmoji = '📈';
                         } else if (combinedSignal <= -0.3) {
-                          signal = 'UP';
+                          signal = 'Over';
                           signalColor = 'text-emerald-600';
                           signalBg = 'bg-emerald-100';
                           signalEmoji = '↗️';
                         } else if (combinedSignal >= 0.8) {
-                          signal = 'STRONG DOWN';
+                          signal = 'Strong Under';
                           signalColor = 'text-red-600';
                           signalBg = 'bg-red-100';
                           signalEmoji = '📉';
                         } else if (combinedSignal >= 0.3) {
-                          signal = 'DOWN';
+                          signal = 'Under';
                           signalColor = 'text-orange-600';
                           signalBg = 'bg-orange-100';
                           signalEmoji = '↘️';
@@ -5887,10 +5887,10 @@ export default function Home() {
                               const last3Avg = last3.reduce((a, b) => a + b, 0) / last3.length
                               const deviation = last3Avg - seasonAvg
                               let signal = 'Neutral'
-                              if (deviation <= -0.8) signal = 'Strong UP'
-                              else if (deviation <= -0.3) signal = 'UP'
-                              else if (deviation >= 0.8) signal = 'Strong DOWN'
-                              else if (deviation >= 0.3) signal = 'DOWN'
+                              if (deviation <= -0.8) signal = 'Strong Over'
+                              else if (deviation <= -0.3) signal = 'Over'
+                              else if (deviation >= 0.8) signal = 'Strong Under'
+                              else if (deviation >= 0.3) signal = 'Under'
                               return { signal, deviation, last3Avg, seasonAvg }
                             }
 
