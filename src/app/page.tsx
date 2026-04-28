@@ -3248,7 +3248,7 @@ export default function Home() {
                   const bttsChecksQuick: string[] = [];
                   if (analytics.avgGoalsPerGame >= 2.5) bttsChecksQuick.push('');
                   if (analytics.over25Percent >= 50) bttsChecksQuick.push('');
-                  if (bttsProbValue >= 52) bttsChecksQuick.push(''); // Updated from 50% to 52%
+                  if (bttsProbValue >= 53) bttsChecksQuick.push(''); // Updated to 53% (consistent across all sections)
                   if (analytics.avgHomeGoals >= 1.2) bttsChecksQuick.push('');
                   if (analytics.avgAwayGoals >= 1.0) bttsChecksQuick.push('');
                   if (analytics.over25Percent >= 55) bttsChecksQuick.push(''); // O2.5 rate >= 55% (76.5% win rate)
@@ -3331,7 +3331,7 @@ export default function Home() {
                   const strongBetChecks = [
                     o25StrongCheck, // O2.5 >= 68% (100% win rate - CRITICAL)
                     o25GoodCheck, // O2.5 >= 55% (76.5% win rate)
-                    bttsProbValue >= 52, // BTTS >= 52%
+                    bttsProbValue >= 53, // BTTS >= 53% (consistent across all sections)
                     bttsChecksQuick.length >= 6, // BTTS Checklist >= 6/7
                     xgSignalQuick === 'Strong Over' || xgSignalQuick === 'Over', // xG Over
                     regressionSignalQuick === 'STRONG UP' || regressionSignalQuick === 'UP' // Regression Over
@@ -3342,19 +3342,21 @@ export default function Home() {
                   const isStrongBet = o25StrongCheck || score >= 4;
 
                   // Grey Result Predictor (Both Teams Score in Both Halves)
-                  // Based on ACTUAL BETTING RESULTS - 3 grey results analyzed:
-                  // All had: Strong Over signals across ALL three indicators
+                  // Based on ACTUAL BETTING RESULTS - 7 grey results analyzed:
+                  // All had: Strong Over signals across Regression & Z-Score (100%)
+                  const o35ProbValue = prediction.prediction.over35;
                   const greyResultChecks = [
                     regressionSignalQuick === 'STRONG UP',
                     zScoreSignalQuick === 'STRONG UP',
                     xgSignalQuick === 'Strong Over',
                     bttsChecksQuick.length >= 5,
-                    bttsProbValue >= 45,
-                    o25ProbValue >= 55, // Updated to 55% (better correlation)
-                    over35ChecksQuick.length >= 3
+                    bttsProbValue >= 53, // Updated from 45% to 53%
+                    o25ProbValue >= 68, // O2.5 >= 68% (consistent across all sections)
+                    over35ChecksQuick.length >= 3,
+                    o35ProbValue >= 35 // New: O3.5 Prob >= 35% bonus check
                   ];
                   const greyScore = greyResultChecks.filter(Boolean).length;
-                  const isGreyResult = greyScore >= 6; // Need 6+ of 7 checks
+                  const isGreyResult = greyScore >= 6; // Need 6+ of 8 checks
 
                   return (
                     <>
@@ -3392,7 +3394,7 @@ export default function Home() {
                               <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(1)}%</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[2] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {strongBetChecks[2] ? '✅' : '❌'} BTTS ≥52%
+                              {strongBetChecks[2] ? '✅' : '❌'} BTTS ≥53%
                               <p className="text-xs text-muted-foreground">{bttsProbValue.toFixed(1)}%</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${strongBetChecks[3] ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
@@ -3432,7 +3434,7 @@ export default function Home() {
                           {/* Result Badge */}
                           <div className={`text-center p-4 rounded-lg ${isGreyResult ? 'bg-purple-100 dark:bg-purple-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
                             <p className={`text-2xl font-bold ${isGreyResult ? 'text-purple-600' : 'text-gray-500'}`}>
-                              {isGreyResult ? '🟣 GREY RESULT LIKELY' : `⚠️ ${greyScore}/7 Checks Passed`}
+                              {isGreyResult ? '🟣 GREY RESULT LIKELY' : `⚠️ ${greyScore}/8 Checks Passed`}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
                               {isGreyResult ? 'High probability of BTTS in both halves!' : 'Needs 6+ checks for grey result prediction'}
@@ -3440,7 +3442,7 @@ export default function Home() {
                           </div>
 
                           {/* Checklist */}
-                          <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm">
+                          <div className="grid grid-cols-1 md:grid-cols-8 gap-2 text-sm">
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[0] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[0] ? '✅' : '❌'} Reg Strong
                               <p className="text-xs text-muted-foreground">{regressionSignalQuick === 'STRONG UP' ? 'Strong Over' : regressionSignalQuick === 'UP' ? 'Over' : regressionSignalQuick === 'STRONG DOWN' ? 'Strong Under' : regressionSignalQuick === 'DOWN' ? 'Under' : regressionSignalQuick}</p>
@@ -3458,26 +3460,31 @@ export default function Home() {
                               <p className="text-xs text-muted-foreground">{bttsChecksQuick.length}/7</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[4] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {greyResultChecks[4] ? '✅' : '❌'} BTTS ≥45%
+                              {greyResultChecks[4] ? '✅' : '❌'} BTTS ≥53%
                               <p className="text-xs text-muted-foreground">{bttsProbValue.toFixed(0)}%</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[5] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                              {greyResultChecks[5] ? '✅' : '❌'} O2.5 ≥55%
+                              {greyResultChecks[5] ? '✅' : '❌'} O2.5 ≥68%
                               <p className="text-xs text-muted-foreground">{o25ProbValue.toFixed(0)}%</p>
                             </div>
                             <div className={`p-2 rounded-lg text-center ${greyResultChecks[6] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                               {greyResultChecks[6] ? '✅' : '❌'} O3.5 3+/7
                               <p className="text-xs text-muted-foreground">{over35ChecksQuick.length}/7</p>
                             </div>
+                            <div className={`p-2 rounded-lg text-center ${greyResultChecks[7] ? 'bg-purple-100 dark:bg-purple-800/30 text-purple-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                              {greyResultChecks[7] ? '✅' : '❌'} O3.5 ≥35%
+                              <p className="text-xs text-muted-foreground">{o35ProbValue.toFixed(0)}%</p>
+                            </div>
                           </div>
 
                           <div className="p-3 rounded-lg bg-purple-100/50 dark:bg-purple-800/20 text-sm">
-                            <p className="font-semibold text-purple-700 dark:text-purple-300 mb-1">📊 Key Findings from Your Results:</p>
+                            <p className="font-semibold text-purple-700 dark:text-purple-300 mb-1">📊 Key Findings from Your Results (7 Greys Analyzed):</p>
                             <ul className="text-xs text-muted-foreground space-y-1">
-                              <li>• All 3 grey results had <strong>Strong Over</strong> across ALL 3 signals (Regression, Z-Score, xG)</li>
+                              <li>• 100% had <strong>Regression Strong Over</strong> and <strong>Z-Score Strong Over</strong></li>
                               <li>• BTTS Checklist score: <strong>5-7 of 7</strong></li>
-                              <li>• O2.5 Probability: <strong>≥55%</strong> (updated from analysis)</li>
-                              <li>• Total goals always exceeded 3.5</li>
+                              <li>• BTTS Probability: <strong>≥53%</strong></li>
+                              <li>• O2.5 Probability: <strong>≥68%</strong> (consistent across all sections)</li>
+                              <li>• O3.5 Probability: <strong>≥35%</strong> (bonus check)</li>
                             </ul>
                           </div>
                         </div>
@@ -5929,7 +5936,7 @@ export default function Home() {
                             const bttsChecks: string[] = []
                             if (analytics.avgGoalsPerGame >= 2.5) bttsChecks.push('League Avg Goals ≥2.5')
                             if (analytics.over25Percent >= 50) bttsChecks.push('O2.5 Rate ≥50%')
-                            if (prediction.prediction.btts >= 52) bttsChecks.push('Model BTTS Prob ≥52%') // Updated from 50%
+                            if (prediction.prediction.btts >= 53) bttsChecks.push('Model BTTS Prob ≥53%') // Updated to 53% (consistent)
                             if (analytics.avgHomeGoals >= 1.2) bttsChecks.push('Home Avg Goals ≥1.2')
                             if (analytics.avgAwayGoals >= 1.0) bttsChecks.push('Away Avg Goals ≥1.0')
                             if (analytics.over25Percent >= 55) bttsChecks.push('O2.5 Rate ≥55% (76.5% win)')
@@ -5992,7 +5999,7 @@ export default function Home() {
                             const strongBetChecks = [
                               o25StrongCheckDownload, // O2.5 >= 68% (CRITICAL)
                               o25GoodCheckDownload, // O2.5 >= 55%
-                              bttsProb >= 52, // BTTS >= 52%
+                              bttsProb >= 53, // BTTS >= 53% (consistent across all sections)
                               bttsChecks.length >= 6, // BTTS Checklist >= 6/7
                               xgOverallSignal === 'Strong Over' || xgOverallSignal === 'Over',
                               regressionOverallSignal === 'Strong Over' || regressionOverallSignal === 'Over'
@@ -6003,17 +6010,20 @@ export default function Home() {
                             const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetScore}/6 checks`;
 
                             // Grey Result Predictor (Both Teams Score in Both Halves)
+                            // Based on ACTUAL BETTING RESULTS - 7 grey results analyzed
+                            const o35ProbForBet = prediction.prediction.over35;
                             const greyResultChecks = [
                               regressionOverallSignal === 'Strong Over',
                               zScoreOverallSignal === 'Strong Over',
                               xgOverallSignal === 'Strong Over',
                               bttsChecks.length >= 5,
-                              bttsProb >= 45,
-                              o25ProbForBet >= 55, // Updated to 55% (better correlation)
-                              over35Checks.length >= 3
+                              bttsProb >= 53, // Updated from 45% to 53%
+                              o25ProbForBet >= 68, // O2.5 >= 68% (consistent across all sections)
+                              over35Checks.length >= 3,
+                              o35ProbForBet >= 35 // New: O3.5 Prob >= 35% bonus check
                             ];
                             const greyScore = greyResultChecks.filter(Boolean).length;
-                            const greyResultIndicator = greyScore >= 6 ? 'GREY RESULT' : `${greyScore}/7 checks`;
+                            const greyResultIndicator = greyScore >= 6 ? 'GREY RESULT' : `${greyScore}/8 checks`;
 
                             // Build CSV row with exact headers
                             const headers = [
