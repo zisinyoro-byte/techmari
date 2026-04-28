@@ -3336,6 +3336,7 @@ export default function Home() {
                   // 5. xG Signal = Over OR Strong Over
                   // 6. Regression Signal = Strong Over OR Over
                   const o25StrongCheck = o25ProbValue >= 68; // 100% win rate
+                  const o35ProbValue = prediction.prediction.over35; // O3.5 probability
                   
                   const strongBetChecks = [
                     o25StrongCheck, // O2.5 >= 68% (100% win rate - CRITICAL)
@@ -3353,7 +3354,6 @@ export default function Home() {
                   // Grey Result Predictor (Both Teams Score in Both Halves)
                   // Based on ACTUAL BETTING RESULTS - 7 grey results analyzed:
                   // All had: Strong Over signals across Regression & Z-Score (100%)
-                  const o35ProbValue = prediction.prediction.over35;
                   const greyResultChecks = [
                     regressionSignalQuick === 'Strong Over',
                     zScoreSignalQuick === 'Strong Over',
