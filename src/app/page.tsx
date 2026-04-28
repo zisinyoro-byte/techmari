@@ -3248,10 +3248,10 @@ export default function Home() {
                   const bttsChecksQuick: string[] = [];
                   if (analytics.avgGoalsPerGame >= 2.5) bttsChecksQuick.push('');
                   if (analytics.over25Percent >= 50) bttsChecksQuick.push('');
-                  if (bttsProbValue >= 53) bttsChecksQuick.push(''); // Updated to 53% (consistent across all sections)
+                  if (bttsProbValue >= 53) bttsChecksQuick.push(''); // BTTS Prob ≥ 53%
                   if (analytics.avgHomeGoals >= 1.2) bttsChecksQuick.push('');
                   if (analytics.avgAwayGoals >= 1.0) bttsChecksQuick.push('');
-                  if (analytics.over25Percent >= 55) bttsChecksQuick.push(''); // O2.5 rate >= 55% (76.5% win rate)
+                  if (analytics.over25Percent >= 68) bttsChecksQuick.push(''); // O2.5 rate ≥ 68%
                   if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecksQuick.push('');
 
                   // BTTS Confidence
@@ -5947,7 +5947,7 @@ export default function Home() {
                             if (prediction.prediction.btts >= 53) bttsChecks.push('Model BTTS Prob ≥53%') // Updated to 53% (consistent)
                             if (analytics.avgHomeGoals >= 1.2) bttsChecks.push('Home Avg Goals ≥1.2')
                             if (analytics.avgAwayGoals >= 1.0) bttsChecks.push('Away Avg Goals ≥1.0')
-                            if (analytics.over25Percent >= 55) bttsChecks.push('O2.5 Rate ≥55% (76.5% win)')
+                            if (analytics.over25Percent >= 68) bttsChecks.push('O2.5 Rate ≥68%')
                             if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecks.push('Shot Conversion ≥10%')
                             const bttsChecklist = `${bttsChecks.length} of 7`
 
@@ -7460,7 +7460,7 @@ export default function Home() {
                       const checklistItems = [
                         {
                           id: 1,
-                          label: "League Avg Goals Per Game > 2.5",
+                          label: "League Avg Goals Per Game ≥ 2.5",
                           description: `Current league average: ${analytics.avgGoalsPerGame.toFixed(2)} goals/game`,
                           passing: analytics.avgGoalsPerGame >= 2.5,
                           value: analytics.avgGoalsPerGame.toFixed(2),
@@ -7468,7 +7468,7 @@ export default function Home() {
                         },
                         {
                           id: 2,
-                          label: "Over 2.5 Goals Rate > 50%",
+                          label: "Over 2.5 Goals Rate ≥ 50%",
                           description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals`,
                           passing: analytics.over25Percent >= 50,
                           value: `${analytics.over25Percent.toFixed(1)}%`,
@@ -7476,11 +7476,11 @@ export default function Home() {
                         },
                         {
                           id: 3,
-                          label: "Model BTTS Probability > 50%",
-                          description: `Dixon-Coles model predicts ${(bttsProb * 100).toFixed(1)}% BTTS chance`,
-                          passing: bttsProb >= 0.50,
+                          label: "Model BTTS Probability ≥ 53%",
+                          description: `Model predicts ${(bttsProb * 100).toFixed(1)}% BTTS chance`,
+                          passing: bttsProb >= 0.53,
                           value: `${(bttsProb * 100).toFixed(1)}%`,
-                          threshold: "≥ 50%"
+                          threshold: "≥ 53%"
                         },
                         {
                           id: 4,
@@ -7492,7 +7492,7 @@ export default function Home() {
                         },
                         {
                           id: 5,
-                          label: "Home Team Avg Goals Scored > 1.2",
+                          label: "Home Team Avg Goals Scored ≥ 1.2",
                           description: `League home teams avg ${analytics.avgHomeGoals.toFixed(2)} goals`,
                           passing: analytics.avgHomeGoals >= 1.2,
                           value: analytics.avgHomeGoals.toFixed(2),
@@ -7500,7 +7500,7 @@ export default function Home() {
                         },
                         {
                           id: 6,
-                          label: "Away Team Avg Goals Scored > 1.0",
+                          label: "Away Team Avg Goals Scored ≥ 1.0",
                           description: `League away teams avg ${analytics.avgAwayGoals.toFixed(2)} goals`,
                           passing: analytics.avgAwayGoals >= 1.0,
                           value: analytics.avgAwayGoals.toFixed(2),
@@ -7508,11 +7508,11 @@ export default function Home() {
                         },
                         {
                           id: 7,
-                          label: "Over 1.5 Goals Rate > 70%",
-                          description: `${analytics.over25Percent}% O2.5 suggests high O1.5 rate`,
-                          passing: analytics.over25Percent >= 45, // Proxy since O1.5 > O2.5
-                          value: `${(over15Prob * 100).toFixed(1)}%`,
-                          threshold: "≥ 70%"
+                          label: "Over 2.5 Goals Rate ≥ 68%",
+                          description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (100% win rate)`,
+                          passing: analytics.over25Percent >= 68,
+                          value: `${analytics.over25Percent.toFixed(1)}%`,
+                          threshold: "≥ 68%"
                         },
                         {
                           id: 8,
