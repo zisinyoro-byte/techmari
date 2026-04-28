@@ -3298,28 +3298,22 @@ export default function Home() {
                     else if (totalXgDiff >= 0.3) xgSignalQuick = 'Under';
                   }
 
-                  // Calculate Over 3.5 Checklist (matching O3.5 Tab criteria)
+                  // Calculate Over 3.5 Checklist (7 auto-check criteria)
                   const over35ChecksQuick: string[] = [];
                   // 1. League Avg Goals ≥ 2.8
                   if (analytics.avgGoalsPerGame >= 2.8) over35ChecksQuick.push('');
-                  // 2. O2.5 Rate ≥ 55%
+                  // 2. Model O3.5 Prob ≥ 35%
+                  if (prediction.prediction.over35 >= 35) over35ChecksQuick.push('');
+                  // 3. BTTS Prob ≥ 55%
+                  if (bttsProbValue >= 55) over35ChecksQuick.push('');
+                  // 4. O2.5 Rate ≥ 55%
                   if (analytics.over25Percent >= 55) over35ChecksQuick.push('');
-                  // 3. Model O3.5 Prob ≥ 25%
-                  if (prediction.prediction.over35 >= 25) over35ChecksQuick.push('');
-                  // 4. Actual O3.5 Rate ≥ 20%
-                  const actualOver35CountQuick = results.filter(r => r.ftHomeGoals + r.ftAwayGoals > 3.5).length;
-                  const actualOver35PercentQuick = (actualOver35CountQuick / results.length) * 100;
-                  if (actualOver35PercentQuick >= 20) over35ChecksQuick.push('');
-                  // 5. Home Avg Goals ≥ 1.5
-                  if (analytics.avgHomeGoals >= 1.5) over35ChecksQuick.push('');
+                  // 5. Home Avg Goals ≥ 1.4
+                  if (analytics.avgHomeGoals >= 1.4) over35ChecksQuick.push('');
                   // 6. Away Avg Goals ≥ 1.2
                   if (analytics.avgAwayGoals >= 1.2) over35ChecksQuick.push('');
-                  // 7. Avg Goals when O2.5 ≥ 3.5
-                  const over25MatchesQuick = results.filter(r => r.ftHomeGoals + r.ftAwayGoals > 2.5);
-                  const avgGoalsWhenOver25Quick = over25MatchesQuick.length > 0
-                    ? over25MatchesQuick.reduce((sum, r) => sum + r.ftHomeGoals + r.ftAwayGoals, 0) / over25MatchesQuick.length
-                    : 0;
-                  if (avgGoalsWhenOver25Quick >= 3.5) over35ChecksQuick.push('');
+                  // 7. Shot Conversion ≥ 12%
+                  if (parseFloat(analytics.overallShotConversion) >= 12) over35ChecksQuick.push('');
 
                   // Z-Score Signal (same as Regression Signal for consistency)
                   const zScoreSignalQuick = regressionSignalQuick;
@@ -5928,28 +5922,22 @@ export default function Home() {
                             if (bttsProb >= 60) bttsStrength = 'Strong'
                             else if (bttsProb >= 50) bttsStrength = 'Medium'
 
-                            // Calculate Over 3.5 check items (7 auto-check items matching O3.5 Tab)
+                            // Calculate Over 3.5 check items (7 auto-check criteria)
                             const over35Checks: string[] = []
                             // 1. League Avg Goals ≥ 2.8
                             if (analytics.avgGoalsPerGame >= 2.8) over35Checks.push('League Avg Goals ≥2.8')
-                            // 2. O2.5 Rate ≥ 55%
+                            // 2. Model O3.5 Prob ≥ 35%
+                            if (prediction.prediction.over35 >= 35) over35Checks.push('Model O3.5 Prob ≥35%')
+                            // 3. BTTS Prob ≥ 55%
+                            if (bttsProb >= 55) over35Checks.push('BTTS Prob ≥55%')
+                            // 4. O2.5 Rate ≥ 55%
                             if (analytics.over25Percent >= 55) over35Checks.push('O2.5 Rate ≥55%')
-                            // 3. Model O3.5 Prob ≥ 25%
-                            if (prediction.prediction.over35 >= 25) over35Checks.push('Model O3.5 Prob ≥25%')
-                            // 4. Actual O3.5 Rate ≥ 20%
-                            const actualOver35Count = results.filter(r => r.ftHomeGoals + r.ftAwayGoals > 3.5).length
-                            const actualOver35Percent = (actualOver35Count / results.length) * 100
-                            if (actualOver35Percent >= 20) over35Checks.push('Actual O3.5 Rate ≥20%')
-                            // 5. Home Avg Goals ≥ 1.5
-                            if (analytics.avgHomeGoals >= 1.5) over35Checks.push('Home Avg Goals ≥1.5')
+                            // 5. Home Avg Goals ≥ 1.4%
+                            if (analytics.avgHomeGoals >= 1.4) over35Checks.push('Home Avg Goals ≥1.4')
                             // 6. Away Avg Goals ≥ 1.2
                             if (analytics.avgAwayGoals >= 1.2) over35Checks.push('Away Avg Goals ≥1.2')
-                            // 7. Avg Goals when O2.5 ≥ 3.5
-                            const over25Matches = results.filter(r => r.ftHomeGoals + r.ftAwayGoals > 2.5)
-                            const avgGoalsWhenOver25 = over25Matches.length > 0
-                              ? over25Matches.reduce((sum, r) => sum + r.ftHomeGoals + r.ftAwayGoals, 0) / over25Matches.length
-                              : 0
-                            if (avgGoalsWhenOver25 >= 3.5) over35Checks.push('Avg Goals when O2.5 ≥3.5')
+                            // 7. Shot Conversion ≥ 12%
+                            if (parseFloat(analytics.overallShotConversion) >= 12) over35Checks.push('Shot Conversion ≥12%')
                             const over35Checklist = `${over35Checks.length} of 7`
 
                             // BTTS Check items (7 criteria matching display - based on analysis)
@@ -7797,11 +7785,11 @@ export default function Home() {
                         ? over25Matches.reduce((sum, r) => sum + r.ftHomeGoals + r.ftAwayGoals, 0) / over25Matches.length 
                         : 0
 
-                      // Generate checklist items with dynamic values
+                      // Generate checklist items with dynamic values (7 auto-check criteria)
                       const checklistItems = [
                         {
                           id: 1,
-                          label: "League Avg Goals Per Game > 2.8",
+                          label: "League Avg Goals Per Game ≥ 2.8",
                           description: `Current league average: ${analytics.avgGoalsPerGame.toFixed(2)} goals/game (need 2.8+ for O3.5)`,
                           passing: analytics.avgGoalsPerGame >= 2.8,
                           value: analytics.avgGoalsPerGame.toFixed(2),
@@ -7809,39 +7797,39 @@ export default function Home() {
                         },
                         {
                           id: 2,
-                          label: "Over 2.5 Goals Rate > 55%",
+                          label: "Model Over 3.5 Probability ≥ 35%",
+                          description: `Model predicts ${prediction?.prediction?.over35?.toFixed(1) || 'N/A'}% Over 3.5 chance`,
+                          passing: prediction?.prediction?.over35 >= 35,
+                          value: `${prediction?.prediction?.over35?.toFixed(1) || 'N/A'}%`,
+                          threshold: "≥ 35%"
+                        },
+                        {
+                          id: 3,
+                          label: "BTTS Probability ≥ 55%",
+                          description: `BTTS probability indicates goal-scoring potential for O3.5`,
+                          passing: prediction?.prediction?.btts >= 55,
+                          value: `${prediction?.prediction?.btts?.toFixed(1) || 'N/A'}%`,
+                          threshold: "≥ 55%"
+                        },
+                        {
+                          id: 4,
+                          label: "Over 2.5 Goals Rate ≥ 55%",
                           description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (foundation for O3.5)`,
                           passing: analytics.over25Percent >= 55,
                           value: `${analytics.over25Percent.toFixed(1)}%`,
                           threshold: "≥ 55%"
                         },
                         {
-                          id: 3,
-                          label: "Model Over 3.5 Probability > 25%",
-                          description: `Dixon-Coles model predicts ${(over35Prob * 100).toFixed(1)}% Over 3.5 chance`,
-                          passing: over35Prob >= 0.25,
-                          value: `${(over35Prob * 100).toFixed(1)}%`,
-                          threshold: "≥ 25%"
-                        },
-                        {
-                          id: 4,
-                          label: "Actual Over 3.5 Rate in League > 20%",
-                          description: `${actualOver35Percent.toFixed(1)}% of matches this season had 4+ goals`,
-                          passing: actualOver35Percent >= 20,
-                          value: `${actualOver35Percent.toFixed(1)}%`,
-                          threshold: "≥ 20%"
-                        },
-                        {
                           id: 5,
-                          label: "Home Team Avg Goals > 1.5",
+                          label: "Home Team Avg Goals ≥ 1.4",
                           description: `League home teams avg ${analytics.avgHomeGoals.toFixed(2)} goals per game`,
-                          passing: analytics.avgHomeGoals >= 1.5,
+                          passing: analytics.avgHomeGoals >= 1.4,
                           value: analytics.avgHomeGoals.toFixed(2),
-                          threshold: "≥ 1.50"
+                          threshold: "≥ 1.40"
                         },
                         {
                           id: 6,
-                          label: "Away Team Avg Goals > 1.2",
+                          label: "Away Team Avg Goals ≥ 1.2",
                           description: `League away teams avg ${analytics.avgAwayGoals.toFixed(2)} goals per game`,
                           passing: analytics.avgAwayGoals >= 1.2,
                           value: analytics.avgAwayGoals.toFixed(2),
@@ -7849,19 +7837,19 @@ export default function Home() {
                         },
                         {
                           id: 7,
+                          label: "Shot Conversion Rate ≥ 12%",
+                          description: `Overall shot conversion: ${analytics.overallShotConversion}% (higher = more clinical finishing)`,
+                          passing: parseFloat(analytics.overallShotConversion) >= 12,
+                          value: `${analytics.overallShotConversion}%`,
+                          threshold: "≥ 12%"
+                        },
+                        {
+                          id: 8,
                           label: "High-Scoring H2H History",
                           description: "Check H2H tab for Over 3.5 rate between these teams",
                           passing: null, // Requires manual check
                           value: "Manual",
                           threshold: "≥ 30%"
-                        },
-                        {
-                          id: 8,
-                          label: "Avg Goals When Over 2.5 > 3.5",
-                          description: `When O2.5 hits, avg total is ${avgGoalsWhenOver25.toFixed(2)} goals`,
-                          passing: avgGoalsWhenOver25 >= 3.5,
-                          value: avgGoalsWhenOver25.toFixed(2),
-                          threshold: "≥ 3.50"
                         },
                         {
                           id: 9,
