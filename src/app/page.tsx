@@ -3251,7 +3251,7 @@ export default function Home() {
                   if (bttsProbValue >= 53) bttsChecksQuick.push(''); // BTTS Prob ≥ 53%
                   if (analytics.avgHomeGoals >= 1.2) bttsChecksQuick.push('');
                   if (analytics.avgAwayGoals >= 1.0) bttsChecksQuick.push('');
-                  if (analytics.over25Percent >= 68) bttsChecksQuick.push(''); // O2.5 rate ≥ 68%
+                  if (analytics.over25Percent >= 55) bttsChecksQuick.push(''); // O2.5 rate ≥ 55%
                   if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecksQuick.push('');
 
                   // BTTS Confidence
@@ -3306,8 +3306,8 @@ export default function Home() {
                   if (prediction.prediction.over35 >= 35) over35ChecksQuick.push('');
                   // 3. BTTS Prob ≥ 53%
                   if (bttsProbValue >= 53) over35ChecksQuick.push('');
-                  // 4. O2.5 Rate ≥ 68%
-                  if (analytics.over25Percent >= 68) over35ChecksQuick.push('');
+                  // 4. O2.5 Rate ≥ 55%
+                  if (analytics.over25Percent >= 55) over35ChecksQuick.push('');
                   // 5. Home Avg Goals ≥ 1.4
                   if (analytics.avgHomeGoals >= 1.4) over35ChecksQuick.push('');
                   // 6. Away Avg Goals ≥ 1.2
@@ -5930,8 +5930,8 @@ export default function Home() {
                             if (prediction.prediction.over35 >= 35) over35Checks.push('Model O3.5 Prob ≥35%')
                             // 3. BTTS Prob ≥ 53%
                             if (bttsProb >= 53) over35Checks.push('BTTS Prob ≥53%')
-                            // 4. O2.5 Rate ≥ 68%
-                            if (analytics.over25Percent >= 68) over35Checks.push('O2.5 Rate ≥68%')
+                            // 4. O2.5 Rate ≥ 55%
+                            if (analytics.over25Percent >= 55) over35Checks.push('O2.5 Rate ≥55%')
                             // 5. Home Avg Goals ≥ 1.4%
                             if (analytics.avgHomeGoals >= 1.4) over35Checks.push('Home Avg Goals ≥1.4')
                             // 6. Away Avg Goals ≥ 1.2
@@ -5947,7 +5947,7 @@ export default function Home() {
                             if (prediction.prediction.btts >= 53) bttsChecks.push('Model BTTS Prob ≥53%') // Updated to 53% (consistent)
                             if (analytics.avgHomeGoals >= 1.2) bttsChecks.push('Home Avg Goals ≥1.2')
                             if (analytics.avgAwayGoals >= 1.0) bttsChecks.push('Away Avg Goals ≥1.0')
-                            if (analytics.over25Percent >= 68) bttsChecks.push('O2.5 Rate ≥68%')
+                            if (analytics.over25Percent >= 55) bttsChecks.push('O2.5 Rate ≥55%')
                             if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecks.push('Shot Conversion ≥10%')
                             const bttsChecklist = `${bttsChecks.length} of 7`
 
@@ -7508,11 +7508,11 @@ export default function Home() {
                         },
                         {
                           id: 7,
-                          label: "Over 2.5 Goals Rate ≥ 68%",
-                          description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (100% win rate)`,
-                          passing: analytics.over25Percent >= 68,
+                          label: "Over 2.5 Goals Rate ≥ 55%",
+                          description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (76.5% win rate)`,
+                          passing: analytics.over25Percent >= 55,
                           value: `${analytics.over25Percent.toFixed(1)}%`,
-                          threshold: "≥ 68%"
+                          threshold: "≥ 55%"
                         },
                         {
                           id: 8,
@@ -7813,11 +7813,11 @@ export default function Home() {
                         },
                         {
                           id: 4,
-                          label: "Over 2.5 Goals Rate ≥ 68%",
+                          label: "Over 2.5 Goals Rate ≥ 55%",
                           description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (foundation for O3.5)`,
-                          passing: analytics.over25Percent >= 68,
+                          passing: analytics.over25Percent >= 55,
                           value: `${analytics.over25Percent.toFixed(1)}%`,
-                          threshold: "≥ 68%"
+                          threshold: "≥ 55%"
                         },
                         {
                           id: 5,
