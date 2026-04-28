@@ -5918,18 +5918,12 @@ export default function Home() {
                             // Calculate Over 3.5 check items (7 auto-check items matching interface)
                             const over35Checks: string[] = []
                             if (analytics.avgGoalsPerGame >= 2.8) over35Checks.push('League Avg Goals ≥2.8')
+                            if (prediction.prediction.over35 >= 35) over35Checks.push('Model O3.5 Prob ≥35%')
+                            if (bttsProb >= 55) over35Checks.push('BTTS Prob ≥55%')
                             if (analytics.over25Percent >= 55) over35Checks.push('O2.5 Rate ≥55%')
-                            if (prediction.prediction.over35 >= 25) over35Checks.push('Model O3.5 Prob ≥25%')
-                            const actualOver35Count = results.filter(r => r.ftHomeGoals + r.ftAwayGoals > 3.5).length
-                            const actualOver35Percent = (actualOver35Count / results.length) * 100
-                            if (actualOver35Percent >= 20) over35Checks.push('Actual O3.5 Rate ≥20%')
-                            if (analytics.avgHomeGoals >= 1.5) over35Checks.push('Home Avg Goals ≥1.5')
+                            if (analytics.avgHomeGoals >= 1.4) over35Checks.push('Home Avg Goals ≥1.4')
                             if (analytics.avgAwayGoals >= 1.2) over35Checks.push('Away Avg Goals ≥1.2')
-                            const over25Matches = results.filter(r => r.ftHomeGoals + r.ftAwayGoals > 2.5)
-                            const avgGoalsWhenOver25 = over25Matches.length > 0
-                              ? over25Matches.reduce((sum, r) => sum + r.ftHomeGoals + r.ftAwayGoals, 0) / over25Matches.length
-                              : 0
-                            if (avgGoalsWhenOver25 >= 3.5) over35Checks.push('Avg Goals when O2.5 ≥3.5')
+                            if (parseFloat(analytics.overallShotConversion) >= 12) over35Checks.push('Shot Conversion ≥12%')
                             const over35Checklist = `${over35Checks.length} of 7`
 
                             // BTTS Check items (7 criteria matching display - based on analysis)
