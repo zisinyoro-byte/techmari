@@ -3104,6 +3104,9 @@ export default function Home() {
 
                 {/* Strong Bet Indicator */}
                 {(() => {
+                  // Check if analytics is available
+                  if (!analytics) return null;
+                  
                   // Calculate Strong Bet indicator
                   const bttsProbValue = prediction.prediction.btts;
                   const o25ProbValue = prediction.prediction.over25;
