@@ -3102,7 +3102,7 @@ export default function Home() {
                   </CardContent>
                 </Card>
 
-                {/* Strong Bet Indicator */}
+                {/* Strong Bet Indicator - Fixed analytics null check */}
                 {(() => {
                   // Check if analytics is available
                   if (!analytics) return null;
