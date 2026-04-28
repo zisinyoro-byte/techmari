@@ -1917,7 +1917,7 @@ export default function Home() {
                         filteredH2HResults.score00.map((match, i) => (
                           <div key={i} className="p-2 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
                             <p className="text-sm font-medium truncate">{match.teams}</p>
-                            <p className="text-xs text-muted-foreground">{match.date}{match.season && ` (${match.season})`}</p>
+                            <p className="text-xs text-muted-foreground">{match.date}{match.season && ` (${SEASON_NAMES[match.season] || match.season})`}</p>
                           </div>
                         ))
                       )}
@@ -1938,7 +1938,7 @@ export default function Home() {
                           <div key={i} className="p-2 bg-white dark:bg-gray-900 rounded border border-yellow-200 dark:border-yellow-800">
                             <p className="text-sm font-medium truncate">{match.teams}</p>
                             <div className="flex items-center justify-between">
-                              <p className="text-xs text-muted-foreground">{match.date}{match.season && ` (${match.season})`}</p>
+                              <p className="text-xs text-muted-foreground">{match.date}{match.season && ` (${SEASON_NAMES[match.season] || match.season})`}</p>
                               <span className="text-xs font-medium text-yellow-600">{match.score}</span>
                             </div>
                           </div>
@@ -1961,7 +1961,7 @@ export default function Home() {
                           <div key={i} className="p-2 bg-white dark:bg-gray-900 rounded border border-green-200 dark:border-green-800">
                             <p className="text-sm font-medium truncate">{match.teams}</p>
                             <div className="flex items-center justify-between">
-                              <p className="text-xs text-muted-foreground">{match.date}{match.season && ` (${match.season})`}</p>
+                              <p className="text-xs text-muted-foreground">{match.date}{match.season && ` (${SEASON_NAMES[match.season] || match.season})`}</p>
                               <span className="text-xs font-medium text-green-600">{match.score}</span>
                             </div>
                           </div>
