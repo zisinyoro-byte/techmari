@@ -119,7 +119,7 @@ export default function PredictionsTab({
               </CardContent>
             </Card>
 
-            {prediction && (
+            {prediction?.prediction?.impliedOdds && (
               <>
                 {/* Market Probabilities with Implied Odds */}
                 <Card className="shadow-md">
@@ -175,10 +175,10 @@ export default function PredictionsTab({
                   </CardContent>
                 </Card>
 
-                {/* Strong Bet Indicator - Fixed analytics null check */}
+                {/* Strong Bet Indicator */}
                 {(() => {
-                  // Check if analytics is available
-                  if (!analytics) return null;
+                  // Guard: analytics and prediction.prediction must be available
+                  if (!analytics || !prediction?.prediction) return null;
                   
                   // Calculate Strong Bet indicator
                   const bttsProbValue = prediction.prediction.btts;

@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Trophy, Goal, TrendingUp, RefreshCw, Users, Target, Zap, Dice5, Sparkles, FlaskConical } from 'lucide-react'
 
+// Error boundary for graceful crash handling
+import ErrorBoundary from '@/components/ErrorBoundary'
+
 // Extracted tab components
 import OverviewTab from '@/components/tabs/OverviewTab'
 import HeadToHeadTab from '@/components/tabs/HeadToHeadTab'
@@ -142,14 +145,23 @@ export default function Home() {
     if (predHomeTeam === predAwayTeam) { setPredError('Please select different teams'); return }
     setPredLoading(true)
     setPredError(null)
+    setPrediction(null) // Clear previous prediction
     try {
       const res = await fetch(`/api/soccer/predict?league=${selectedLeague}&season=${selectedSeason}&homeTeam=${encodeURIComponent(predHomeTeam)}&awayTeam=${encodeURIComponent(predAwayTeam)}`)
-      if (!res.ok) throw new Error('Failed to fetch prediction')
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || `Prediction failed (${res.status})`)
+      }
       const data = await res.json()
+      // Validate response structure before setting state
+      if (!data?.prediction) {
+        throw new Error('Invalid prediction response from server')
+      }
       setPrediction(data)
     } catch (err) {
-      setPredError('Failed to generate prediction')
-      console.error(err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate prediction'
+      setPredError(errorMessage)
+      console.error('Prediction error:', err)
     } finally {
       setPredLoading(false)
     }
@@ -347,7 +359,9 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="predict" className="space-y-6">
-            <PredictionsTab results={results} analytics={analytics} teams={teams} teamsPerSeason={teamsPerSeason} predHomeTeam={predHomeTeam} predAwayTeam={predAwayTeam} setPredHomeTeam={setPredHomeTeam} setPredAwayTeam={setPredAwayTeam} setTeam1={setTeam1} setTeam2={setTeam2} prediction={prediction} predLoading={predLoading} predError={predError} bookmakerOdds15={bookmakerOdds15} setBookmakerOdds15={setBookmakerOdds15} bookmakerOddsBtts={bookmakerOddsBtts} setBookmakerOddsBtts={setBookmakerOddsBtts} fetchPrediction={fetchPrediction} selectedLeague={selectedLeague} selectedSeason={selectedSeason} isAllSeasons={isAllSeasons} teamForm={teamForm} />
+            <ErrorBoundary>
+              <PredictionsTab results={results} analytics={analytics} teams={teams} teamsPerSeason={teamsPerSeason} predHomeTeam={predHomeTeam} predAwayTeam={predAwayTeam} setPredHomeTeam={setPredHomeTeam} setPredAwayTeam={setPredAwayTeam} setTeam1={setTeam1} setTeam2={setTeam2} prediction={prediction} predLoading={predLoading} predError={predError} bookmakerOdds15={bookmakerOdds15} setBookmakerOdds15={setBookmakerOdds15} bookmakerOddsBtts={bookmakerOddsBtts} setBookmakerOddsBtts={setBookmakerOddsBtts} fetchPrediction={fetchPrediction} selectedLeague={selectedLeague} selectedSeason={selectedSeason} isAllSeasons={isAllSeasons} teamForm={teamForm} />
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="models" className="space-y-6">
