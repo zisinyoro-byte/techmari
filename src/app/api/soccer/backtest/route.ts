@@ -11,6 +11,10 @@ import { EUROPEAN_SEASONS } from '@/lib/constants';
 import { calculateSeasonWeights } from '@/lib/models/season-weighting';
 import { calculateLeagueAverages, generateBacktestPredictions } from '@/lib/models/predictions';
 import { saveCalibration } from '@/lib/models/calibration-store';
+import {
+  deriveThresholdsFromBacktest,
+  registerBacktestThresholds,
+} from '@/lib/betting-filters';
 
 // Find the last H2H match before a given date
 function findLastH2H(
@@ -350,6 +354,84 @@ export async function GET(request: NextRequest) {
       brierScore: ensembleMetrics.brierScore,
       timestamp: Date.now(),
     });
+
+    // ── Derive and register backtest-based thresholds for this league ──
+    try {
+      // Build BacktestMatch[] from predictions + testData for threshold derivation
+      const testMatchMap = new Map<string, typeof testData[0]>();
+      for (const m of testData) {
+        testMatchMap.set(`${m.homeTeam}-${m.awayTeam}-${m.date}`, m);
+      }
+
+      const backtestMatches = predictions.map(pred => {
+        const matchKey = `${pred.match.homeTeam}-${pred.match.awayTeam}-${pred.match.date}`;
+        const matchData = testMatchMap.get(matchKey);
+
+        // Compute per-match shot conversion: goals / shots (both teams)
+        const totalShots = matchData
+          ? (matchData.homeShots + matchData.awayShots)
+          : 0;
+        const shotConv = totalShots > 0
+          ? ((matchData!.ftHomeGoals + matchData!.ftAwayGoals) / totalShots) * 100
+          : undefined;
+
+        // Compute over35 probability from Poisson using totalXg
+        // over35 = 1 - P(0 goals) - P(1) - P(2) - P(3)
+        const totalXg = pred.predicted.totalXg;
+        let over35Prob: number | undefined;
+        if (totalXg > 0) {
+          const p0 = Math.exp(-totalXg);
+          const p1 = totalXg * Math.exp(-totalXg);
+          const p2 = (totalXg * totalXg / 2) * Math.exp(-totalXg);
+          const p3 = (totalXg * totalXg * totalXg / 6) * Math.exp(-totalXg);
+          over35Prob = (1 - p0 - p1 - p2 - p3) * 100;
+        }
+
+        return {
+          ftHomeGoals: pred.actual.homeGoals,
+          ftAwayGoals: pred.actual.awayGoals,
+          predictedBtts: pred.predicted.btts,
+          predictedO25: pred.predicted.over25,
+          predictedO35: over35Prob,
+          avgHomeGoals: leagueAvgs.avgHomeGoals,
+          avgAwayGoals: leagueAvgs.avgAwayGoals,
+          shotConversion: shotConv,
+        };
+      }).filter(m => m.predictedBtts !== undefined && m.predictedO25 !== undefined);
+
+      // Compute league baselines from test data for the derivation
+      const totalGoals = testData.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0);
+      const bttsCount = testData.filter(m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0).length;
+      const over25Count = testData.filter(m => m.ftHomeGoals + m.ftAwayGoals > 2.5).length;
+      const over35Count = testData.filter(m => m.ftHomeGoals + m.ftAwayGoals > 3.5).length;
+      const totalShotsAll = testData.reduce((sum, m) => sum + m.homeShots + m.awayShots, 0);
+
+      const baselines = {
+        avgGoalsPerGame: totalGoals / (testData.length || 1),
+        over25Rate: (over25Count / (testData.length || 1)) * 100,
+        bttsRate: (bttsCount / (testData.length || 1)) * 100,
+        over35Rate: (over35Count / (testData.length || 1)) * 100,
+        avgHomeGoals: leagueAvgs.avgHomeGoals,
+        avgAwayGoals: leagueAvgs.avgAwayGoals,
+        shotConversion: totalShotsAll > 0 ? (totalGoals / totalShotsAll) * 100 : 10,
+      };
+
+      const derived = deriveThresholdsFromBacktest(
+        league,
+        backtestMatches,
+        baselines,
+        { minSampleSize: 80 } // Use 80 for backtest since it's per-season
+      );
+
+      if (derived) {
+        registerBacktestThresholds(derived);
+        console.log(`[Backtest API] Registered backtest thresholds for ${league}: ${derived.sampleSize} matches, source=backtest`);
+      } else {
+        console.log(`[Backtest API] Insufficient data for threshold derivation (${backtestMatches.length} matches, need 80+)`);
+      }
+    } catch (thresholdError) {
+      console.error('[Backtest API] Threshold derivation failed (non-fatal):', thresholdError);
+    }
 
     // Create calibration data
     const calibrationBuckets: { [key: string]: { predicted: number[]; actual: number[] } } = {};
