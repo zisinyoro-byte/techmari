@@ -115,21 +115,76 @@ export interface LeagueBacktestThresholds {
 // ============================================================================
 // This is the central store. Thresholds are added here when backtests run.
 // Leagues without entries fall back to the hybrid formula.
+// Supports localStorage persistence for client-side survival across page reloads.
+// ============================================================================
+
+const STORAGE_KEY = 'techmari_backtest_thresholds';
 
 const backtestRegistry = new Map<string, LeagueBacktestThresholds>();
 
+let loadedFromStorage = false;
+
+/**
+ * Load thresholds from localStorage into the in-memory registry.
+ * Safe to call multiple times — only loads once per session.
+ */
+function loadFromLocalStorage(): void {
+  if (loadedFromStorage || typeof window === 'undefined') return;
+  loadedFromStorage = true;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.version !== 1) return;
+    const entries: Record<string, LeagueBacktestThresholds> = data.thresholds;
+    for (const [key, thresholds] of Object.entries(entries)) {
+      backtestRegistry.set(key, thresholds);
+    }
+    const count = Object.keys(entries).length;
+    if (count > 0) {
+      console.log(`[BettingFilters] Loaded ${count} persisted threshold(s) from localStorage`);
+    }
+  } catch {
+    // localStorage not available or corrupt data — silent fail
+  }
+}
+
+/**
+ * Save all in-memory thresholds to localStorage.
+ */
+function saveToLocalStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const data: Record<string, LeagueBacktestThresholds> = {};
+    for (const [key, thresholds] of backtestRegistry.entries()) {
+      data[key] = thresholds;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      thresholds: data,
+    }));
+  } catch {
+    // localStorage not available or quota exceeded — silent fail
+  }
+}
+
 /**
  * Register backtest-derived thresholds for a league.
- * Call this when a backtest completes for a league/season.
+ * Also persists to localStorage automatically.
  */
 export function registerBacktestThresholds(thresholds: LeagueBacktestThresholds): void {
+  // Ensure we've loaded from localStorage first
+  loadFromLocalStorage();
   backtestRegistry.set(thresholds.leagueName.toLowerCase(), thresholds);
+  saveToLocalStorage();
 }
 
 /**
  * Get backtest-derived thresholds for a league, if available.
  */
 export function getBacktestThresholds(leagueName: string): LeagueBacktestThresholds | undefined {
+  loadFromLocalStorage();
   return backtestRegistry.get(leagueName.toLowerCase());
 }
 
@@ -137,6 +192,7 @@ export function getBacktestThresholds(leagueName: string): LeagueBacktestThresho
  * Get all registered backtest thresholds (for display/export).
  */
 export function getAllBacktestThresholds(): LeagueBacktestThresholds[] {
+  loadFromLocalStorage();
   return Array.from(backtestRegistry.values());
 }
 
@@ -144,6 +200,7 @@ export function getAllBacktestThresholds(): LeagueBacktestThresholds[] {
  * Check if a league has backtest-derived thresholds with sufficient sample size.
  */
 export function hasSufficientBacktest(leagueName: string, minSampleSize = 150): boolean {
+  loadFromLocalStorage();
   const t = backtestRegistry.get(leagueName.toLowerCase());
   return t !== undefined && t.sampleSize >= minSampleSize;
 }

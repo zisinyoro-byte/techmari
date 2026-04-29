@@ -47,5 +47,8 @@ test
 prompt
 
 server.log
+
+# Persisted data (thresholds, etc.)
+/data/
 # Skills directory
 /skills/

@@ -596,5 +596,7 @@ export interface BacktestResult {
       shDraw: { count: number; bttsRate: number };
     };
     insights: string[];
-  };
+  } | null;
+  // Backtest-derived thresholds (sent to client for client-side registration)
+  derivedThresholds?: import('./betting-filters').LeagueBacktestThresholds;
 }

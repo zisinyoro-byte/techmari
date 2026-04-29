@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Target, Goal, TrendingUp, RefreshCw, DollarSign, FlaskConical } from 'lucide-react'
 import type { BacktestTabProps } from './types'
 import { COLORS, SEASON_NAMES } from '@/lib/constants'
+import { registerBacktestThresholds } from '@/lib/betting-filters'
 
 export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues }: BacktestTabProps) {
   const [backtestTraining, setBacktestTraining] = useState<string>('5')
@@ -106,6 +107,12 @@ export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues
       }
       insights: string[]
     }
+    derivedThresholds?: {
+      leagueName: string
+      sampleSize: number
+      derivedAt: string
+      [key: string]: unknown
+    }
   } | null>(null)
 
   const runBacktest = async () => {
@@ -122,6 +129,10 @@ export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues
       if (!res.ok) throw new Error('Backtest failed')
       const data = await res.json()
       setBacktestResult(data)
+      // Register derived thresholds in client-side memory + localStorage
+      if (data.derivedThresholds) {
+        registerBacktestThresholds(data.derivedThresholds);
+      }
     } catch (err) {
       console.error('Backtest error:', err)
     } finally {

@@ -15,6 +15,8 @@ import {
   deriveThresholdsFromBacktest,
   registerBacktestThresholds,
 } from '@/lib/betting-filters';
+import { persistThreshold } from '@/lib/models/threshold-store';
+import { initializeThresholds } from '@/lib/models/threshold-init';
 
 // Find the last H2H match before a given date
 function findLastH2H(
@@ -220,6 +222,9 @@ function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccu
 }
 
 export async function GET(request: NextRequest) {
+  // Ensure persisted thresholds are loaded into memory
+  initializeThresholds();
+
   const searchParams = request.nextUrl.searchParams;
   const league = searchParams.get('league');
   const testSeason = searchParams.get('testSeason');
@@ -356,6 +361,7 @@ export async function GET(request: NextRequest) {
     });
 
     // ── Derive and register backtest-based thresholds for this league ──
+    let derivedThresholds: typeof import('@/lib/betting-filters').LeagueBacktestThresholds | null = null;
     try {
       // Build BacktestMatch[] from predictions + testData for threshold derivation
       const testMatchMap = new Map<string, typeof testData[0]>();
@@ -416,16 +422,17 @@ export async function GET(request: NextRequest) {
         shotConversion: totalShotsAll > 0 ? (totalGoals / totalShotsAll) * 100 : 10,
       };
 
-      const derived = deriveThresholdsFromBacktest(
+      derivedThresholds = deriveThresholdsFromBacktest(
         league,
         backtestMatches,
         baselines,
         { minSampleSize: 80 } // Use 80 for backtest since it's per-season
       );
 
-      if (derived) {
-        registerBacktestThresholds(derived);
-        console.log(`[Backtest API] Registered backtest thresholds for ${league}: ${derived.sampleSize} matches, source=backtest`);
+      if (derivedThresholds) {
+        registerBacktestThresholds(derivedThresholds);
+        persistThreshold(derivedThresholds); // Save to disk for server-side use
+        console.log(`[Backtest API] Derived & persisted thresholds for ${league}: ${derivedThresholds.sampleSize} matches`);
       } else {
         console.log(`[Backtest API] Insufficient data for threshold derivation (${backtestMatches.length} matches, need 80+)`);
       }
@@ -612,6 +619,8 @@ export async function GET(request: NextRequest) {
         bestModelBTTS: `ensemble (${ensembleMetrics.bttsYesAccuracy}%)`,
         bestOverallROI: `ensemble (${ensembleMetrics.roi > 0 ? '+' : ''}${ensembleMetrics.roi}%)`,
       },
+      // Include derived thresholds so the client can register them for filter use
+      derivedThresholds: derivedThresholds ?? undefined,
     };
 
     return NextResponse.json(result);
