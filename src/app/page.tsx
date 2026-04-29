@@ -5208,6 +5208,20 @@ export default function Home() {
                         if (homeCV < 35 && homeZScore < -1) { score += 0.5; signals.push('Home consistent'); }
                         if (awayCV < 35 && awayZScore < -1) { score += 0.5; signals.push('Away consistent'); }
 
+                        // UNDER signals (positive Z = overperforming, regression downward expected)
+                        if (homeZScore >= 1.5) { score -= 2; signals.push('Home Z ≥ 1.5'); }
+                        else if (homeZScore >= 1.0) { score -= 1; signals.push('Home Z ≥ 1.0'); }
+                        if (awayZScore >= 1.5) { score -= 2; signals.push('Away Z ≥ 1.5'); }
+                        else if (awayZScore >= 1.0) { score -= 1; signals.push('Away Z ≥ 1.0'); }
+
+                        // CI above signals
+                        if (homeAboveCI) { score -= 1; signals.push('Home above CI'); }
+                        if (awayAboveCI) { score -= 1; signals.push('Away above CI'); }
+
+                        // CV signals for UNDER (consistent team overperforming)
+                        if (homeCV < 35 && homeZScore > 1) { score -= 0.5; signals.push('Home consistent over'); }
+                        if (awayCV < 35 && awayZScore > 1) { score -= 0.5; signals.push('Away consistent over'); }
+
                         if (score >= 4) {
                           return {
                             recommendation: '🔥🔥 EXCEPTIONAL OVER OPPORTUNITY',
@@ -5241,6 +5255,15 @@ export default function Home() {
                             description: 'Teams significantly overperforming. Regression downward expected.',
                             color: 'text-red-600',
                             bg: 'bg-red-100 border-red-400',
+                            signals,
+                            score
+                          };
+                        } else if (score <= -1.5) {
+                          return {
+                            recommendation: '↘️ MODERATE UNDER SIGNAL',
+                            description: 'Some statistical indicators suggest Under value. Teams overperforming, regression expected.',
+                            color: 'text-orange-600',
+                            bg: 'bg-orange-100 border-orange-400',
                             signals,
                             score
                           };
@@ -6345,22 +6368,35 @@ export default function Home() {
                               const under25 = analytics.under25Count
                               const under25Ratio = under25 / total
                               // Rho is typically negative for football (-0.1 to -0.2)
+                              // Higher under25Ratio = more low-scoring = more negative rho
                               const rho = -0.13 - (under25Ratio - 0.5) * 0.1
                               return rho.toFixed(3)
                             })()}
                           </p>
-                          <p className="text-xs text-muted-foreground">Negative = fewer low scores than expected</p>
+                          <p className="text-xs text-muted-foreground">Negative = more low-scoring matches than expected</p>
                         </div>
                         <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
                           <p className="text-sm font-medium text-green-700 dark:text-green-300">Correction Effect</p>
                           <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
                             <div className="text-center">
                               <p className="font-medium">0-0 adj.</p>
-                              <p className="text-green-600">×{((1 - 0.13) * 1.05).toFixed(2)}</p>
+                              <p className="text-green-600">×{(() => {
+                                const total = analytics.totalMatches
+                                const under25Ratio = analytics.under25Count / total
+                                const rho = -0.13 - (under25Ratio - 0.5) * 0.1
+                                const lamH = analytics.avgHomeGoals
+                                const lamA = analytics.avgAwayGoals
+                                return (1 - lamH * lamA * rho).toFixed(2)
+                              })()}</p>
                             </div>
                             <div className="text-center">
                               <p className="font-medium">1-1 adj.</p>
-                              <p className="text-green-600">×{((1 + 0.13) * 0.98).toFixed(2)}</p>
+                              <p className="text-green-600">×{(() => {
+                                const total = analytics.totalMatches
+                                const under25Ratio = analytics.under25Count / total
+                                const rho = -0.13 - (under25Ratio - 0.5) * 0.1
+                                return (1 - rho).toFixed(2)
+                              })()}</p>
                             </div>
                           </div>
                         </div>
@@ -6376,7 +6412,8 @@ export default function Home() {
                       {(() => {
                         const lambdaHome = analytics.avgHomeGoals
                         const lambdaAway = analytics.avgAwayGoals
-                        const rho = -0.13 // Dixon-Coles correlation
+                        // Use dynamic rho matching the display value
+                        const rho = -0.13 - ((analytics.under25Count / analytics.totalMatches) - 0.5) * 0.1
                         
                         // Dixon-Coles tau function
                         const tau = (x: number, y: number, lambda1: number, lambda2: number, rho: number): number => {
@@ -6885,11 +6922,16 @@ export default function Home() {
                             {[0, 1, 2, 3].map(a => {
                               const lambda1 = analytics.avgHomeGoals
                               const lambda2 = analytics.avgAwayGoals
-                              const lambda3 = 0.15
-                              const prob = Math.exp(-(lambda1 + lambda2 + lambda3)) *
-                                Math.pow(lambda1, h) * Math.pow(lambda2, a) *
-                                (h === a && h <= 1 ? (1 + lambda3 / (lambda1 * lambda2)) : 1) /
-                                (factorial(h) * factorial(a))
+                              // Compute lambda3 consistently from league data
+                              const lambda3 = analytics.avgGoalsPerGame * 0.08
+                              // Correct Bivariate Poisson PMF:
+                              // P(X=h, Y=a) = exp(-(λ1+λ2+λ3)) × Σ_{k=0}^{min(h,a)} [λ1^(h-k)·λ2^(a-k)·λ3^k] / [(h-k)!·(a-k)!·k!]
+                              let probSum = 0
+                              for (let k = 0; k <= Math.min(h, a); k++) {
+                                probSum += Math.pow(lambda1, h - k) * Math.pow(lambda2, a - k) * Math.pow(lambda3, k) /
+                                  (factorial(h - k) * factorial(a - k) * factorial(k))
+                              }
+                              const prob = Math.exp(-(lambda1 + lambda2 + lambda3)) * probSum
                               return (
                                 <div key={`${h}-${a}`} className={`p-1 rounded ${h + a >= 3 ? 'bg-green-100 dark:bg-green-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
                                   {(prob * 100).toFixed(1)}%
@@ -7604,7 +7646,7 @@ export default function Home() {
                       // Calculate BTTS-related metrics from league data
                       const lambdaHome = analytics.avgHomeGoals
                       const lambdaAway = analytics.avgAwayGoals
-                      const rho = -0.13
+                      const rho = -0.13 - ((analytics.under25Count / analytics.totalMatches) - 0.5) * 0.1
 
                       const tau = (x: number, y: number, l1: number, l2: number, r: number): number => {
                         if (x === 0 && y === 0) return 1 - l1 * l2 * r
@@ -7923,7 +7965,7 @@ export default function Home() {
                       // Calculate Over 3.5 related metrics from league data
                       const lambdaHome = analytics.avgHomeGoals
                       const lambdaAway = analytics.avgAwayGoals
-                      const rho = -0.13
+                      const rho = -0.13 - ((analytics.under25Count / analytics.totalMatches) - 0.5) * 0.1
 
                       const tau = (x: number, y: number, l1: number, l2: number, r: number): number => {
                         if (x === 0 && y === 0) return 1 - l1 * l2 * r
@@ -8318,7 +8360,7 @@ export default function Home() {
                       // Calculate all model outputs
                       const lambdaHome = analytics.avgHomeGoals
                       const lambdaAway = analytics.avgAwayGoals
-                      const rho = -0.13
+                      const rho = -0.13 - ((analytics.under25Count / analytics.totalMatches) - 0.5) * 0.1
                       
                       // Dixon-Coles tau function
                       const tau = (x: number, y: number, lambda1: number, lambda2: number, rhoVal: number): number => {
@@ -8568,7 +8610,7 @@ export default function Home() {
                     {(() => {
                       const lambdaHome = analytics.avgHomeGoals
                       const lambdaAway = analytics.avgAwayGoals
-                      const rho = -0.13
+                      const rho = -0.13 - ((analytics.under25Count / analytics.totalMatches) - 0.5) * 0.1
                       
                       const tau = (x: number, y: number, l1: number, l2: number, r: number): number => {
                         if (x === 0 && y === 0) return 1 - l1 * l2 * r

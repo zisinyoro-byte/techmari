@@ -318,24 +318,28 @@ function generatePredictions(
   const awayStats = calculateTeamStats(trainingData, awayTeam);
   
   // Expected goals based on attack/defense
-  const homeXg = (homeStats.avgHomeScored + awayStats.avgAwayConceded) / 2 || leagueAvgs.avgHomeGoals;
-  const awayXg = (awayStats.avgAwayScored + homeStats.avgHomeConceded) / 2 || leagueAvgs.avgAwayGoals;
+  // Fall back to league average for missing home/away splits instead of using 0
+  const homeAttack = homeStats.homeGames > 0 ? homeStats.avgHomeScored : leagueAvgs.avgHomeGoals;
+  const awayDefense = awayStats.awayGames > 0 ? awayStats.avgAwayConceded : leagueAvgs.avgAwayGoals;
+  const awayAttack = awayStats.awayGames > 0 ? awayStats.avgAwayScored : leagueAvgs.avgAwayGoals;
+  const homeDefense = homeStats.homeGames > 0 ? homeStats.avgHomeConceded : leagueAvgs.avgAwayGoals;
+  const homeXg = (homeAttack + awayDefense) / 2;
+  const awayXg = (awayAttack + homeDefense) / 2;
   const totalXg = homeXg + awayXg;
   
-  // Poisson-based probabilities
-  const homeWinProb = poissonProb(homeXg, 1) * poissonProb(awayXg, 0) + 
-                      poissonProb(homeXg, 2) * poissonProb(awayXg, 0) +
-                      poissonProb(homeXg, 2) * poissonProb(awayXg, 1) +
-                      poissonProb(homeXg, 3) * poissonProb(awayXg, 0) +
-                      poissonProb(homeXg, 3) * poissonProb(awayXg, 1) +
-                      poissonProb(homeXg, 3) * poissonProb(awayXg, 2);
-  
-  const awayWinProb = poissonProb(awayXg, 1) * poissonProb(homeXg, 0) + 
-                      poissonProb(awayXg, 2) * poissonProb(homeXg, 0) +
-                      poissonProb(awayXg, 2) * poissonProb(homeXg, 1) +
-                      poissonProb(awayXg, 3) * poissonProb(homeXg, 0) +
-                      poissonProb(awayXg, 3) * poissonProb(homeXg, 1) +
-                      poissonProb(awayXg, 3) * poissonProb(homeXg, 2);
+  // Poisson-based probabilities - iterate over sufficient range (0-7) to capture
+  // all likely scorelines, avoiding the truncated approximation that missed 4-6% of probability mass
+  let homeWinProb = 0;
+  let awayWinProb = 0;
+  let drawProbCalc = 0;
+  for (let i = 0; i <= 7; i++) {
+    for (let j = 0; j <= 7; j++) {
+      const p = poissonProb(homeXg, i) * poissonProb(awayXg, j);
+      if (i > j) homeWinProb += p;
+      else if (j > i) awayWinProb += p;
+      else drawProbCalc += p;
+    }
+  }
   
   // Adjust probabilities
   let drawProb = 1 - homeWinProb - awayWinProb;
@@ -391,7 +395,7 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
   }
   
   let homeWinCorrect = 0, drawCorrect = 0, awayWinCorrect = 0;
-  let over15Correct = 0, over25Correct = 0, under25Correct = 0;
+  let over15Correct = 0, over25Correct = 0;
   let bttsYesCorrect = 0, bttsNoCorrect = 0;
   let totalBrier = 0;
   let valueBetsFound = 0, valueBetsWon = 0;
@@ -412,7 +416,7 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
     else if (pred.predicted.over15 < 50 && !pred.actual.over15) over15Correct++;
     
     if (pred.predicted.over25 >= 50 && pred.actual.over25) over25Correct++;
-    else if (pred.predicted.over25 < 50 && !pred.actual.over25) under25Correct++;
+    else if (pred.predicted.over25 < 50 && !pred.actual.over25) over25Correct++;
     
     // BTTS
     if (pred.predicted.btts >= 50 && pred.actual.btts) bttsYesCorrect++;
@@ -450,12 +454,12 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
     overallAccuracy: Math.round(overallCorrect / predictions.length * 1000) / 10,
     over15Accuracy: Math.round(over15Correct / predictions.length * 1000) / 10,
     over25Accuracy: Math.round(over25Correct / predictions.length * 1000) / 10,
-    under25Accuracy: Math.round(under25Correct / predictions.length * 1000) / 10,
+    under25Accuracy: Math.round(over25Correct / predictions.length * 1000) / 10,
     bttsYesAccuracy: bttsYesTotal > 0 ? Math.round(bttsYesCorrect / bttsYesTotal * 1000) / 10 : 0,
     bttsNoAccuracy: bttsNoTotal > 0 ? Math.round(bttsNoCorrect / bttsNoTotal * 1000) / 10 : 0,
     avgPredictedProb: Math.round(predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length * 10) / 10,
     avgActualRate: Math.round(predictions.filter(p => p.actual.over25).length / predictions.length * 1000) / 10,
-    calibration: 0, // Calculated separately
+    calibration: avgActualRate > 0 ? Math.round((predictions.filter(p => p.actual.over25).length / predictions.length) / (predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length / 100) * 1000) / 1000 : 0,
     valueBetsFound,
     valueBetWinRate: valueBetsFound > 0 ? Math.round(valueBetsWon / valueBetsFound * 1000) / 10 : 0,
     roi: valueBetsFound > 0 ? Math.round((valueBetsWon * 1.85 - valueBetsFound) / valueBetsFound * 1000) / 10 : 0,
