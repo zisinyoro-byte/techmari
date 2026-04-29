@@ -330,7 +330,17 @@ function calculateTeamStats(matches: MatchResult[]): Map<string, TeamStats> {
     const homeAdvantage = awayAvg > 0 ? homeAvg / awayAvg : 1.05;
     
     // Recent form (last 5 matches)
-    const sortedForm = data.form.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+    const parseFormDate = (d: string) => {
+      if (!d) return 0;
+      const parts = d.split('/');
+      if (parts.length === 3) {
+        let y = parseInt(parts[2]);
+        if (y < 100) y += y < 50 ? 2000 : 1900;
+        return new Date(y, parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
+      }
+      return new Date(d).getTime();
+    };
+    const sortedForm = data.form.sort((a, b) => parseFormDate(b.date) - parseFormDate(a.date)).slice(0, 5);
     const recentForm = sortedForm.map(f => f.result);
     const recentGoalsScored = sortedForm.reduce((sum, f) => sum + f.gf, 0);
     const recentGoalsConceded = sortedForm.reduce((sum, f) => sum + f.ga, 0);

@@ -335,8 +335,18 @@ function analyzeTeamPatterns(matches: MatchResult[], team: string): TeamPatternA
     }
   }
   
-  // Sort form by date
-  form.sort((a, b) => b.date.localeCompare(a.date));
+  // Sort form by date (parse DD/MM/YY or DD/MM/YYYY format correctly)
+  const parseFormDate = (d: string) => {
+    if (!d) return 0;
+    const parts = d.split('/');
+    if (parts.length === 3) {
+      let y = parseInt(parts[2]);
+      if (y < 100) y += y < 50 ? 2000 : 1900;
+      return new Date(y, parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
+    }
+    return new Date(d).getTime();
+  };
+  form.sort((a, b) => parseFormDate(b.date) - parseFormDate(a.date));
   const last5 = form.slice(0, 5);
   
   // Calculate streaks
