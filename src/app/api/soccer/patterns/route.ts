@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { MatchResult, parseCSV } from '../results/route';
+import { fetchSeasonData, fetchAllSeasons } from '@/lib/data-cache';
+import type { MatchResult } from '@/lib/types';
+import { ALL_SEASONS } from '@/lib/constants';
 
 // Types for pattern analysis
 interface TeamPatternAnalysis {
@@ -151,43 +153,7 @@ interface PatternResponse {
   }[];
 }
 
-// Available seasons
-// 11 seasons from 2015-16 to 2025-26
-const ALL_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
-
-// In-memory cache
-const cache = new Map<string, { data: MatchResult[]; timestamp: number }>();
-const CACHE_DURATION = 10 * 60 * 1000;
-
-async function fetchSeasonData(league: string, season: string): Promise<MatchResult[]> {
-  const cacheKey = `${league}-${season}`;
-  const cached = cache.get(cacheKey);
-  
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached.data;
-  }
-
-  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-
-    if (!response.ok) return [];
-
-    const csvText = await response.text();
-    const results = parseCSV(csvText, season);
-
-    cache.set(cacheKey, { data: results, timestamp: Date.now() });
-    return results;
-  } catch (error) {
-    console.error(`Error fetching ${season}:`, error);
-    return [];
-  }
-}
+// (No raw-data cache here – centralized in @/lib/data-cache)
 
 function analyzeTeamPatterns(matches: MatchResult[], team: string): TeamPatternAnalysis {
   const teamMatches = matches.filter(m => m.homeTeam === team || m.awayTeam === team);
@@ -700,9 +666,7 @@ export async function GET(request: NextRequest) {
     let allMatches: MatchResult[] = [];
     
     if (season === 'all') {
-      const seasonPromises = ALL_SEASONS.map(s => fetchSeasonData(league, s));
-      const seasonResults = await Promise.all(seasonPromises);
-      allMatches = seasonResults.flat();
+      allMatches = await fetchAllSeasons(league, ALL_SEASONS);
     } else {
       allMatches = await fetchSeasonData(league, season);
     }

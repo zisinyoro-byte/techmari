@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { MatchResult, parseCSV, fetchWithRetry } from '../results/route';
+import { fetchSeasonData, fetchAllSeasons } from '@/lib/data-cache';
+import type { MatchResult } from '@/lib/types';
+import { EUROPEAN_SEASONS, SEASON_NAMES } from '@/lib/constants';
 
 export interface H2HMatch extends MatchResult {
   shHomeGoals: number;
@@ -135,55 +137,9 @@ export interface H2HAnalytics {
   };
 }
 
-// Available seasons - European format
-// 11 seasons from 2015-16 to 2025-26
-const EUROPEAN_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
-
-const SEASON_NAMES: Record<string, string> = {
-  '2526': '2025-26',
-  '2425': '2024-25',
-  '2324': '2023-24',
-  '2223': '2022-23',
-  '2122': '2021-22',
-  '2021': '2020-21',
-  '1920': '2019-20',
-  '1819': '2018-19',
-  '1718': '2017-18',
-  '1617': '2016-17',
-  '1516': '2015-16',
-};
-
-const cache = new Map<string, { data: { matches: H2HMatch[]; analytics: H2HAnalytics }; timestamp: number }>();
-const CACHE_DURATION = 10 * 60 * 1000;
-const dataCache = new Map<string, { data: MatchResult[]; timestamp: number }>();
-
-async function fetchSeasonData(league: string, season: string): Promise<MatchResult[]> {
-  const cacheKey = `${league}-${season}`;
-  const cached = dataCache.get(cacheKey);
-  
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached.data;
-  }
-
-  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
-
-  try {
-    const response = await fetchWithRetry(url);
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const csvText = await response.text();
-    const results = parseCSV(csvText, season);
-
-    dataCache.set(cacheKey, { data: results, timestamp: Date.now() });
-    return results;
-  } catch (error) {
-    console.error(`Error fetching ${season}:`, error);
-    return [];
-  }
-}
+// In-memory cache for H2H analysis results (derived data)
+const h2hCache = new Map<string, { data: { matches: H2HMatch[]; analytics: H2HAnalytics }; timestamp: number }>();
+const H2H_CACHE_DURATION = 10 * 60 * 1000;
 
 function parseDate(dateStr: string): Date {
   if (!dateStr) return new Date(0);
@@ -863,9 +819,9 @@ export async function GET(request: NextRequest) {
   }
 
   const cacheKey = `${league}-${season}-${team1}-${team2}`;
-  const cached = cache.get(cacheKey);
+  const cached = h2hCache.get(cacheKey);
 
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+  if (cached && Date.now() - cached.timestamp < H2H_CACHE_DURATION) {
     return NextResponse.json(cached.data);
   }
 
@@ -874,9 +830,7 @@ export async function GET(request: NextRequest) {
     let seasonsCount: number | undefined;
 
     if (season === 'all') {
-      const seasonPromises = EUROPEAN_SEASONS.map(s => fetchSeasonData(league, s));
-      const seasonResults = await Promise.all(seasonPromises);
-      allResults = seasonResults.flat();
+      allResults = await fetchAllSeasons(league, EUROPEAN_SEASONS);
       seasonsCount = EUROPEAN_SEASONS.length;
     } else {
       allResults = await fetchSeasonData(league, season);
@@ -884,7 +838,7 @@ export async function GET(request: NextRequest) {
 
     const h2hData = analyzeH2H(allResults, allResults, team1, team2, seasonsCount);
 
-    cache.set(cacheKey, { data: h2hData, timestamp: Date.now() });
+    h2hCache.set(cacheKey, { data: h2hData, timestamp: Date.now() });
 
     return NextResponse.json(h2hData);
   } catch (error) {

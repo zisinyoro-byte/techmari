@@ -1,231 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { MatchResult, parseCSV, fetchWithRetry } from '../results/route';
-
-// Types
-interface BacktestConfig {
-  trainingSeasons: string[];
-  testSeason: string;
-  league: string;
-}
-
-interface PredictionRecord {
-  match: {
-    date: string;
-    homeTeam: string;
-    awayTeam: string;
-  };
-  predicted: {
-    homeWin: number;
-    draw: number;
-    awayWin: number;
-    over15: number;
-    over25: number;
-    btts: number;
-    totalXg: number;
-  };
-  actual: {
-    homeGoals: number;
-    awayGoals: number;
-    result: 'H' | 'D' | 'A';
-    totalGoals: number;
-    btts: boolean;
-    over15: boolean;
-    over25: boolean;
-    // New fields
-    htResult: 'H' | 'D' | 'A';
-    htHomeGoals: number;
-    htAwayGoals: number;
-    shResult: 'H' | 'D' | 'A';
-    shHomeGoals: number;
-    shAwayGoals: number;
-  };
-  // Odds from the match
-  odds: {
-    home: number | null;
-    draw: number | null;
-    away: number | null;
-  };
-  // Last H2H before this match
-  lastH2H: {
-    found: boolean;
-    date?: string;
-    season?: string;
-    homeGoals?: number;
-    awayGoals?: number;
-    result?: 'H' | 'D' | 'A';
-    scoreline?: string;
-  } | null;
-  correct: {
-    result: boolean;
-    over15: boolean;
-    over25: boolean;
-    btts: boolean;
-  };
-}
-
-interface ModelAccuracy {
-  model: string;
-  matches: number;
-  // 1X2 Market
-  homeWinAccuracy: number;
-  drawAccuracy: number;
-  awayWinAccuracy: number;
-  overallAccuracy: number;
-  // Goals Markets
-  over15Accuracy: number;
-  over25Accuracy: number;
-  under25Accuracy: number;
-  // BTTS
-  bttsYesAccuracy: number;
-  bttsNoAccuracy: number;
-  // Calibration
-  avgPredictedProb: number;
-  avgActualRate: number;
-  calibration: number;
-  // Value Betting
-  valueBetsFound: number;
-  valueBetWinRate: number;
-  roi: number;
-  // Statistical
-  brierScore: number;
-}
-
-interface BacktestResult {
-  success: boolean;
-  config: BacktestConfig;
-  totalMatches: number;
-  models: ModelAccuracy[];
-  ensemble: ModelAccuracy;
-  predictions: PredictionRecord[];
-  calibrationData: { predicted: number; actual: number; count: number }[];
-  summary: {
-    bestModel1X2: string;
-    bestModelO25: string;
-    bestModelBTTS: string;
-    bestOverallROI: string;
-  };
-  // BTTS Pattern Analysis
-  bttsPatterns: {
-    totalBttsMatches: number;
-    h2hPatterns: {
-      lastH2HHomeWin: { count: number; bttsRate: number; avgGoals: number };
-      lastH2HAwayWin: { count: number; bttsRate: number; avgGoals: number };
-      lastH2HDraw: { count: number; bttsRate: number; avgGoals: number };
-      noH2H: { count: number; bttsRate: number; avgGoals: number };
-    };
-    // Most frequent H2H scorelines that led to BTTS
-    h2hScorelines: {
-      scoreline: string;
-      count: number;
-      bttsCount: number;
-      bttsRate: number;
-    }[];
-    htResultPatterns: {
-      htHomeWin: { count: number; bttsRate: number };
-      htAwayWin: { count: number; bttsRate: number };
-      htDraw: { count: number; bttsRate: number };
-    };
-    shResultPatterns: {
-      shHomeWin: { count: number; bttsRate: number };
-      shAwayWin: { count: number; bttsRate: number };
-      shDraw: { count: number; bttsRate: number };
-    };
-    insights: string[];
-  };
-}
-
-// Available seasons
-const EUROPEAN_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
-
-// Cache
-const dataCache = new Map<string, { data: MatchResult[]; timestamp: number }>();
-const CACHE_DURATION = 10 * 60 * 1000;
-
-async function fetchSeasonData(league: string, season: string): Promise<MatchResult[]> {
-  const cacheKey = `${league}-${season}`;
-  const cached = dataCache.get(cacheKey);
-  
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached.data;
-  }
-
-  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
-
-  try {
-    const response = await fetchWithRetry(url);
-    if (!response.ok) return [];
-    const csvText = await response.text();
-    const results = parseCSV(csvText, season);
-    dataCache.set(cacheKey, { data: results, timestamp: Date.now() });
-    return results;
-  } catch (error) {
-    console.error(`Error fetching ${season}:`, error);
-    return [];
-  }
-}
-
-// Calculate team statistics from historical data
-function calculateTeamStats(results: MatchResult[], team: string) {
-  const homeGames = results.filter(m => m.homeTeam === team);
-  const awayGames = results.filter(m => m.awayTeam === team);
-  
-  const homeScored = homeGames.reduce((sum, m) => sum + m.ftHomeGoals, 0);
-  const homeConceded = homeGames.reduce((sum, m) => sum + m.ftAwayGoals, 0);
-  const awayScored = awayGames.reduce((sum, m) => sum + m.ftAwayGoals, 0);
-  const awayConceded = awayGames.reduce((sum, m) => sum + m.ftHomeGoals, 0);
-  
-  const homeWins = homeGames.filter(m => m.ftResult === 'H').length;
-  const awayWins = awayGames.filter(m => m.ftResult === 'A').length;
-  const draws = homeGames.filter(m => m.ftResult === 'D').length + awayGames.filter(m => m.ftResult === 'D').length;
-  
-  const totalGames = homeGames.length + awayGames.length;
-  
-  return {
-    homeGames: homeGames.length,
-    awayGames: awayGames.length,
-    totalGames,
-    avgHomeScored: homeGames.length > 0 ? homeScored / homeGames.length : 0,
-    avgHomeConceded: homeGames.length > 0 ? homeConceded / homeGames.length : 0,
-    avgAwayScored: awayGames.length > 0 ? awayScored / awayGames.length : 0,
-    avgAwayConceded: awayGames.length > 0 ? awayConceded / awayGames.length : 0,
-    attackStrength: totalGames > 0 ? (homeScored + awayScored) / totalGames : 0,
-    defenseStrength: totalGames > 0 ? (homeConceded + awayConceded) / totalGames : 0,
-    form: totalGames > 0 ? (homeWins + awayWins + 0.5 * draws) / totalGames : 0.5,
-    wins: homeWins + awayWins,
-    draws,
-    losses: totalGames - homeWins - awayWins - draws,
-    bttsRate: totalGames > 0 ? 
-      [...homeGames, ...awayGames].filter(m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0).length / totalGames : 0.5,
-    over25Rate: totalGames > 0 ?
-      [...homeGames, ...awayGames].filter(m => m.ftHomeGoals + m.ftAwayGoals > 2.5).length / totalGames : 0.5,
-  };
-}
-
-// Calculate league averages
-function calculateLeagueAverages(results: MatchResult[]) {
-  if (results.length === 0) {
-    return { avgHomeGoals: 1.5, avgAwayGoals: 1.2, avgTotalGoals: 2.7, homeWinRate: 0.45, drawRate: 0.25, awayWinRate: 0.30 };
-  }
-  
-  const totalHomeGoals = results.reduce((sum, m) => sum + m.ftHomeGoals, 0);
-  const totalAwayGoals = results.reduce((sum, m) => sum + m.ftAwayGoals, 0);
-  const homeWins = results.filter(m => m.ftResult === 'H').length;
-  const draws = results.filter(m => m.ftResult === 'D').length;
-  const awayWins = results.filter(m => m.ftResult === 'A').length;
-  
-  return {
-    avgHomeGoals: totalHomeGoals / results.length,
-    avgAwayGoals: totalAwayGoals / results.length,
-    avgTotalGoals: (totalHomeGoals + totalAwayGoals) / results.length,
-    homeWinRate: homeWins / results.length,
-    drawRate: draws / results.length,
-    awayWinRate: awayWins / results.length,
-  };
-}
+import { fetchSeasonData } from '@/lib/data-cache';
+import type {
+  BacktestConfig,
+  PredictionRecord,
+  ModelAccuracy,
+  BacktestResult,
+  LeagueAverages,
+} from '@/lib/types';
+import { EUROPEAN_SEASONS } from '@/lib/constants';
+import { calculateSeasonWeights } from '@/lib/models/season-weighting';
+import { calculateLeagueAverages, generateBacktestPredictions } from '@/lib/models/predictions';
 
 // Find the last H2H match before a given date
 function findLastH2H(
-  allData: MatchResult[],
+  allData: { homeTeam: string; awayTeam: string; date: string; season: string; ftHomeGoals: number; ftAwayGoals: number; ftResult: 'H' | 'D' | 'A' }[],
   homeTeam: string,
   awayTeam: string,
   beforeDate: string,
@@ -296,89 +84,6 @@ function findLastH2H(
   };
 }
 
-// Poisson probability
-function poissonProb(lambda: number, k: number): number {
-  return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial(k);
-}
-
-function factorial(n: number): number {
-  if (n <= 1) return 1;
-  return n * factorial(n - 1);
-}
-
-// Generate predictions using multiple models
-function generatePredictions(
-  trainingData: MatchResult[],
-  homeTeam: string,
-  awayTeam: string,
-  leagueAvgs: ReturnType<typeof calculateLeagueAverages>
-): { homeWin: number; draw: number; awayWin: number; over15: number; over25: number; btts: number; totalXg: number } {
-  
-  const homeStats = calculateTeamStats(trainingData, homeTeam);
-  const awayStats = calculateTeamStats(trainingData, awayTeam);
-  
-  // Expected goals based on attack/defense
-  // Fall back to league average for missing home/away splits instead of using 0
-  const homeAttack = homeStats.homeGames > 0 ? homeStats.avgHomeScored : leagueAvgs.avgHomeGoals;
-  const awayDefense = awayStats.awayGames > 0 ? awayStats.avgAwayConceded : leagueAvgs.avgAwayGoals;
-  const awayAttack = awayStats.awayGames > 0 ? awayStats.avgAwayScored : leagueAvgs.avgAwayGoals;
-  const homeDefense = homeStats.homeGames > 0 ? homeStats.avgHomeConceded : leagueAvgs.avgAwayGoals;
-  const homeXg = (homeAttack + awayDefense) / 2;
-  const awayXg = (awayAttack + homeDefense) / 2;
-  const totalXg = homeXg + awayXg;
-  
-  // Poisson-based probabilities - iterate over sufficient range (0-7) to capture
-  // all likely scorelines, avoiding the truncated approximation that missed 4-6% of probability mass
-  let homeWinProb = 0;
-  let awayWinProb = 0;
-  let drawProbCalc = 0;
-  for (let i = 0; i <= 7; i++) {
-    for (let j = 0; j <= 7; j++) {
-      const p = poissonProb(homeXg, i) * poissonProb(awayXg, j);
-      if (i > j) homeWinProb += p;
-      else if (j > i) awayWinProb += p;
-      else drawProbCalc += p;
-    }
-  }
-  
-  // Adjust probabilities
-  let drawProb = 1 - homeWinProb - awayWinProb;
-  
-  // Form adjustment
-  const formAdjustment = (homeStats.form - awayStats.form) * 0.1;
-  const adjustedHomeWin = Math.max(0.1, Math.min(0.8, homeWinProb + formAdjustment));
-  const adjustedAwayWin = Math.max(0.1, Math.min(0.8, awayWinProb - formAdjustment));
-  drawProb = Math.max(0.15, Math.min(0.4, 1 - adjustedHomeWin - adjustedAwayWin));
-  
-  // Normalize
-  const total = adjustedHomeWin + drawProb + adjustedAwayWin;
-  const finalHomeWin = adjustedHomeWin / total;
-  const finalDraw = drawProb / total;
-  const finalAwayWin = adjustedAwayWin / total;
-  
-  // Goals markets
-  const p0 = Math.exp(-totalXg);
-  const p1 = totalXg * Math.exp(-totalXg);
-  const p2 = (totalXg * totalXg / 2) * Math.exp(-totalXg);
-  const over15Prob = 1 - p0 - p1;
-  const over25Prob = 1 - p0 - p1 - p2;
-  
-  // BTTS
-  const homeScoresProb = 1 - Math.exp(-homeXg);
-  const awayScoresProb = 1 - Math.exp(-awayXg);
-  const bttsProb = homeScoresProb * awayScoresProb;
-  
-  return {
-    homeWin: Math.round(finalHomeWin * 100),
-    draw: Math.round(finalDraw * 100),
-    awayWin: Math.round(finalAwayWin * 100),
-    over15: Math.round(Math.min(95, Math.max(40, over15Prob * 100))),
-    over25: Math.round(Math.min(85, Math.max(35, over25Prob * 100))),
-    btts: Math.round(Math.min(80, Math.max(30, bttsProb * 100))),
-    totalXg: Math.round(totalXg * 100) / 100,
-  };
-}
-
 // Calculate accuracy metrics
 function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
   if (predictions.length === 0) {
@@ -393,35 +98,35 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
       brierScore: 0,
     };
   }
-  
+
   let homeWinCorrect = 0, drawCorrect = 0, awayWinCorrect = 0;
   let over15Correct = 0, over25Correct = 0;
   let bttsYesCorrect = 0, bttsNoCorrect = 0;
   let totalBrier = 0;
   let valueBetsFound = 0, valueBetsWon = 0;
-  
+
   for (const pred of predictions) {
     // 1X2
     const predictedResult = pred.predicted.homeWin > pred.predicted.draw && pred.predicted.homeWin > pred.predicted.awayWin ? 'H' :
                            pred.predicted.awayWin > pred.predicted.draw ? 'A' : 'D';
-    
+
     if (predictedResult === pred.actual.result) {
       if (pred.actual.result === 'H') homeWinCorrect++;
       else if (pred.actual.result === 'D') drawCorrect++;
       else awayWinCorrect++;
     }
-    
+
     // Goals markets
     if (pred.predicted.over15 >= 50 && pred.actual.over15) over15Correct++;
     else if (pred.predicted.over15 < 50 && !pred.actual.over15) over15Correct++;
-    
+
     if (pred.predicted.over25 >= 50 && pred.actual.over25) over25Correct++;
     else if (pred.predicted.over25 < 50 && !pred.actual.over25) over25Correct++;
-    
+
     // BTTS
     if (pred.predicted.btts >= 50 && pred.actual.btts) bttsYesCorrect++;
     else if (pred.predicted.btts < 50 && !pred.actual.btts) bttsNoCorrect++;
-    
+
     // Brier score (for result prediction)
     const actualH = pred.actual.result === 'H' ? 1 : 0;
     const actualD = pred.actual.result === 'D' ? 1 : 0;
@@ -429,22 +134,22 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
     totalBrier += Math.pow(pred.predicted.homeWin / 100 - actualH, 2) +
                   Math.pow(pred.predicted.draw / 100 - actualD, 2) +
                   Math.pow(pred.predicted.awayWin / 100 - actualA, 2);
-    
+
     // Value bets (predicted prob > implied prob at odds 1.85)
     if (pred.predicted.over25 > 60) {
       valueBetsFound++;
       if (pred.actual.over25) valueBetsWon++;
     }
   }
-  
+
   const homeWinTotal = predictions.filter(p => p.actual.result === 'H').length;
   const drawTotal = predictions.filter(p => p.actual.result === 'D').length;
   const awayWinTotal = predictions.filter(p => p.actual.result === 'A').length;
   const bttsYesTotal = predictions.filter(p => p.actual.btts).length;
   const bttsNoTotal = predictions.length - bttsYesTotal;
-  
+
   const overallCorrect = homeWinCorrect + drawCorrect + awayWinCorrect;
-  
+
   return {
     model: 'ensemble',
     matches: predictions.length,
@@ -483,7 +188,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Parse training seasons
-  const training = trainingSeasons ? trainingSeasons.split(',') : 
+  const training = trainingSeasons ? trainingSeasons.split(',') :
     EUROPEAN_SEASONS.filter(s => s < testSeason).slice(-5); // Default: 5 seasons before test
 
   const config: BacktestConfig = {
@@ -493,12 +198,16 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    // Fetch training data
+    // Fetch training data — each season separately for weighting
     console.log(`[Backtest API] Fetching training data: ${training.join(', ')}`);
     const trainingPromises = training.map(s => fetchSeasonData(league, s));
     const trainingResults = await Promise.all(trainingPromises);
     const trainingData = trainingResults.flat();
     console.log(`[Backtest API] Training data: ${trainingData.length} matches`);
+
+    // Apply season weights to training data
+    const seasonWeights = calculateSeasonWeights(training);
+    console.log(`[Backtest API] Season weights: ${JSON.stringify(Array.from(seasonWeights.entries()))}`);
 
     // Fetch test data
     console.log(`[Backtest API] Fetching test data: ${testSeason}`);
@@ -514,7 +223,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate league averages from training data
-    const leagueAvgs = calculateLeagueAverages(trainingData);
+    const leagueAvgs: LeagueAverages = calculateLeagueAverages(trainingData);
 
     // Combine all data for H2H lookup (training + test data before current match)
     const allData = [...trainingData, ...testData];
@@ -529,7 +238,8 @@ export async function GET(request: NextRequest) {
 
       if (!homeTeamInTraining || !awayTeamInTraining) continue;
 
-      const predicted = generatePredictions(trainingData, match.homeTeam, match.awayTeam, leagueAvgs);
+      // Pass season weights for recency-weighted training stats
+      const predicted = generateBacktestPredictions(trainingData, match.homeTeam, match.awayTeam, leagueAvgs, seasonWeights);
 
       // Calculate 2nd half result
       const shHomeGoals = match.ftHomeGoals - match.htHomeGoals;

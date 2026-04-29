@@ -1,111 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { MatchResult, parseCSV, fetchWithRetry } from '../results/route';
+import { fetchSeasonData, fetchAllSeasons } from '@/lib/data-cache';
+import type { MatchResult, Analytics } from '@/lib/types';
+import { EUROPEAN_SEASONS } from '@/lib/constants';
 
-export interface Analytics {
-  totalMatches: number;
-  homeWinPercent: number;
-  drawPercent: number;
-  awayWinPercent: number;
-  avgGoalsPerGame: number;
-  htftCorrelationPercent: number;
-  htToftTransitions: {
-    htHomeLeads: { ftHomeWin: number; ftDraw: number; ftAwayWin: number };
-    htDraw: { ftHomeWin: number; ftDraw: number; ftAwayWin: number };
-    htAwayLeads: { ftHomeWin: number; ftDraw: number; ftAwayWin: number };
-  };
-  resultDistribution: {
-    homeWins: number;
-    draws: number;
-    awayWins: number;
-  };
-  avgHomeGoals: number;
-  avgAwayGoals: number;
-  totalGoals: number;
-  seasonsCount?: number;
-  // Match Statistics
-  avgHomeShots: number;
-  avgAwayShots: number;
-  avgHomeShotsOnTarget: number;
-  avgAwayShotsOnTarget: number;
-  avgHomeCorners: number;
-  avgAwayCorners: number;
-  avgHomeFouls: number;
-  avgAwayFouls: number;
-  avgHomeYellowCards: number;
-  avgAwayYellowCards: number;
-  totalRedCards: number;
-  // Shots Conversion
-  homeShotConversion: number;
-  awayShotConversion: number;
-  homeShotOnTargetConversion: number;
-  awayShotOnTargetConversion: number;
-  overallShotConversion: number;
-  overallShotOnTargetConversion: number;
-  // Over/Under 2.5 Analysis
-  over25Count: number;
-  over25Percent: number;
-  under25Count: number;
-  under25Percent: number;
-  avgTotalGoals: number;
-  // Odds Analysis (Value Betting)
-  oddsAnalysis: {
-    matchesWithOdds: number;
-    favoriteWins: number;
-    favoriteWinPercent: number;
-    underdogWins: number;
-    underdogWinPercent: number;
-    drawsPercent: number;
-    avgHomeOdds: number;
-    avgDrawOdds: number;
-    avgAwayOdds: number;
-    // Implied probability vs actual
-    homeWinImpliedProb: number;
-    homeWinActualProb: number;
-    drawImpliedProb: number;
-    drawActualProb: number;
-    awayWinImpliedProb: number;
-    awayWinActualProb: number;
-  };
-}
+// Re-export Analytics for backward compatibility
+export type { Analytics } from '@/lib/types';
 
-// Available seasons - European format
-// 11 seasons from 2015-16 to 2025-26
-const EUROPEAN_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
-
-// In-memory cache for analytics
+// In-memory cache for analytics results (derived data, not raw match data)
 const analyticsCache = new Map<string, { data: Analytics; timestamp: number }>();
-const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
-
-// In-memory cache for raw data
-const dataCache = new Map<string, { data: MatchResult[]; timestamp: number }>();
-
-async function fetchSeasonData(league: string, season: string): Promise<MatchResult[]> {
-  const cacheKey = `${league}-${season}`;
-  const cached = dataCache.get(cacheKey);
-  
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached.data;
-  }
-
-  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
-
-  try {
-    const response = await fetchWithRetry(url);
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const csvText = await response.text();
-    const results = parseCSV(csvText, season);
-
-    dataCache.set(cacheKey, { data: results, timestamp: Date.now() });
-    return results;
-  } catch (error) {
-    console.error(`Error fetching ${season}:`, error);
-    return [];
-  }
-}
+const ANALYTICS_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 
 function calculateAnalytics(results: MatchResult[], seasonsCount?: number): Analytics {
   const totalMatches = results.length;
@@ -370,7 +273,7 @@ export async function GET(request: NextRequest) {
   const cacheKey = `${league}-${season}-analytics`;
   const cached = analyticsCache.get(cacheKey);
 
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+  if (cached && Date.now() - cached.timestamp < ANALYTICS_CACHE_DURATION) {
     console.log(`[Analytics API] Returning cached data for ${league} ${season}`);
     return NextResponse.json({ analytics: cached.data });
   }
@@ -381,9 +284,7 @@ export async function GET(request: NextRequest) {
 
     if (season === 'all') {
       console.log(`[Analytics API] Fetching ALL seasons for ${league}`);
-      const seasonPromises = EUROPEAN_SEASONS.map(s => fetchSeasonData(league, s));
-      const seasonResults = await Promise.all(seasonPromises);
-      allResults = seasonResults.flat();
+      allResults = await fetchAllSeasons(league, EUROPEAN_SEASONS);
       seasonsCount = EUROPEAN_SEASONS.length;
       console.log(`[Analytics API] ALL SEASONS: ${allResults.length} total matches`);
     } else {

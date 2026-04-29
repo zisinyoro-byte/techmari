@@ -1,64 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseCSV, MatchResult, fetchWithRetry } from '../results/route';
+import { fetchSeasonData, clearCache } from '@/lib/data-cache';
+import type { MatchResult } from '@/lib/types';
+import { EUROPEAN_SEASONS } from '@/lib/constants';
 
-// Available seasons - European format (Aug-May, cross-year)
-// 11 seasons from 2015-16 to 2025-26
-const EUROPEAN_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
+const TEAMS_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 
-const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+// In-memory cache for teams API results (derived data)
+const teamsCache = new Map<string, { data: { teams: string[]; seasonsFetched: string[]; totalMatches: number; teamsPerSeason: Record<string, number> }; timestamp: number }>();
 
-// In-memory cache
-const cache = new Map<string, { data: { teams: string[]; seasonsFetched: string[]; totalMatches: number; teamsPerSeason: Record<string, number> }; timestamp: number }>();
-
-const dataCache = new Map<string, { data: MatchResult[]; timestamp: number }>();
-
-async function fetchSeasonData(league: string, season: string): Promise<{ matches: MatchResult[]; success: boolean; teamCount: number }> {
-  const cacheKey = `${league}-${season}`;
-  const cached = dataCache.get(cacheKey);
-
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    const teams = new Set<string>();
-    for (const match of cached.data) {
-      if (match.homeTeam) teams.add(match.homeTeam);
-      if (match.awayTeam) teams.add(match.awayTeam);
-    }
-    return { matches: cached.data, success: cached.data.length > 0, teamCount: teams.size };
+/**
+ * Fetch a single season and return enriched result with team count.
+ * Uses the shared data-cache for raw data, then computes team metrics.
+ */
+async function fetchSeasonWithTeams(
+  league: string,
+  season: string,
+): Promise<{ matches: MatchResult[]; success: boolean; teamCount: number }> {
+  const matches = await fetchSeasonData(league, season);
+  const teams = new Set<string>();
+  for (const match of matches) {
+    if (match.homeTeam) teams.add(match.homeTeam);
+    if (match.awayTeam) teams.add(match.awayTeam);
   }
-
-  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
-
-  try {
-    const response = await fetchWithRetry(url);
-
-    if (!response.ok) {
-      console.warn(`[Teams API] Failed to fetch ${league} ${season}: HTTP ${response.status}`);
-      return { matches: [], success: false, teamCount: 0 };
-    }
-
-    const csvText = await response.text();
-    
-    if (!csvText || csvText.trim().length < 50) {
-      console.warn(`[Teams API] Empty or invalid CSV for ${league} ${season}`);
-      return { matches: [], success: false, teamCount: 0 };
-    }
-
-    const results = parseCSV(csvText, season);
-    
-    // Count unique teams in this season
-    const teams = new Set<string>();
-    for (const match of results) {
-      if (match.homeTeam) teams.add(match.homeTeam);
-      if (match.awayTeam) teams.add(match.awayTeam);
-    }
-
-    dataCache.set(cacheKey, { data: results, timestamp: Date.now() });
-    console.log(`[Teams API] Fetched ${league} ${season}: ${results.length} matches, ${teams.size} teams`);
-    
-    return { matches: results, success: results.length > 0, teamCount: teams.size };
-  } catch (error) {
-    console.error(`[Teams API] Error fetching ${league} ${season}:`, error);
-    return { matches: [], success: false, teamCount: 0 };
-  }
+  return { matches, success: matches.length > 0, teamCount: teams.size };
 }
 
 export async function GET(request: NextRequest) {
@@ -77,15 +41,15 @@ export async function GET(request: NextRequest) {
   // Clear cache if refresh is requested
   if (refresh === 'true') {
     console.log(`[Teams API] Clearing all caches for refresh`);
-    cache.clear();
-    dataCache.clear();
+    teamsCache.clear();
+    clearCache();
   }
 
   const cacheKey = `${league}-${season}-teams`;
-  const cached = cache.get(cacheKey);
+  const cached = teamsCache.get(cacheKey);
 
   // Use cache if available and not forcing refresh
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION && refresh !== 'true') {
+  if (cached && Date.now() - cached.timestamp < TEAMS_CACHE_DURATION && refresh !== 'true') {
     console.log(`[Teams API] Returning cached data for ${league} ${season}`);
     return NextResponse.json({ 
       teams: cached.data.teams,
@@ -104,7 +68,7 @@ export async function GET(request: NextRequest) {
     if (season === 'all') {
       // Fetch all seasons in parallel
       console.log(`[Teams API] Fetching ALL seasons for league ${league}...`);
-      const seasonPromises = EUROPEAN_SEASONS.map(s => fetchSeasonData(league, s));
+      const seasonPromises = EUROPEAN_SEASONS.map(s => fetchSeasonWithTeams(league, s));
       const seasonResults = await Promise.all(seasonPromises);
 
       // Combine all teams - track which seasons had data
@@ -132,7 +96,7 @@ export async function GET(request: NextRequest) {
       console.log(`  - Seasons with data: ${seasonsFetched.join(', ')}`);
       console.log(`  - Total matches: ${totalMatches}`);
     } else {
-      const { matches, success, teamCount } = await fetchSeasonData(league, season);
+      const { matches, success, teamCount } = await fetchSeasonWithTeams(league, season);
       const teamSet = new Set<string>();
       
       if (success && matches.length > 0) {
@@ -148,7 +112,7 @@ export async function GET(request: NextRequest) {
       teams = Array.from(teamSet).sort((a, b) => a.localeCompare(b));
     }
 
-    cache.set(cacheKey, { data: { teams, seasonsFetched, totalMatches, teamsPerSeason }, timestamp: Date.now() });
+    teamsCache.set(cacheKey, { data: { teams, seasonsFetched, totalMatches, teamsPerSeason }, timestamp: Date.now() });
 
     return NextResponse.json({ 
       teams,
