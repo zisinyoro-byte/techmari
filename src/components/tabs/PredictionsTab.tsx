@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3 } from 'lucide-react'
+import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3, TrendingUp } from 'lucide-react'
 import type { PredictionsTabProps } from './types'
 import { COLORS, SEASON_NAMES } from '@/lib/constants'
 import { parseDateSafe } from '@/lib/utils'
