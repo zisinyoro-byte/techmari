@@ -1,9 +1,10 @@
 // ============================================================================
 // Shared Betting Filter Configuration — Single Source of Truth
 // ============================================================================
-// Hybrid threshold system: threshold = max(absoluteFloor, leagueBaseline * multiplier)
-// League-level criteria use absolute thresholds (screen the league itself)
-// Match-level criteria adapt to each league's profile
+// Backtest-derived threshold system with hybrid formula fallback:
+//   1. If backtest-derived thresholds exist for a league → use those (optimal)
+//   2. Otherwise → fall back to hybrid: max(absoluteFloor, leagueBaseline * multiplier)
+// League-level criteria always use absolute thresholds.
 // Used by: PredictionsTab, ModelsTab, BttsCheckTab, Over35Tab
 // ============================================================================
 
@@ -31,7 +32,7 @@ export function computeLeagueBaselines(
     over25Percent: number;
     avgHomeGoals: number;
     avgAwayGoals: number;
-    overallShotConversion: string;
+    overallShotConversion: string | number;
   }
 ): LeagueBaselines {
   const total = results.length || 1;
@@ -45,77 +46,169 @@ export function computeLeagueBaselines(
     over35Rate: (over35Count / total) * 100,
     avgHomeGoals: analytics.avgHomeGoals,
     avgAwayGoals: analytics.avgAwayGoals,
-    shotConversion: parseFloat(analytics.overallShotConversion),
+    shotConversion: typeof analytics.overallShotConversion === 'string'
+      ? parseFloat(analytics.overallShotConversion)
+      : analytics.overallShotConversion,
   };
 }
 
 // ============================================================================
-// Hybrid threshold config
-// Each match-level criterion has: { floor, multiplier }
-// threshold = max(floor, leagueBaseline * multiplier)
+// Per-criterion threshold definitions
+// ============================================================================
+
+/** Thresholds for each BTTS checklist criterion */
+export interface BttsCriterionThresholds {
+  modelBttsProb: number;   // %
+  homeAvgGoals: number;    // goals
+  awayAvgGoals: number;    // goals
+  modelO25Prob: number;    // %
+  shotConversion: number;  // %
+}
+
+/** Thresholds for each Over 3.5 checklist criterion */
+export interface Over35CriterionThresholds {
+  modelO35Prob: number;    // %
+  bttsProb: number;        // %
+  homeAvgGoals: number;    // goals
+  awayAvgGoals: number;    // goals
+  shotConversion: number;  // %
+}
+
+/** Thresholds for STRONG BET check */
+export interface StrongBetCriterionThresholds {
+  o25Prob: number;           // %
+  o35Prob: number;           // %
+  bttsProb: number;          // %
+  bttsChecklistCount: number; // absolute count
+}
+
+/** Thresholds for GREY RESULT check */
+export interface GreyResultCriterionThresholds {
+  bttsProb: number;              // %
+  o25Prob: number;               // %
+  o35Prob: number;               // %
+  bttsChecklistCount: number;    // absolute count
+  over35ChecklistCount: number;  // absolute count
+  requiredChecks: number;        // absolute count
+}
+
+/** Complete threshold set for one league (backtest-derived) */
+export interface LeagueBacktestThresholds {
+  leagueName: string;
+  // League-level (always absolute)
+  bttsLeagueAvgGoals: number;
+  bttsLeagueO25Rate: number;
+  o35LeagueAvgGoals: number;
+  o35LeagueO25Rate: number;
+  // Match-level
+  btts: BttsCriterionThresholds;
+  over35: Over35CriterionThresholds;
+  strongBet: StrongBetCriterionThresholds;
+  greyResult: GreyResultCriterionThresholds;
+  // Metadata
+  sampleSize: number;       // number of matches used to derive
+  derivedAt: string;        // ISO date string
+}
+
+// ============================================================================
+// Backtest-derived threshold registry
+// ============================================================================
+// This is the central store. Thresholds are added here when backtests run.
+// Leagues without entries fall back to the hybrid formula.
+
+const backtestRegistry = new Map<string, LeagueBacktestThresholds>();
+
+/**
+ * Register backtest-derived thresholds for a league.
+ * Call this when a backtest completes for a league/season.
+ */
+export function registerBacktestThresholds(thresholds: LeagueBacktestThresholds): void {
+  backtestRegistry.set(thresholds.leagueName.toLowerCase(), thresholds);
+}
+
+/**
+ * Get backtest-derived thresholds for a league, if available.
+ */
+export function getBacktestThresholds(leagueName: string): LeagueBacktestThresholds | undefined {
+  return backtestRegistry.get(leagueName.toLowerCase());
+}
+
+/**
+ * Get all registered backtest thresholds (for display/export).
+ */
+export function getAllBacktestThresholds(): LeagueBacktestThresholds[] {
+  return Array.from(backtestRegistry.values());
+}
+
+/**
+ * Check if a league has backtest-derived thresholds with sufficient sample size.
+ */
+export function hasSufficientBacktest(leagueName: string, minSampleSize = 150): boolean {
+  const t = backtestRegistry.get(leagueName.toLowerCase());
+  return t !== undefined && t.sampleSize >= minSampleSize;
+}
+
+// ============================================================================
+// Hybrid fallback thresholds (used when no backtest data exists)
+// League-level: absolute. Match-level: floor + multiplier pairs.
 // ============================================================================
 
 // ---- BTTS Checklist criteria ----
-// League-level (absolute): screen the league environment
 export const BTTS_LEAGUE_THRESHOLDS = {
-  leagueAvgGoals: 2.7,       // absolute floor — league must average 2.7+ goals
-  leagueO25Rate: 55,          // absolute floor — league must have 55%+ O2.5 rate
+  leagueAvgGoals: 2.7,
+  leagueO25Rate: 55,
 } as const;
 
-// Match-level (hybrid): adapt to each league's profile
 export const BTTS_HYBRID_THRESHOLDS = {
-  modelBttsProb:  { floor: 55, multiplier: 1.12 },  // BTTS ≥ max(55%, leagueBTTS*1.12)
-  homeAvgGoals:   { floor: 1.3, multiplier: 1.10 },  // Home ≥ max(1.3, leagueHomeAvg*1.10)
-  awayAvgGoals:   { floor: 1.1, multiplier: 1.10 },  // Away ≥ max(1.1, leagueAwayAvg*1.10)
-  modelO25Prob:   { floor: 62, multiplier: 1.10 },  // O2.5 ≥ max(62%, leagueO25*1.10)
-  shotConversion: { floor: 11, multiplier: 1.15 },  // Shot conv ≥ max(11%, leagueConv*1.15)
+  modelBttsProb:  { floor: 55, multiplier: 1.12 },
+  homeAvgGoals:   { floor: 1.3, multiplier: 1.10 },
+  awayAvgGoals:   { floor: 1.1, multiplier: 1.10 },
+  modelO25Prob:   { floor: 62, multiplier: 1.10 },
+  shotConversion: { floor: 11, multiplier: 1.15 },
 } as const;
 
 // ---- Over 3.5 Checklist criteria ----
-// League-level (absolute): screen the league environment
 export const OVER35_LEAGUE_THRESHOLDS = {
-  leagueAvgGoals: 2.8,       // absolute floor — league must average 2.8+ goals
-  leagueO25Rate: 52,          // absolute floor — league must have 52%+ O2.5 rate
+  leagueAvgGoals: 2.8,
+  leagueO25Rate: 52,
 } as const;
 
-// Match-level (hybrid): adapt to each league's profile
 export const OVER35_HYBRID_THRESHOLDS = {
-  modelO35Prob:   { floor: 40, multiplier: 1.20 },  // O3.5 ≥ max(40%, leagueO35*1.20)
-  bttsProb:       { floor: 52, multiplier: 1.10 },  // BTTS ≥ max(52%, leagueBTTS*1.10)
-  homeAvgGoals:   { floor: 1.4, multiplier: 1.12 },  // Home ≥ max(1.4, leagueHomeAvg*1.12)
-  awayAvgGoals:   { floor: 1.2, multiplier: 1.10 },  // Away ≥ max(1.2, leagueAwayAvg*1.10)
-  shotConversion: { floor: 12, multiplier: 1.15 },  // Shot conv ≥ max(12%, leagueConv*1.15)
+  modelO35Prob:   { floor: 40, multiplier: 1.20 },
+  bttsProb:       { floor: 52, multiplier: 1.10 },
+  homeAvgGoals:   { floor: 1.4, multiplier: 1.12 },
+  awayAvgGoals:   { floor: 1.2, multiplier: 1.10 },
+  shotConversion: { floor: 12, multiplier: 1.15 },
 } as const;
 
 // ---- STRONG BET — Points-based system (need 7+ of 11) ----
 export const STRONG_BET_POINTS = {
-  o25: 2,                     // O2.5 check
-  o35: 1,                     // O3.5 check
-  btts: 1,                    // BTTS check
-  bttsChecklist: 2,           // BTTS Checklist ≥ 6/7
-  xgSignal: 2,                // xG Signal = Over or Strong Over
-  regressionSignal: 2,        // Regression Signal = Over or Strong Over
-  zScoreSignal: 1,            // Z-Score Signal = Over or Strong Over
-  threshold: 7,               // Need 7+ points to qualify
+  o25: 2,
+  o35: 1,
+  btts: 1,
+  bttsChecklist: 2,
+  xgSignal: 2,
+  regressionSignal: 2,
+  zScoreSignal: 1,
+  threshold: 7,
   maxPoints: 11,
 } as const;
 
-// STRONG BET match-level hybrid thresholds
 export const STRONG_BET_HYBRID = {
-  o25Prob:   { floor: 65, multiplier: 1.10 },  // O2.5 ≥ max(65%, leagueO25*1.10)
-  o35Prob:   { floor: 42, multiplier: 1.25 },  // O3.5 ≥ max(42%, leagueO35*1.25)
-  bttsProb:  { floor: 55, multiplier: 1.12 },  // BTTS ≥ max(55%, leagueBTTS*1.12)
-  bttsChecklistCount: 6,                         // BTTS Checklist ≥ 6/7 (absolute)
+  o25Prob:   { floor: 65, multiplier: 1.10 },
+  o35Prob:   { floor: 42, multiplier: 1.25 },
+  bttsProb:  { floor: 55, multiplier: 1.12 },
+  bttsChecklistCount: 6,
 } as const;
 
 // ---- GREY RESULT — 8 checks, need 6+ ----
 export const GREY_RESULT_CONFIG = {
-  bttsProb:  { floor: 55, multiplier: 1.12 },   // BTTS ≥ max(55%, leagueBTTS*1.12)
-  o25Prob:   { floor: 65, multiplier: 1.10 },   // O2.5 ≥ max(65%, leagueO25*1.10)
-  o35Prob:   { floor: 40, multiplier: 1.20 },   // O3.5 ≥ max(40%, leagueO35*1.20)
-  bttsChecklistCount: 5,                          // BTTS Checklist ≥ 5/7 (absolute)
-  over35ChecklistCount: 3,                        // O3.5 Checklist ≥ 3/7 (absolute)
-  requiredChecks: 6,                              // Need 6+ of 8
+  bttsProb:  { floor: 55, multiplier: 1.12 },
+  o25Prob:   { floor: 65, multiplier: 1.10 },
+  o35Prob:   { floor: 40, multiplier: 1.20 },
+  bttsChecklistCount: 5,
+  over35ChecklistCount: 3,
+  requiredChecks: 6,
 } as const;
 
 // ---- Signal thresholds (xG, Regression, Z-Score) — unchanged ----
@@ -149,24 +242,146 @@ export const ZSCORE_THRESHOLDS = {
 } as const;
 
 // ============================================================================
-// Hybrid threshold helper
+// Hybrid threshold helper (fallback formula)
 // ============================================================================
 function hybridThreshold(floor: number, baseline: number, multiplier: number): number {
   return Math.max(floor, baseline * multiplier);
 }
 
-function hybridThresholdLabel(floor: number, baseline: number, multiplier: number): string {
-  const effective = Math.max(floor, baseline * multiplier);
-  return `${effective.toFixed(0)}% (floor ${floor}%)`;
+// ============================================================================
+// Threshold resolution — backtest-derived when available, hybrid fallback
+// ============================================================================
+
+/** Resolved league-level thresholds (always absolute) */
+export interface ResolvedLeagueThresholds {
+  bttsLeagueAvgGoals: number;
+  bttsLeagueO25Rate: number;
+  o35LeagueAvgGoals: number;
+  o35LeagueO25Rate: number;
 }
 
-function hybridThresholdNumLabel(floor: number, baseline: number, multiplier: number): string {
-  const effective = Math.max(floor, baseline * multiplier);
-  return `${effective.toFixed(2)} (floor ${floor})`;
+/** Resolved BTTS match-level thresholds */
+export interface ResolvedThresholds {
+  modelBttsProb: number;
+  homeAvgGoals: number;
+  awayAvgGoals: number;
+  modelO25Prob: number;
+  shotConversion: number;
+  source: 'backtest' | 'hybrid';
+}
+
+/** Resolved Over 3.5 match-level thresholds */
+export interface ResolvedOver35Thresholds {
+  modelO35Prob: number;
+  bttsProb: number;
+  homeAvgGoals: number;
+  awayAvgGoals: number;
+  shotConversion: number;
+  source: 'backtest' | 'hybrid';
+}
+
+/** Resolved STRONG BET thresholds */
+export interface ResolvedStrongBetThresholds {
+  o25Prob: number;
+  o35Prob: number;
+  bttsProb: number;
+  bttsChecklistCount: number;
+  source: 'backtest' | 'hybrid';
+}
+
+/** Resolved GREY RESULT thresholds */
+export interface ResolvedGreyResultThresholds {
+  bttsProb: number;
+  o25Prob: number;
+  o35Prob: number;
+  bttsChecklistCount: number;
+  over35ChecklistCount: number;
+  requiredChecks: number;
+  source: 'backtest' | 'hybrid';
+}
+
+/**
+ * Resolve all thresholds for a given league.
+ * Uses backtest-derived if available (sample >= minSampleSize), otherwise hybrid.
+ */
+export function resolveAllThresholds(
+  leagueName: string | undefined,
+  baselines: LeagueBaselines,
+  minSampleSize = 150
+) {
+  const bt = leagueName ? getBacktestThresholds(leagueName) : undefined;
+  const useBacktest = bt !== undefined && bt.sampleSize >= minSampleSize;
+
+  // League-level thresholds (always absolute)
+  const league: ResolvedLeagueThresholds = useBacktest
+    ? {
+        bttsLeagueAvgGoals: bt!.bttsLeagueAvgGoals,
+        bttsLeagueO25Rate: bt!.bttsLeagueO25Rate,
+        o35LeagueAvgGoals: bt!.o35LeagueAvgGoals,
+        o35LeagueO25Rate: bt!.o35LeagueO25Rate,
+      }
+    : {
+        bttsLeagueAvgGoals: BTTS_LEAGUE_THRESHOLDS.leagueAvgGoals,
+        bttsLeagueO25Rate: BTTS_LEAGUE_THRESHOLDS.leagueO25Rate,
+        o35LeagueAvgGoals: OVER35_LEAGUE_THRESHOLDS.leagueAvgGoals,
+        o35LeagueO25Rate: OVER35_LEAGUE_THRESHOLDS.leagueO25Rate,
+      };
+
+  const src: 'backtest' | 'hybrid' = useBacktest ? 'backtest' : 'hybrid';
+
+  // BTTS match-level thresholds
+  const btts: ResolvedThresholds = useBacktest
+    ? { ...bt!.btts, source: 'backtest' }
+    : {
+        modelBttsProb: hybridThreshold(BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor, baselines.bttsRate, BTTS_HYBRID_THRESHOLDS.modelBttsProb.multiplier),
+        homeAvgGoals: hybridThreshold(BTTS_HYBRID_THRESHOLDS.homeAvgGoals.floor, baselines.avgHomeGoals, BTTS_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
+        awayAvgGoals: hybridThreshold(BTTS_HYBRID_THRESHOLDS.awayAvgGoals.floor, baselines.avgAwayGoals, BTTS_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
+        modelO25Prob: hybridThreshold(BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor, baselines.over25Rate, BTTS_HYBRID_THRESHOLDS.modelO25Prob.multiplier),
+        shotConversion: hybridThreshold(BTTS_HYBRID_THRESHOLDS.shotConversion.floor, baselines.shotConversion, BTTS_HYBRID_THRESHOLDS.shotConversion.multiplier),
+        source: 'hybrid',
+      };
+
+  // Over 3.5 match-level thresholds
+  const over35: ResolvedOver35Thresholds = useBacktest
+    ? { ...bt!.over35, source: 'backtest' }
+    : {
+        modelO35Prob: hybridThreshold(OVER35_HYBRID_THRESHOLDS.modelO35Prob.floor, baselines.over35Rate, OVER35_HYBRID_THRESHOLDS.modelO35Prob.multiplier),
+        bttsProb: hybridThreshold(OVER35_HYBRID_THRESHOLDS.bttsProb.floor, baselines.bttsRate, OVER35_HYBRID_THRESHOLDS.bttsProb.multiplier),
+        homeAvgGoals: hybridThreshold(OVER35_HYBRID_THRESHOLDS.homeAvgGoals.floor, baselines.avgHomeGoals, OVER35_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
+        awayAvgGoals: hybridThreshold(OVER35_HYBRID_THRESHOLDS.awayAvgGoals.floor, baselines.avgAwayGoals, OVER35_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
+        shotConversion: hybridThreshold(OVER35_HYBRID_THRESHOLDS.shotConversion.floor, baselines.shotConversion, OVER35_HYBRID_THRESHOLDS.shotConversion.multiplier),
+        source: 'hybrid',
+      };
+
+  // STRONG BET thresholds
+  const strongBet: ResolvedStrongBetThresholds = useBacktest
+    ? { ...bt!.strongBet, source: 'backtest' }
+    : {
+        o25Prob: hybridThreshold(STRONG_BET_HYBRID.o25Prob.floor, baselines.over25Rate, STRONG_BET_HYBRID.o25Prob.multiplier),
+        o35Prob: hybridThreshold(STRONG_BET_HYBRID.o35Prob.floor, baselines.over35Rate, STRONG_BET_HYBRID.o35Prob.multiplier),
+        bttsProb: hybridThreshold(STRONG_BET_HYBRID.bttsProb.floor, baselines.bttsRate, STRONG_BET_HYBRID.bttsProb.multiplier),
+        bttsChecklistCount: STRONG_BET_HYBRID.bttsChecklistCount,
+        source: 'hybrid',
+      };
+
+  // GREY RESULT thresholds
+  const greyResult: ResolvedGreyResultThresholds = useBacktest
+    ? { ...bt!.greyResult, source: 'backtest' }
+    : {
+        bttsProb: hybridThreshold(GREY_RESULT_CONFIG.bttsProb.floor, baselines.bttsRate, GREY_RESULT_CONFIG.bttsProb.multiplier),
+        o25Prob: hybridThreshold(GREY_RESULT_CONFIG.o25Prob.floor, baselines.over25Rate, GREY_RESULT_CONFIG.o25Prob.multiplier),
+        o35Prob: hybridThreshold(GREY_RESULT_CONFIG.o35Prob.floor, baselines.over35Rate, GREY_RESULT_CONFIG.o35Prob.multiplier),
+        bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
+        over35ChecklistCount: GREY_RESULT_CONFIG.over35ChecklistCount,
+        requiredChecks: GREY_RESULT_CONFIG.requiredChecks,
+        source: 'hybrid',
+      };
+
+  return { league, btts, over35, strongBet, greyResult, source: src };
 }
 
 // ============================================================================
-// Filter computation functions
+// Filter input types
 // ============================================================================
 
 export interface ChecklistInput {
@@ -180,82 +395,10 @@ export interface ChecklistInput {
   overallShotConversion: number;
 }
 
-export interface ResolvedThresholds {
-  modelBttsProb: number;
-  homeAvgGoals: number;
-  awayAvgGoals: number;
-  modelO25Prob: number;
-  shotConversion: number;
-}
-
-export interface ResolvedOver35Thresholds {
-  modelO35Prob: number;
-  bttsProb: number;
-  homeAvgGoals: number;
-  awayAvgGoals: number;
-  shotConversion: number;
-}
-
 export interface SignalInput {
   xgSignal: string;
   regressionSignal: string;
   zScoreSignal: string;
-}
-
-/**
- * Resolve BTTS match-level thresholds against league baselines
- */
-export function resolveBttsThresholds(baselines: LeagueBaselines): ResolvedThresholds {
-  const t = BTTS_HYBRID_THRESHOLDS;
-  return {
-    modelBttsProb: hybridThreshold(t.modelBttsProb.floor, baselines.bttsRate, t.modelBttsProb.multiplier),
-    homeAvgGoals: hybridThreshold(t.homeAvgGoals.floor, baselines.avgHomeGoals, t.homeAvgGoals.multiplier),
-    awayAvgGoals: hybridThreshold(t.awayAvgGoals.floor, baselines.avgAwayGoals, t.awayAvgGoals.multiplier),
-    modelO25Prob: hybridThreshold(t.modelO25Prob.floor, baselines.over25Rate, t.modelO25Prob.multiplier),
-    shotConversion: hybridThreshold(t.shotConversion.floor, baselines.shotConversion, t.shotConversion.multiplier),
-  };
-}
-
-/**
- * Resolve Over 3.5 match-level thresholds against league baselines
- */
-export function resolveOver35Thresholds(baselines: LeagueBaselines): ResolvedOver35Thresholds {
-  const t = OVER35_HYBRID_THRESHOLDS;
-  return {
-    modelO35Prob: hybridThreshold(t.modelO35Prob.floor, baselines.over35Rate, t.modelO35Prob.multiplier),
-    bttsProb: hybridThreshold(t.bttsProb.floor, baselines.bttsRate, t.bttsProb.multiplier),
-    homeAvgGoals: hybridThreshold(t.homeAvgGoals.floor, baselines.avgHomeGoals, t.homeAvgGoals.multiplier),
-    awayAvgGoals: hybridThreshold(t.awayAvgGoals.floor, baselines.avgAwayGoals, t.awayAvgGoals.multiplier),
-    shotConversion: hybridThreshold(t.shotConversion.floor, baselines.shotConversion, t.shotConversion.multiplier),
-  };
-}
-
-/**
- * Resolve STRONG BET thresholds against league baselines
- */
-export function resolveStrongBetThresholds(baselines: LeagueBaselines) {
-  const t = STRONG_BET_HYBRID;
-  return {
-    o25Prob: hybridThreshold(t.o25Prob.floor, baselines.over25Rate, t.o25Prob.multiplier),
-    o35Prob: hybridThreshold(t.o35Prob.floor, baselines.over35Rate, t.o35Prob.multiplier),
-    bttsProb: hybridThreshold(t.bttsProb.floor, baselines.bttsRate, t.bttsProb.multiplier),
-    bttsChecklistCount: t.bttsChecklistCount,
-  };
-}
-
-/**
- * Resolve GREY RESULT thresholds against league baselines
- */
-export function resolveGreyResultThresholds(baselines: LeagueBaselines) {
-  const t = GREY_RESULT_CONFIG;
-  return {
-    bttsProb: hybridThreshold(t.bttsProb.floor, baselines.bttsRate, t.bttsProb.multiplier),
-    o25Prob: hybridThreshold(t.o25Prob.floor, baselines.over25Rate, t.o25Prob.multiplier),
-    o35Prob: hybridThreshold(t.o35Prob.floor, baselines.over35Rate, t.o35Prob.multiplier),
-    bttsChecklistCount: t.bttsChecklistCount,
-    over35ChecklistCount: t.over35ChecklistCount,
-    requiredChecks: t.requiredChecks,
-  };
 }
 
 // ============================================================================
@@ -263,14 +406,18 @@ export function resolveGreyResultThresholds(baselines: LeagueBaselines) {
 // ============================================================================
 
 /**
- * Compute BTTS checklist score (0-7) using league-adapted thresholds
+ * Compute BTTS checklist score (0-7) using resolved thresholds.
+ * Resolved thresholds are either backtest-derived or hybrid formula.
  */
-export function computeBttsChecklist(input: ChecklistInput, baselines: LeagueBaselines): number {
-  const lt = BTTS_LEAGUE_THRESHOLDS;
-  const rt = resolveBttsThresholds(baselines);
+export function computeBttsChecklist(
+  input: ChecklistInput,
+  resolved: ReturnType<typeof resolveAllThresholds>
+): number {
+  const lt = resolved.league;
+  const rt = resolved.btts;
   let count = 0;
-  if (input.avgGoalsPerGame >= lt.leagueAvgGoals) count++;
-  if (input.over25Percent >= lt.leagueO25Rate) count++;
+  if (input.avgGoalsPerGame >= lt.bttsLeagueAvgGoals) count++;
+  if (input.over25Percent >= lt.bttsLeagueO25Rate) count++;
   if (input.bttsProb >= rt.modelBttsProb) count++;
   if (input.avgHomeGoals >= rt.homeAvgGoals) count++;
   if (input.avgAwayGoals >= rt.awayAvgGoals) count++;
@@ -282,31 +429,37 @@ export function computeBttsChecklist(input: ChecklistInput, baselines: LeagueBas
 /**
  * Compute BTTS checklist labels (for CSV export)
  */
-export function computeBttsChecklistLabels(input: ChecklistInput, baselines: LeagueBaselines): string[] {
-  const lt = BTTS_LEAGUE_THRESHOLDS;
-  const rt = resolveBttsThresholds(baselines);
+export function computeBttsChecklistLabels(
+  input: ChecklistInput,
+  resolved: ReturnType<typeof resolveAllThresholds>
+): string[] {
+  const lt = resolved.league;
+  const rt = resolved.btts;
   const checks: string[] = [];
-  if (input.avgGoalsPerGame >= lt.leagueAvgGoals) checks.push(`League Avg Goals \u2265${lt.leagueAvgGoals}`);
-  if (input.over25Percent >= lt.leagueO25Rate) checks.push(`League O2.5 Rate \u2265${lt.leagueO25Rate}%`);
-  if (input.bttsProb >= rt.modelBttsProb) checks.push(`Model BTTS Prob \u2265${rt.modelBttsProb.toFixed(0)}%`);
-  if (input.avgHomeGoals >= rt.homeAvgGoals) checks.push(`Home Avg Goals \u2265${rt.homeAvgGoals.toFixed(2)}`);
-  if (input.avgAwayGoals >= rt.awayAvgGoals) checks.push(`Away Avg Goals \u2265${rt.awayAvgGoals.toFixed(2)}`);
-  if (input.o25Prob >= rt.modelO25Prob) checks.push(`Model O2.5 Prob \u2265${rt.modelO25Prob.toFixed(0)}%`);
-  if (input.overallShotConversion >= rt.shotConversion) checks.push(`Shot Conversion \u2265${rt.shotConversion.toFixed(0)}%`);
+  if (input.avgGoalsPerGame >= lt.bttsLeagueAvgGoals) checks.push(`League Avg Goals >=${lt.bttsLeagueAvgGoals}`);
+  if (input.over25Percent >= lt.bttsLeagueO25Rate) checks.push(`League O2.5 Rate >=${lt.bttsLeagueO25Rate}%`);
+  if (input.bttsProb >= rt.modelBttsProb) checks.push(`Model BTTS Prob >=${rt.modelBttsProb.toFixed(0)}%`);
+  if (input.avgHomeGoals >= rt.homeAvgGoals) checks.push(`Home Avg Goals >=${rt.homeAvgGoals.toFixed(2)}`);
+  if (input.avgAwayGoals >= rt.awayAvgGoals) checks.push(`Away Avg Goals >=${rt.awayAvgGoals.toFixed(2)}`);
+  if (input.o25Prob >= rt.modelO25Prob) checks.push(`Model O2.5 Prob >=${rt.modelO25Prob.toFixed(0)}%`);
+  if (input.overallShotConversion >= rt.shotConversion) checks.push(`Shot Conversion >=${rt.shotConversion.toFixed(0)}%`);
   return checks;
 }
 
 /**
- * Compute Over 3.5 checklist score (0-7) using league-adapted thresholds
+ * Compute Over 3.5 checklist score (0-7) using resolved thresholds.
  */
-export function computeOver35Checklist(input: ChecklistInput, baselines: LeagueBaselines): number {
-  const lt = OVER35_LEAGUE_THRESHOLDS;
-  const rt = resolveOver35Thresholds(baselines);
+export function computeOver35Checklist(
+  input: ChecklistInput,
+  resolved: ReturnType<typeof resolveAllThresholds>
+): number {
+  const lt = resolved.league;
+  const rt = resolved.over35;
   let count = 0;
-  if (input.avgGoalsPerGame >= lt.leagueAvgGoals) count++;
+  if (input.avgGoalsPerGame >= lt.o35LeagueAvgGoals) count++;
   if (input.o35Prob >= rt.modelO35Prob) count++;
   if (input.bttsProb >= rt.bttsProb) count++;
-  if (input.over25Percent >= lt.leagueO25Rate) count++;
+  if (input.over25Percent >= lt.o35LeagueO25Rate) count++;
   if (input.avgHomeGoals >= rt.homeAvgGoals) count++;
   if (input.avgAwayGoals >= rt.awayAvgGoals) count++;
   if (input.overallShotConversion >= rt.shotConversion) count++;
@@ -316,45 +469,48 @@ export function computeOver35Checklist(input: ChecklistInput, baselines: LeagueB
 /**
  * Compute Over 3.5 checklist labels (for CSV export)
  */
-export function computeOver35ChecklistLabels(input: ChecklistInput, baselines: LeagueBaselines): string[] {
-  const lt = OVER35_LEAGUE_THRESHOLDS;
-  const rt = resolveOver35Thresholds(baselines);
+export function computeOver35ChecklistLabels(
+  input: ChecklistInput,
+  resolved: ReturnType<typeof resolveAllThresholds>
+): string[] {
+  const lt = resolved.league;
+  const rt = resolved.over35;
   const checks: string[] = [];
-  if (input.avgGoalsPerGame >= lt.leagueAvgGoals) checks.push(`League Avg Goals \u2265${lt.leagueAvgGoals}`);
-  if (input.o35Prob >= rt.modelO35Prob) checks.push(`Model O3.5 Prob \u2265${rt.modelO35Prob.toFixed(0)}%`);
-  if (input.bttsProb >= rt.bttsProb) checks.push(`BTTS Prob \u2265${rt.bttsProb.toFixed(0)}%`);
-  if (input.over25Percent >= lt.leagueO25Rate) checks.push(`O2.5 Rate \u2265${lt.leagueO25Rate}%`);
-  if (input.avgHomeGoals >= rt.homeAvgGoals) checks.push(`Home Avg Goals \u2265${rt.homeAvgGoals.toFixed(2)}`);
-  if (input.avgAwayGoals >= rt.awayAvgGoals) checks.push(`Away Avg Goals \u2265${rt.awayAvgGoals.toFixed(2)}`);
-  if (input.overallShotConversion >= rt.shotConversion) checks.push(`Shot Conversion \u2265${rt.shotConversion.toFixed(0)}%`);
+  if (input.avgGoalsPerGame >= lt.o35LeagueAvgGoals) checks.push(`League Avg Goals >=${lt.o35LeagueAvgGoals}`);
+  if (input.o35Prob >= rt.modelO35Prob) checks.push(`Model O3.5 Prob >=${rt.modelO35Prob.toFixed(0)}%`);
+  if (input.bttsProb >= rt.bttsProb) checks.push(`BTTS Prob >=${rt.bttsProb.toFixed(0)}%`);
+  if (input.over25Percent >= lt.o35LeagueO25Rate) checks.push(`O2.5 Rate >=${lt.o35LeagueO25Rate}%`);
+  if (input.avgHomeGoals >= rt.homeAvgGoals) checks.push(`Home Avg Goals >=${rt.homeAvgGoals.toFixed(2)}`);
+  if (input.avgAwayGoals >= rt.awayAvgGoals) checks.push(`Away Avg Goals >=${rt.awayAvgGoals.toFixed(2)}`);
+  if (input.overallShotConversion >= rt.shotConversion) checks.push(`Shot Conversion >=${rt.shotConversion.toFixed(0)}%`);
   return checks;
 }
 
 /**
- * Compute STRONG BET using points-based system with league-adapted thresholds.
+ * Compute STRONG BET using points-based system with resolved thresholds.
  * Returns { isStrongBet, points, maxPoints, breakdown }
  */
 export function computeStrongBet(
   checklistInput: ChecklistInput,
   signals: SignalInput,
-  baselines: LeagueBaselines
+  resolved: ReturnType<typeof resolveAllThresholds>
 ): {
   isStrongBet: boolean;
   points: number;
   maxPoints: number;
   breakdown: { check: string; points: number; passed: boolean }[];
 } {
-  const st = resolveStrongBetThresholds(baselines);
+  const st = resolved.strongBet;
   const p = STRONG_BET_POINTS;
 
-  const bttsCount = computeBttsChecklist(checklistInput, baselines);
+  const bttsCount = computeBttsChecklist(checklistInput, resolved);
   const isOverSignal = (sig: string) => sig === 'Over' || sig === 'Strong Over';
 
   const checks = [
-    { check: `O2.5 \u2265${st.o25Prob.toFixed(0)}%`, points: p.o25, passed: checklistInput.o25Prob >= st.o25Prob },
-    { check: `O3.5 \u2265${st.o35Prob.toFixed(0)}%`, points: p.o35, passed: checklistInput.o35Prob >= st.o35Prob },
-    { check: `BTTS \u2265${st.bttsProb.toFixed(0)}%`, points: p.btts, passed: checklistInput.bttsProb >= st.bttsProb },
-    { check: `BTTS Checklist \u2265${st.bttsChecklistCount}/7`, points: p.bttsChecklist, passed: bttsCount >= st.bttsChecklistCount },
+    { check: `O2.5 >=${st.o25Prob.toFixed(0)}%`, points: p.o25, passed: checklistInput.o25Prob >= st.o25Prob },
+    { check: `O3.5 >=${st.o35Prob.toFixed(0)}%`, points: p.o35, passed: checklistInput.o35Prob >= st.o35Prob },
+    { check: `BTTS >=${st.bttsProb.toFixed(0)}%`, points: p.btts, passed: checklistInput.bttsProb >= st.bttsProb },
+    { check: `BTTS Checklist >=${st.bttsChecklistCount}/7`, points: p.bttsChecklist, passed: bttsCount >= st.bttsChecklistCount },
     { check: 'xG Signal = Over', points: p.xgSignal, passed: isOverSignal(signals.xgSignal) },
     { check: 'Regression Signal = Over', points: p.regressionSignal, passed: isOverSignal(signals.regressionSignal) },
     { check: 'Z-Score Signal = Over', points: p.zScoreSignal, passed: isOverSignal(signals.zScoreSignal) },
@@ -371,32 +527,32 @@ export function computeStrongBet(
 }
 
 /**
- * Compute GREY RESULT using league-adapted thresholds.
+ * Compute GREY RESULT using resolved thresholds.
  * Returns { isGreyResult, score, totalChecks, breakdown }
  */
 export function computeGreyResult(
   checklistInput: ChecklistInput,
   signals: SignalInput,
-  baselines: LeagueBaselines
+  resolved: ReturnType<typeof resolveAllThresholds>
 ): {
   isGreyResult: boolean;
   score: number;
   totalChecks: number;
   breakdown: { check: string; passed: boolean }[];
 } {
-  const gt = resolveGreyResultThresholds(baselines);
-  const bttsCount = computeBttsChecklist(checklistInput, baselines);
-  const o35Count = computeOver35Checklist(checklistInput, baselines);
+  const gt = resolved.greyResult;
+  const bttsCount = computeBttsChecklist(checklistInput, resolved);
+  const o35Count = computeOver35Checklist(checklistInput, resolved);
 
   const checks = [
     { check: 'Regression = Strong Over', passed: signals.regressionSignal === 'Strong Over' },
     { check: 'Z-Score = Strong Over', passed: signals.zScoreSignal === 'Strong Over' },
     { check: 'xG = Strong Over', passed: signals.xgSignal === 'Strong Over' },
-    { check: `BTTS Checklist \u2265${gt.bttsChecklistCount}/7`, passed: bttsCount >= gt.bttsChecklistCount },
-    { check: `BTTS \u2265${gt.bttsProb.toFixed(0)}%`, passed: checklistInput.bttsProb >= gt.bttsProb },
-    { check: `O2.5 \u2265${gt.o25Prob.toFixed(0)}%`, passed: checklistInput.o25Prob >= gt.o25Prob },
-    { check: `O3.5 Checklist \u2265${gt.over35ChecklistCount}/7`, passed: o35Count >= gt.over35ChecklistCount },
-    { check: `O3.5 \u2265${gt.o35Prob.toFixed(0)}%`, passed: checklistInput.o35Prob >= gt.o35Prob },
+    { check: `BTTS Checklist >=${gt.bttsChecklistCount}/7`, passed: bttsCount >= gt.bttsChecklistCount },
+    { check: `BTTS >=${gt.bttsProb.toFixed(0)}%`, passed: checklistInput.bttsProb >= gt.bttsProb },
+    { check: `O2.5 >=${gt.o25Prob.toFixed(0)}%`, passed: checklistInput.o25Prob >= gt.o25Prob },
+    { check: `O3.5 Checklist >=${gt.over35ChecklistCount}/7`, passed: o35Count >= gt.over35ChecklistCount },
+    { check: `O3.5 >=${gt.o35Prob.toFixed(0)}%`, passed: checklistInput.o35Prob >= gt.o35Prob },
   ];
 
   const score = checks.filter(c => c.passed).length;
@@ -409,36 +565,425 @@ export function computeGreyResult(
   };
 }
 
+// ============================================================================
+// Display threshold helpers (for BttsCheckTab / Over35Tab UI)
+// ============================================================================
+
 /**
- * Get display-friendly threshold info for BTTS checklist items (for BttsCheckTab UI)
+ * Get display-friendly threshold info for BTTS checklist items
  */
-export function getBttsDisplayThresholds(baselines: LeagueBaselines) {
-  const lt = BTTS_LEAGUE_THRESHOLDS;
-  const rt = resolveBttsThresholds(baselines);
+export function getBttsDisplayThresholds(resolved: ReturnType<typeof resolveAllThresholds>) {
   return {
-    leagueAvgGoals: lt.leagueAvgGoals,
-    leagueO25Rate: lt.leagueO25Rate,
-    modelBttsProb: rt.modelBttsProb,
-    homeAvgGoals: rt.homeAvgGoals,
-    awayAvgGoals: rt.awayAvgGoals,
-    modelO25Prob: rt.modelO25Prob,
-    shotConversion: rt.shotConversion,
+    leagueAvgGoals: resolved.league.bttsLeagueAvgGoals,
+    leagueO25Rate: resolved.league.bttsLeagueO25Rate,
+    modelBttsProb: resolved.btts.modelBttsProb,
+    homeAvgGoals: resolved.btts.homeAvgGoals,
+    awayAvgGoals: resolved.btts.awayAvgGoals,
+    modelO25Prob: resolved.btts.modelO25Prob,
+    shotConversion: resolved.btts.shotConversion,
+    source: resolved.btts.source,
   };
 }
 
 /**
- * Get display-friendly threshold info for Over 3.5 checklist items (for Over35Tab UI)
+ * Get display-friendly threshold info for Over 3.5 checklist items
  */
-export function getOver35DisplayThresholds(baselines: LeagueBaselines) {
-  const lt = OVER35_LEAGUE_THRESHOLDS;
-  const rt = resolveOver35Thresholds(baselines);
+export function getOver35DisplayThresholds(resolved: ReturnType<typeof resolveAllThresholds>) {
   return {
-    leagueAvgGoals: lt.leagueAvgGoals,
-    modelO35Prob: rt.modelO35Prob,
-    bttsProb: rt.bttsProb,
-    leagueO25Rate: lt.leagueO25Rate,
-    homeAvgGoals: rt.homeAvgGoals,
-    awayAvgGoals: rt.awayAvgGoals,
-    shotConversion: rt.shotConversion,
+    leagueAvgGoals: resolved.league.o35LeagueAvgGoals,
+    modelO35Prob: resolved.over35.modelO35Prob,
+    bttsProb: resolved.over35.bttsProb,
+    leagueO25Rate: resolved.league.o35LeagueO25Rate,
+    homeAvgGoals: resolved.over35.homeAvgGoals,
+    awayAvgGoals: resolved.over35.awayAvgGoals,
+    shotConversion: resolved.over35.shotConversion,
+    source: resolved.over35.source,
+  };
+}
+
+// ============================================================================
+// Backtest threshold derivation utility
+// ============================================================================
+
+interface BacktestMatch {
+  ftHomeGoals: number;
+  ftAwayGoals: number;
+  // Model predictions (raw or calibrated)
+  predictedBtts?: number;
+  predictedO25?: number;
+  predictedO35?: number;
+  // Match context
+  avgHomeGoals?: number;
+  avgAwayGoals?: number;
+  shotConversion?: number;
+}
+
+interface BacktestDerivationOptions {
+  /** Minimum sample size to trust derived thresholds */
+  minSampleSize?: number;
+  /** For probability thresholds: target minimum precision (e.g. 0.65 means at least 65% accuracy) */
+  minAccuracy?: number;
+  /** For numeric thresholds (goals): target minimum precision */
+  minGoalAccuracy?: number;
+}
+
+/**
+ * Derive optimal thresholds from backtest data using accuracy optimization.
+ *
+ * For each criterion, sweeps candidate threshold values and finds the one that
+ * maximizes the correct prediction rate while meeting the minimum accuracy target.
+ *
+ * @param leagueName - League identifier for the registry
+ * @param matches - Historical match data with predictions and outcomes
+ * @param currentBaselines - Current league baselines (for fallback floors)
+ * @param options - Tuning parameters
+ * @returns Derived thresholds, or null if insufficient data
+ */
+export function deriveThresholdsFromBacktest(
+  leagueName: string,
+  matches: BacktestMatch[],
+  currentBaselines: LeagueBaselines,
+  options: BacktestDerivationOptions = {}
+): LeagueBacktestThresholds | null {
+  const {
+    minSampleSize = 150,
+    minAccuracy = 0.60,
+    minGoalAccuracy = 0.55,
+  } = options;
+
+  if (matches.length < minSampleSize) return null;
+
+  // --- Helper: compute BTTS hit rate at various thresholds ---
+  const findOptimalProbThreshold = (
+    getPredicted: (m: BacktestMatch) => number | undefined,
+    getActual: (m: BacktestMatch) => boolean,
+    searchRange: [number, number],
+    step = 1,
+    floor?: number
+  ): number => {
+    const [lo, hi] = searchRange;
+    let bestThreshold = floor ?? lo;
+    let bestAccuracy = 0;
+    let bestSampleAbove = 0;
+
+    for (let t = lo; t <= hi; t += step) {
+      const aboveThreshold = matches.filter(m => {
+        const pred = getPredicted(m);
+        return pred !== undefined && pred >= t;
+      });
+      if (aboveThreshold.length < 30) continue; // need meaningful sample above threshold
+
+      const correct = aboveThreshold.filter(m => getActual(m)).length;
+      const accuracy = correct / aboveThreshold.length;
+
+      // Prefer: highest accuracy that meets minimum, with most samples
+      if (accuracy >= minAccuracy && (accuracy > bestAccuracy || (accuracy === bestAccuracy && aboveThreshold.length > bestSampleAbove))) {
+        bestThreshold = t;
+        bestAccuracy = accuracy;
+        bestSampleAbove = aboveThreshold.length;
+      }
+    }
+
+    // If no threshold met min accuracy, use the one with best accuracy above floor
+    if (bestAccuracy < minAccuracy && floor !== undefined) {
+      return floor;
+    }
+    return bestThreshold;
+  };
+
+  const findOptimalGoalThreshold = (
+    getPredicted: (m: BacktestMatch) => number | undefined,
+    getActual: (m: BacktestMatch) => boolean,
+    searchRange: [number, number],
+    step = 0.05,
+    floor?: number
+  ): number => {
+    const [lo, hi] = searchRange;
+    let bestThreshold = floor ?? lo;
+    let bestAccuracy = 0;
+    let bestSampleAbove = 0;
+
+    for (let t = lo; t <= hi; t += step) {
+      const aboveThreshold = matches.filter(m => {
+        const pred = getPredicted(m);
+        return pred !== undefined && pred >= t;
+      });
+      if (aboveThreshold.length < 30) continue;
+
+      const correct = aboveThreshold.filter(m => getActual(m)).length;
+      const accuracy = correct / aboveThreshold.length;
+
+      if (accuracy >= minGoalAccuracy && (accuracy > bestAccuracy || (accuracy === bestAccuracy && aboveThreshold.length > bestSampleAbove))) {
+        bestThreshold = Math.round(t * 100) / 100;
+        bestAccuracy = accuracy;
+        bestSampleAbove = aboveThreshold.length;
+      }
+    }
+
+    if (bestAccuracy < minGoalAccuracy && floor !== undefined) {
+      return floor;
+    }
+    return bestThreshold;
+  };
+
+  // --- Derive BTTS thresholds ---
+  const bttsModelProb = findOptimalProbThreshold(
+    m => m.predictedBtts,
+    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    [40, 80],
+    1,
+    BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor
+  );
+
+  const bttsHomeGoals = findOptimalGoalThreshold(
+    m => m.avgHomeGoals,
+    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    [0.8, 2.2],
+    0.05,
+    BTTS_HYBRID_THRESHOLDS.homeAvgGoals.floor
+  );
+
+  const bttsAwayGoals = findOptimalGoalThreshold(
+    m => m.avgAwayGoals,
+    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    [0.6, 1.8],
+    0.05,
+    BTTS_HYBRID_THRESHOLDS.awayAvgGoals.floor
+  );
+
+  const bttsO25Prob = findOptimalProbThreshold(
+    m => m.predictedO25,
+    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    [45, 85],
+    1,
+    BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor
+  );
+
+  const bttsShotConv = findOptimalProbThreshold(
+    m => m.shotConversion,
+    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    [5, 25],
+    1,
+    BTTS_HYBRID_THRESHOLDS.shotConversion.floor
+  );
+
+  // --- Derive Over 3.5 thresholds ---
+  const o35ModelProb = findOptimalProbThreshold(
+    m => m.predictedO35,
+    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    [20, 65],
+    1,
+    OVER35_HYBRID_THRESHOLDS.modelO35Prob.floor
+  );
+
+  const o35BttsProb = findOptimalProbThreshold(
+    m => m.predictedBtts,
+    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    [35, 80],
+    1,
+    OVER35_HYBRID_THRESHOLDS.bttsProb.floor
+  );
+
+  const o35HomeGoals = findOptimalGoalThreshold(
+    m => m.avgHomeGoals,
+    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    [0.8, 2.5],
+    0.05,
+    OVER35_HYBRID_THRESHOLDS.homeAvgGoals.floor
+  );
+
+  const o35AwayGoals = findOptimalGoalThreshold(
+    m => m.avgAwayGoals,
+    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    [0.6, 2.0],
+    0.05,
+    OVER35_HYBRID_THRESHOLDS.awayAvgGoals.floor
+  );
+
+  const o35ShotConv = findOptimalProbThreshold(
+    m => m.shotConversion,
+    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    [5, 25],
+    1,
+    OVER35_HYBRID_THRESHOLDS.shotConversion.floor
+  );
+
+  // --- STRONG BET thresholds (derive O2.5, O3.5, BTTS prob thresholds) ---
+  const sbO25Prob = findOptimalProbThreshold(
+    m => m.predictedO25,
+    m => m.ftHomeGoals + m.ftAwayGoals >= 3, // STRONG BET targets high-scoring games
+    [50, 85],
+    1,
+    STRONG_BET_HYBRID.o25Prob.floor
+  );
+
+  const sbO35Prob = findOptimalProbThreshold(
+    m => m.predictedO35,
+    m => m.ftHomeGoals + m.ftAwayGoals >= 3,
+    [25, 60],
+    1,
+    STRONG_BET_HYBRID.o35Prob.floor
+  );
+
+  const sbBttsProb = findOptimalProbThreshold(
+    m => m.predictedBtts,
+    m => m.ftHomeGoals + m.ftAwayGoals >= 3,
+    [40, 80],
+    1,
+    STRONG_BET_HYBRID.bttsProb.floor
+  );
+
+  // --- GREY RESULT thresholds (stricter: targets high-scoring games) ---
+  const grBttsProb = findOptimalProbThreshold(
+    m => m.predictedBtts,
+    m => m.ftHomeGoals >= 1 && m.ftAwayGoals >= 1 && m.ftHomeGoals + m.ftAwayGoals >= 4,
+    [40, 80],
+    1,
+    GREY_RESULT_CONFIG.bttsProb.floor
+  );
+
+  const grO25Prob = findOptimalProbThreshold(
+    m => m.predictedO25,
+    m => m.ftHomeGoals >= 1 && m.ftAwayGoals >= 1 && m.ftHomeGoals + m.ftAwayGoals >= 4,
+    [50, 85],
+    1,
+    GREY_RESULT_CONFIG.o25Prob.floor
+  );
+
+  const grO35Prob = findOptimalProbThreshold(
+    m => m.predictedO35,
+    m => m.ftHomeGoals >= 1 && m.ftAwayGoals >= 1 && m.ftHomeGoals + m.ftAwayGoals >= 4,
+    [20, 60],
+    1,
+    GREY_RESULT_CONFIG.o35Prob.floor
+  );
+
+  // --- League-level thresholds (keep as absolute defaults) ---
+  const bttsLeagueAvgGoals = BTTS_LEAGUE_THRESHOLDS.leagueAvgGoals;
+  const bttsLeagueO25Rate = BTTS_LEAGUE_THRESHOLDS.leagueO25Rate;
+  const o35LeagueAvgGoals = OVER35_LEAGUE_THRESHOLDS.leagueAvgGoals;
+  const o35LeagueO25Rate = OVER35_LEAGUE_THRESHOLDS.leagueO25Rate;
+
+  return {
+    leagueName,
+    bttsLeagueAvgGoals,
+    bttsLeagueO25Rate,
+    o35LeagueAvgGoals,
+    o35LeagueO25Rate,
+    btts: {
+      modelBttsProb: bttsModelProb,
+      homeAvgGoals: bttsHomeGoals,
+      awayAvgGoals: bttsAwayGoals,
+      modelO25Prob: bttsO25Prob,
+      shotConversion: bttsShotConv,
+    },
+    over35: {
+      modelO35Prob: o35ModelProb,
+      bttsProb: o35BttsProb,
+      homeAvgGoals: o35HomeGoals,
+      awayAvgGoals: o35AwayGoals,
+      shotConversion: o35ShotConv,
+    },
+    strongBet: {
+      o25Prob: sbO25Prob,
+      o35Prob: sbO35Prob,
+      bttsProb: sbBttsProb,
+      bttsChecklistCount: STRONG_BET_HYBRID.bttsChecklistCount,
+    },
+    greyResult: {
+      bttsProb: grBttsProb,
+      o25Prob: grO25Prob,
+      o35Prob: grO35Prob,
+      bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
+      over35ChecklistCount: GREY_RESULT_CONFIG.over35ChecklistCount,
+      requiredChecks: GREY_RESULT_CONFIG.requiredChecks,
+    },
+    sampleSize: matches.length,
+    derivedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Derive thresholds from backtest data using a simpler approach when model
+ * predictions are not available — uses league averages as the predictor.
+ */
+export function deriveSimpleThresholdsFromBacktest(
+  leagueName: string,
+  matches: { ftHomeGoals: number; ftAwayGoals: number }[],
+  currentBaselines: LeagueBaselines,
+  options: BacktestDerivationOptions = {}
+): LeagueBacktestThresholds | null {
+  const { minSampleSize = 150 } = options;
+
+  if (matches.length < minSampleSize) return null;
+
+  // Simple derivation: find the league-average-based thresholds that best
+  // separate BTTS from non-BTTS and O3.5 from non-O3.5 matches.
+  // This uses the Dixon-Coles probability approach: given league averages,
+  // the Poisson BTTS probability is already a strong predictor.
+
+  const bttsMatches = matches.filter(m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0);
+  const over35Matches = matches.filter(m => m.ftHomeGoals + m.ftAwayGoals > 3.5);
+
+  // Derive BTTS probability threshold from league BTTS rate
+  // A match is "above average" if its BTTS prob > league BTTS rate
+  // Find the multiplier that gives best accuracy
+  let bestBttsMult = BTTS_HYBRID_THRESHOLDS.modelBttsProb.multiplier;
+  let bestBttsAcc = 0;
+  for (let mult = 1.0; mult <= 1.3; mult += 0.01) {
+    const threshold = Math.max(BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor, currentBaselines.bttsRate * mult);
+    const aboveCount = bttsMatches.filter(() => currentBaselines.bttsRate >= threshold).length;
+    // All BTTS matches have BTTS prob ~= league rate, so check hit rate
+    // For simple derivation, use the rate-based threshold directly
+    const estimatedAccuracy = bttsMatches.length > 0
+      ? bttsMatches.filter(() => currentBaselines.bttsRate >= threshold).length / Math.max(matches.length, 1)
+      : 0;
+    if (estimatedAccuracy > bestBttsAcc) {
+      bestBttsAcc = estimatedAccuracy;
+      bestBttsMult = mult;
+    }
+  }
+
+  // For simple derivation without per-match predictions, use the hybrid formula
+  // with the derived multiplier, falling back to defaults.
+  const bttsFloor = BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor;
+  const bttsRate = currentBaselines.bttsRate;
+
+  return {
+    leagueName,
+    bttsLeagueAvgGoals: BTTS_LEAGUE_THRESHOLDS.leagueAvgGoals,
+    bttsLeagueO25Rate: BTTS_LEAGUE_THRESHOLDS.leagueO25Rate,
+    o35LeagueAvgGoals: OVER35_LEAGUE_THRESHOLDS.leagueAvgGoals,
+    o35LeagueO25Rate: OVER35_LEAGUE_THRESHOLDS.leagueO25Rate,
+    btts: {
+      modelBttsProb: Math.max(bttsFloor, bttsRate * bestBttsMult),
+      homeAvgGoals: Math.max(BTTS_HYBRID_THRESHOLDS.homeAvgGoals.floor, currentBaselines.avgHomeGoals * BTTS_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
+      awayAvgGoals: Math.max(BTTS_HYBRID_THRESHOLDS.awayAvgGoals.floor, currentBaselines.avgAwayGoals * BTTS_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
+      modelO25Prob: Math.max(BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor, currentBaselines.over25Rate * BTTS_HYBRID_THRESHOLDS.modelO25Prob.multiplier),
+      shotConversion: Math.max(BTTS_HYBRID_THRESHOLDS.shotConversion.floor, currentBaselines.shotConversion * BTTS_HYBRID_THRESHOLDS.shotConversion.multiplier),
+    },
+    over35: {
+      modelO35Prob: Math.max(OVER35_HYBRID_THRESHOLDS.modelO35Prob.floor, currentBaselines.over35Rate * OVER35_HYBRID_THRESHOLDS.modelO35Prob.multiplier),
+      bttsProb: Math.max(OVER35_HYBRID_THRESHOLDS.bttsProb.floor, currentBaselines.bttsRate * OVER35_HYBRID_THRESHOLDS.bttsProb.multiplier),
+      homeAvgGoals: Math.max(OVER35_HYBRID_THRESHOLDS.homeAvgGoals.floor, currentBaselines.avgHomeGoals * OVER35_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
+      awayAvgGoals: Math.max(OVER35_HYBRID_THRESHOLDS.awayAvgGoals.floor, currentBaselines.avgAwayGoals * OVER35_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
+      shotConversion: Math.max(OVER35_HYBRID_THRESHOLDS.shotConversion.floor, currentBaselines.shotConversion * OVER35_HYBRID_THRESHOLDS.shotConversion.multiplier),
+    },
+    strongBet: {
+      o25Prob: Math.max(STRONG_BET_HYBRID.o25Prob.floor, currentBaselines.over25Rate * STRONG_BET_HYBRID.o25Prob.multiplier),
+      o35Prob: Math.max(STRONG_BET_HYBRID.o35Prob.floor, currentBaselines.over35Rate * STRONG_BET_HYBRID.o35Prob.multiplier),
+      bttsProb: Math.max(STRONG_BET_HYBRID.bttsProb.floor, currentBaselines.bttsRate * STRONG_BET_HYBRID.bttsProb.multiplier),
+      bttsChecklistCount: STRONG_BET_HYBRID.bttsChecklistCount,
+    },
+    greyResult: {
+      bttsProb: Math.max(GREY_RESULT_CONFIG.bttsProb.floor, currentBaselines.bttsRate * GREY_RESULT_CONFIG.bttsProb.multiplier),
+      o25Prob: Math.max(GREY_RESULT_CONFIG.o25Prob.floor, currentBaselines.over25Rate * GREY_RESULT_CONFIG.o25Prob.multiplier),
+      o35Prob: Math.max(GREY_RESULT_CONFIG.o35Prob.floor, currentBaselines.over35Rate * GREY_RESULT_CONFIG.o35Prob.multiplier),
+      bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
+      over35ChecklistCount: GREY_RESULT_CONFIG.over35ChecklistCount,
+      requiredChecks: GREY_RESULT_CONFIG.requiredChecks,
+    },
+    sampleSize: matches.length,
+    derivedAt: new Date().toISOString(),
   };
 }

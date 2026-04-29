@@ -11,10 +11,10 @@ import type { ModelsTabProps } from './types'
 import { COLORS } from '@/lib/constants'
 import { parseDateSafe, factorial } from '@/lib/utils'
 import {
-  computeLeagueBaselines,
+  computeLeagueBaselines, resolveAllThresholds,
   computeBttsChecklistLabels, computeOver35ChecklistLabels,
   computeStrongBet, computeGreyResult,
-  type ChecklistInput, type SignalInput, type LeagueBaselines,
+  type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
 
 export default function ModelsTab({
@@ -561,8 +561,10 @@ export default function ModelsTab({
                             if (bttsProb >= 60) bttsStrength = 'Strong'
                             else if (bttsProb >= 50) bttsStrength = 'Medium'
 
-                            // Compute league-adapted baselines for hybrid thresholds
-                            const baselines: LeagueBaselines = computeLeagueBaselines(results, analytics);
+                            // Compute league-adapted baselines and resolve all thresholds
+                            // (backtest-derived when available, hybrid fallback otherwise)
+                            const baselines = computeLeagueBaselines(results, analytics);
+                            const resolved = resolveAllThresholds(selectedLeague, baselines);
 
                             // Use calibrated probabilities when available (more accurate from backtest), fall back to raw
                             const calBtts = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts;
@@ -580,11 +582,11 @@ export default function ModelsTab({
                               o35Prob: calO35,
                               overallShotConversion: parseFloat(analytics.overallShotConversion),
                             };
-                            const over35Checks = computeOver35ChecklistLabels(checklistInput, baselines);
+                            const over35Checks = computeOver35ChecklistLabels(checklistInput, resolved);
                             const over35Checklist = `${over35Checks.length} of 7`
 
                             // BTTS Check items (7 criteria) using shared utility
-                            const bttsChecks = computeBttsChecklistLabels(checklistInput, baselines);
+                            const bttsChecks = computeBttsChecklistLabels(checklistInput, resolved);
                             const bttsChecklist = `${bttsChecks.length} of 7`
 
                             // Z-Score Analysis Overall Signal - computed independently using Z-Score methodology
@@ -717,12 +719,12 @@ export default function ModelsTab({
                               regressionSignal: regressionOverallSignal,
                               zScoreSignal: zScoreOverallSignal,
                             };
-                            const strongBetResult = computeStrongBet(checklistInput, signalInput, baselines);
+                            const strongBetResult = computeStrongBet(checklistInput, signalInput, resolved);
                             const isStrongBet = strongBetResult.isStrongBet;
                             const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetResult.points}/${strongBetResult.maxPoints} pts`;
 
                             // Grey Result — Tightened criteria using shared utility
-                            const greyResultData = computeGreyResult(checklistInput, signalInput, baselines);
+                            const greyResultData = computeGreyResult(checklistInput, signalInput, resolved);
                             const greyResultIndicator = greyResultData.isGreyResult ? 'GREY RESULT' : `${greyResultData.score}/${greyResultData.totalChecks} checks`;
 
                             // Build CSV row with exact headers

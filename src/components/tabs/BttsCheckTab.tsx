@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Target, CheckCircle, AlertTriangle, BarChart3 } from 'lucide-react'
 import type { BttsCheckTabProps } from './types'
 import { factorial } from '@/lib/utils'
-import { computeLeagueBaselines, getBttsDisplayThresholds } from '@/lib/betting-filters'
+import { computeLeagueBaselines, resolveAllThresholds, getBttsDisplayThresholds } from '@/lib/betting-filters'
 
 export default function BttsCheckTab({
   results,
@@ -57,9 +57,11 @@ export default function BttsCheckTab({
             </CardHeader>
             <CardContent>
               {(() => {
-                // Compute league-adapted baselines for hybrid thresholds
+                // Compute league-adapted baselines and resolve thresholds
+                // (backtest-derived when available, hybrid fallback otherwise)
                 const baselines = computeLeagueBaselines(results, analytics);
-                const displayT = getBttsDisplayThresholds(baselines);
+                const resolved = resolveAllThresholds(selectedLeagueName, baselines);
+                const displayT = getBttsDisplayThresholds(resolved);
 
                 // Calculate BTTS-related metrics from league data
                 const lambdaHome = analytics.avgHomeGoals

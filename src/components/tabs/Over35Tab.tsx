@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Goal, CheckCircle, AlertTriangle, BarChart3, TrendingUp } from 'lucide-react'
 import type { Over35TabProps } from './types'
 import { factorial } from '@/lib/utils'
-import { computeLeagueBaselines, getOver35DisplayThresholds } from '@/lib/betting-filters'
+import { computeLeagueBaselines, resolveAllThresholds, getOver35DisplayThresholds } from '@/lib/betting-filters'
 
 export default function Over35Tab({
   results,
@@ -57,9 +57,11 @@ export default function Over35Tab({
             </CardHeader>
             <CardContent>
               {(() => {
-                // Compute league-adapted baselines for hybrid thresholds
+                // Compute league-adapted baselines and resolve thresholds
+                // (backtest-derived when available, hybrid fallback otherwise)
                 const baselines = computeLeagueBaselines(results, analytics);
-                const displayT = getOver35DisplayThresholds(baselines);
+                const resolved = resolveAllThresholds(selectedLeagueName, baselines);
+                const displayT = getOver35DisplayThresholds(resolved);
 
                 // Calculate Over 3.5 related metrics from league data
                 const lambdaHome = analytics.avgHomeGoals
