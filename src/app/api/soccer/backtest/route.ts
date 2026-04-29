@@ -10,6 +10,7 @@ import type {
 import { EUROPEAN_SEASONS } from '@/lib/constants';
 import { calculateSeasonWeights } from '@/lib/models/season-weighting';
 import { calculateLeagueAverages, generateBacktestPredictions } from '@/lib/models/predictions';
+import { saveCalibration } from '@/lib/models/calibration-store';
 
 // Find the last H2H match before a given date
 function findLastH2H(
@@ -84,18 +85,23 @@ function findLastH2H(
   };
 }
 
-// Calculate accuracy metrics
-function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
+// Calculate accuracy metrics and per-market calibration ratios
+function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccuracy; calibrationRatios: { over25: number; over15: number; bttsYes: number; homeWin: number; draw: number; awayWin: number } } {
+  const emptyRatios = { over25: 1, over15: 1, bttsYes: 1, homeWin: 1, draw: 1, awayWin: 1 };
+
   if (predictions.length === 0) {
     return {
-      model: 'ensemble',
-      matches: 0,
-      homeWinAccuracy: 0, drawAccuracy: 0, awayWinAccuracy: 0, overallAccuracy: 0,
-      over15Accuracy: 0, over25Accuracy: 0, under25Accuracy: 0,
-      bttsYesAccuracy: 0, bttsNoAccuracy: 0,
-      avgPredictedProb: 0, avgActualRate: 0, calibration: 0,
-      valueBetsFound: 0, valueBetWinRate: 0, roi: 0,
-      brierScore: 0,
+      metrics: {
+        model: 'ensemble',
+        matches: 0,
+        homeWinAccuracy: 0, drawAccuracy: 0, awayWinAccuracy: 0, overallAccuracy: 0,
+        over15Accuracy: 0, over25Accuracy: 0, under25Accuracy: 0,
+        bttsYesAccuracy: 0, bttsNoAccuracy: 0,
+        avgPredictedProb: 0, avgActualRate: 0, calibration: 0,
+        valueBetsFound: 0, valueBetWinRate: 0, roi: 0,
+        brierScore: 0,
+      },
+      calibrationRatios: emptyRatios,
     };
   }
 
@@ -104,6 +110,10 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
   let bttsYesCorrect = 0, bttsNoCorrect = 0;
   let totalBrier = 0;
   let valueBetsFound = 0, valueBetsWon = 0;
+
+  // Accumulators for per-market calibration ratio calculation
+  let sumPredictedO25 = 0, sumPredictedO15 = 0, sumPredictedBtts = 0;
+  let sumPredictedHomeWin = 0, sumPredictedDraw = 0, sumPredictedAwayWin = 0;
 
   for (const pred of predictions) {
     // 1X2
@@ -140,29 +150,57 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
       valueBetsFound++;
       if (pred.actual.over25) valueBetsWon++;
     }
+
+    // Calibration accumulators
+    sumPredictedO25 += pred.predicted.over25;
+    sumPredictedO15 += pred.predicted.over15;
+    sumPredictedBtts += pred.predicted.btts;
+    sumPredictedHomeWin += pred.predicted.homeWin;
+    sumPredictedDraw += pred.predicted.draw;
+    sumPredictedAwayWin += pred.predicted.awayWin;
   }
 
+  const n = predictions.length;
   const homeWinTotal = predictions.filter(p => p.actual.result === 'H').length;
   const drawTotal = predictions.filter(p => p.actual.result === 'D').length;
   const awayWinTotal = predictions.filter(p => p.actual.result === 'A').length;
   const bttsYesTotal = predictions.filter(p => p.actual.btts).length;
-  const bttsNoTotal = predictions.length - bttsYesTotal;
+  const bttsNoTotal = n - bttsYesTotal;
 
   const overallCorrect = homeWinCorrect + drawCorrect + awayWinCorrect;
-  const avgPredictedProb = Math.round(predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length * 10) / 10;
-  const avgActualRate = Math.round(predictions.filter(p => p.actual.over25).length / predictions.length * 1000) / 10;
-  const calibration = avgActualRate > 0 ? Math.round((predictions.filter(p => p.actual.over25).length / predictions.length) / (predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length / 100) * 1000) / 1000 : 0;
+  const avgPredictedProb = Math.round(sumPredictedO25 / n * 10) / 10;
+  const avgActualRateO25 = (predictions.filter(p => p.actual.over25).length / n) * 100;
+  const avgActualRate = Math.round(avgActualRateO25 * 10) / 10;
+  const calibration = avgPredictedProb > 0 ? Math.round(avgActualRateO25 / avgPredictedProb * 1000) / 1000 : 1;
 
-  return {
+  // Per-market calibration ratios: actual_rate / avg_predicted_rate
+  // Ratio > 1 means model underestimates, < 1 means overestimates
+  const avgPredO25 = sumPredictedO25 / n;
+  const avgPredO15 = sumPredictedO15 / n;
+  const avgPredBtts = sumPredictedBtts / n;
+  const avgPredHomeWin = sumPredictedHomeWin / n;
+  const avgPredDraw = sumPredictedDraw / n;
+  const avgPredAwayWin = sumPredictedAwayWin / n;
+
+  const calibrationRatios = {
+    over25: avgPredO25 > 0 ? Math.round((avgActualRateO25 / avgPredO25) * 1000) / 1000 : 1,
+    over15: avgPredO15 > 0 ? Math.round(((predictions.filter(p => p.actual.over15).length / n * 100) / avgPredO15) * 1000) / 1000 : 1,
+    bttsYes: avgPredBtts > 0 ? Math.round(((bttsYesTotal / n * 100) / avgPredBtts) * 1000) / 1000 : 1,
+    homeWin: avgPredHomeWin > 0 ? Math.round(((homeWinTotal / n * 100) / avgPredHomeWin) * 1000) / 1000 : 1,
+    draw: avgPredDraw > 0 ? Math.round(((drawTotal / n * 100) / avgPredDraw) * 1000) / 1000 : 1,
+    awayWin: avgPredAwayWin > 0 ? Math.round(((awayWinTotal / n * 100) / avgPredAwayWin) * 1000) / 1000 : 1,
+  };
+
+  const metrics: ModelAccuracy = {
     model: 'ensemble',
-    matches: predictions.length,
+    matches: n,
     homeWinAccuracy: homeWinTotal > 0 ? Math.round(homeWinCorrect / homeWinTotal * 1000) / 10 : 0,
     drawAccuracy: drawTotal > 0 ? Math.round(drawCorrect / drawTotal * 1000) / 10 : 0,
     awayWinAccuracy: awayWinTotal > 0 ? Math.round(awayWinCorrect / awayWinTotal * 1000) / 10 : 0,
-    overallAccuracy: Math.round(overallCorrect / predictions.length * 1000) / 10,
-    over15Accuracy: Math.round(over15Correct / predictions.length * 1000) / 10,
-    over25Accuracy: Math.round(over25Correct / predictions.length * 1000) / 10,
-    under25Accuracy: Math.round(over25Correct / predictions.length * 1000) / 10,
+    overallAccuracy: Math.round(overallCorrect / n * 1000) / 10,
+    over15Accuracy: Math.round(over15Correct / n * 1000) / 10,
+    over25Accuracy: Math.round(over25Correct / n * 1000) / 10,
+    under25Accuracy: Math.round(over25Correct / n * 1000) / 10,
     bttsYesAccuracy: bttsYesTotal > 0 ? Math.round(bttsYesCorrect / bttsYesTotal * 1000) / 10 : 0,
     bttsNoAccuracy: bttsNoTotal > 0 ? Math.round(bttsNoCorrect / bttsNoTotal * 1000) / 10 : 0,
     avgPredictedProb,
@@ -171,8 +209,10 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
     valueBetsFound,
     valueBetWinRate: valueBetsFound > 0 ? Math.round(valueBetsWon / valueBetsFound * 1000) / 10 : 0,
     roi: valueBetsFound > 0 ? Math.round((valueBetsWon * 1.85 - valueBetsFound) / valueBetsFound * 1000) / 10 : 0,
-    brierScore: Math.round(totalBrier / predictions.length * 1000) / 1000,
+    brierScore: Math.round(totalBrier / n * 1000) / 1000,
   };
+
+  return { metrics, calibrationRatios };
 }
 
 export async function GET(request: NextRequest) {
@@ -299,7 +339,17 @@ export async function GET(request: NextRequest) {
     console.log(`[Backtest API] Generated ${predictions.length} predictions`);
 
     // Calculate metrics
-    const ensembleMetrics = calculateMetrics(predictions);
+    const { metrics: ensembleMetrics, calibrationRatios } = calculateMetrics(predictions);
+
+    // Save calibration ratios to the in-memory store for the predict route to use
+    saveCalibration(league, {
+      ...calibrationRatios,
+      league,
+      testSeason,
+      matches: predictions.length,
+      brierScore: ensembleMetrics.brierScore,
+      timestamp: Date.now(),
+    });
 
     // Create calibration data
     const calibrationBuckets: { [key: string]: { predicted: number[]; actual: number[] } } = {};
@@ -472,6 +522,7 @@ export async function GET(request: NextRequest) {
       ensemble: ensembleMetrics,
       predictions: predictions.slice(0, 100), // Return first 100 for UI
       calibrationData,
+      calibrationRatios, // Include ratios so the UI can display them
       bttsPatterns,
       summary: {
         bestModel1X2: `ensemble (${ensembleMetrics.overallAccuracy}%)`,

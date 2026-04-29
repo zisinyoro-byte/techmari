@@ -127,7 +127,17 @@ export default function PredictionsTab({
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Target className="w-5 h-5 text-purple-600" />
                       Goals Markets & Implied Odds
+                      {prediction.prediction.calibrated && (
+                        <Badge className="bg-cyan-100 text-cyan-700 text-xs border border-cyan-300">
+                          Calibrated
+                        </Badge>
+                      )}
                     </CardTitle>
+                    {prediction.prediction.calibrationSource && (
+                      <CardDescription>
+                        Probabilities corrected using backtest from season {SEASON_NAMES[prediction.prediction.calibrationSource.testSeason] || prediction.prediction.calibrationSource.testSeason} ({prediction.prediction.calibrationSource.matches} matches, Brier: {prediction.prediction.calibrationSource.brierScore})
+                      </CardDescription>
+                    )}
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-5 gap-4 mb-4">
@@ -142,6 +152,11 @@ export default function PredictionsTab({
                       <div className="text-center p-3 rounded-lg bg-teal-50 border border-teal-200">
                         <p className="text-xs text-muted-foreground">Over 1.5</p>
                         <p className="text-2xl font-bold text-teal-600 mt-1">{prediction.prediction.over15}%</p>
+                        {prediction.prediction.calibrated && (
+                          <p className="text-xs font-semibold text-cyan-600 bg-cyan-50 rounded px-1.5 py-0.5 mt-0.5">
+                            Adj: {prediction.prediction.calibrated.over15}%
+                          </p>
+                        )}
                         <div className="flex flex-col gap-1 mt-1 text-xs">
                           <span className="bg-teal-100 px-1 py-0.5 rounded">O: {prediction.prediction.impliedOdds.over15}</span>
                           <span className="bg-gray-100 px-1 py-0.5 rounded">U: {prediction.prediction.impliedOdds.under15}</span>
@@ -150,6 +165,11 @@ export default function PredictionsTab({
                       <div className="text-center p-3 rounded-lg bg-purple-50 border border-purple-200">
                         <p className="text-xs text-muted-foreground">Over 2.5</p>
                         <p className="text-2xl font-bold text-purple-600 mt-1">{prediction.prediction.over25}%</p>
+                        {prediction.prediction.calibrated && (
+                          <p className="text-xs font-semibold text-cyan-600 bg-cyan-50 rounded px-1.5 py-0.5 mt-0.5">
+                            Adj: {prediction.prediction.calibrated.over25}%
+                          </p>
+                        )}
                         <div className="flex flex-col gap-1 mt-1 text-xs">
                           <span className="bg-purple-100 px-1 py-0.5 rounded">O: {prediction.prediction.impliedOdds.over25}</span>
                           <span className="bg-gray-100 px-1 py-0.5 rounded">U: {prediction.prediction.impliedOdds.under25}</span>
@@ -158,6 +178,11 @@ export default function PredictionsTab({
                       <div className="text-center p-3 rounded-lg bg-indigo-50 border border-indigo-200">
                         <p className="text-xs text-muted-foreground">Over 3.5</p>
                         <p className="text-2xl font-bold text-indigo-600 mt-1">{prediction.prediction.over35}%</p>
+                        {prediction.prediction.calibrated && (
+                          <p className="text-xs font-semibold text-cyan-600 bg-cyan-50 rounded px-1.5 py-0.5 mt-0.5">
+                            Adj: {prediction.prediction.calibrated.over35}%
+                          </p>
+                        )}
                         <div className="flex flex-col gap-1 mt-1 text-xs">
                           <span className="bg-indigo-100 px-1 py-0.5 rounded">O: {prediction.prediction.impliedOdds.over35}</span>
                           <span className="bg-gray-100 px-1 py-0.5 rounded">U: {prediction.prediction.impliedOdds.under35}</span>
@@ -166,6 +191,11 @@ export default function PredictionsTab({
                       <div className="text-center p-3 rounded-lg bg-pink-50 border border-pink-200">
                         <p className="text-xs text-muted-foreground">BTTS</p>
                         <p className="text-2xl font-bold text-pink-600 mt-1">{prediction.prediction.btts}%</p>
+                        {prediction.prediction.calibrated && (
+                          <p className="text-xs font-semibold text-cyan-600 bg-cyan-50 rounded px-1.5 py-0.5 mt-0.5">
+                            Adj: {prediction.prediction.calibrated.btts}%
+                          </p>
+                        )}
                         <div className="flex flex-col gap-1 mt-1 text-xs">
                           <span className="bg-pink-100 px-1 py-0.5 rounded">Yes: {prediction.prediction.impliedOdds.bttsYes}</span>
                           <span className="bg-gray-100 px-1 py-0.5 rounded">No: {prediction.prediction.impliedOdds.bttsNo}</span>
@@ -801,6 +831,11 @@ export default function PredictionsTab({
                     <CardContent className="py-6 text-center">
                       <p className="text-sm text-muted-foreground uppercase tracking-wide">Home Win</p>
                       <p className="text-4xl font-bold text-green-600 mt-2">{prediction.prediction.homeWin}%</p>
+                      {prediction.prediction.calibrated && (
+                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+                          Calibrated: {prediction.prediction.calibrated.homeWin}%
+                        </p>
+                      )}
                       <p className="text-sm text-muted-foreground mt-2">xG: {prediction.prediction.homeXg}</p>
                       <p className="text-xs text-green-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.homeWin}</p>
                     </CardContent>
@@ -810,6 +845,11 @@ export default function PredictionsTab({
                     <CardContent className="py-6 text-center">
                       <p className="text-sm text-muted-foreground uppercase tracking-wide">Draw</p>
                       <p className="text-4xl font-bold text-amber-600 mt-2">{prediction.prediction.draw}%</p>
+                      {prediction.prediction.calibrated && (
+                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+                          Calibrated: {prediction.prediction.calibrated.draw}%
+                        </p>
+                      )}
                       <p className="text-sm text-muted-foreground mt-2">Most Likely: {prediction.prediction.likelyScore}</p>
                       <p className="text-xs text-amber-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.draw}</p>
                     </CardContent>
@@ -819,6 +859,11 @@ export default function PredictionsTab({
                     <CardContent className="py-6 text-center">
                       <p className="text-sm text-muted-foreground uppercase tracking-wide">Away Win</p>
                       <p className="text-4xl font-bold text-blue-600 mt-2">{prediction.prediction.awayWin}%</p>
+                      {prediction.prediction.calibrated && (
+                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+                          Calibrated: {prediction.prediction.calibrated.awayWin}%
+                        </p>
+                      )}
                       <p className="text-sm text-muted-foreground mt-2">xG: {prediction.prediction.awayXg}</p>
                       <p className="text-xs text-blue-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.awayWin}</p>
                     </CardContent>

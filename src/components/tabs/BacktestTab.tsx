@@ -72,6 +72,14 @@ export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues
       correct: { result: boolean; over15: boolean; over25: boolean; btts: boolean }
     }>
     calibrationData: Array<{ predicted: number; actual: number; count: number }>
+    calibrationRatios: {
+      over25: number
+      over15: number
+      bttsYes: number
+      homeWin: number
+      draw: number
+      awayWin: number
+    }
     bttsPatterns: {
       totalBttsMatches: number
       h2hPatterns: {
@@ -252,6 +260,46 @@ export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues
               </CardContent>
             </Card>
           </div>
+
+          {/* Calibration Ratios - Applied to Future Predictions */}
+          <Card className="shadow-md border-2 border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 dark:from-cyan-900/20 dark:to-sky-900/20">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Target className="w-5 h-5 text-cyan-600" />
+                Calibration Ratios
+              </CardTitle>
+              <CardDescription>
+                These ratios are now applied to correct future predictions. Ratio &gt; 1 = model underestimates, &lt; 1 = overestimates.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {[
+                  { label: 'Home Win', value: backtestResult.calibrationRatios.homeWin, color: 'green' },
+                  { label: 'Draw', value: backtestResult.calibrationRatios.draw, color: 'amber' },
+                  { label: 'Away Win', value: backtestResult.calibrationRatios.awayWin, color: 'blue' },
+                  { label: 'O1.5', value: backtestResult.calibrationRatios.over15, color: 'teal' },
+                  { label: 'O2.5', value: backtestResult.calibrationRatios.over25, color: 'purple' },
+                  { label: 'BTTS', value: backtestResult.calibrationRatios.bttsYes, color: 'pink' },
+                ].map(item => (
+                  <div key={item.label} className="text-center p-3 rounded-lg bg-white/60 dark:bg-gray-800/40 border">
+                    <p className="text-xs text-muted-foreground font-medium">{item.label}</p>
+                    <p className={`text-2xl font-bold mt-1 ${
+                      item.value > 1.05 ? 'text-green-600' : item.value < 0.95 ? 'text-red-600' : 'text-gray-600'
+                    }`}>
+                      {item.value.toFixed(3)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {item.value > 1.05 ? 'Model underestimates' : item.value < 0.95 ? 'Model overestimates' : 'Well calibrated'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-cyan-600 mt-3 font-medium">
+                Run a backtest for your league to generate calibration ratios. These will automatically correct predictions on the Predict tab.
+              </p>
+            </CardContent>
+          </Card>
 
           {/* Detailed Metrics */}
           <Card className="shadow-md">

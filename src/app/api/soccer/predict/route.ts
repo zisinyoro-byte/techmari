@@ -10,6 +10,7 @@ import { calculateBidirectionalHomeAdvantage } from '@/lib/models/home-advantage
 import { calculateTeamStats } from '@/lib/models/team-stats';
 import { runMonteCarlo } from '@/lib/models/monte-carlo';
 import { calculatePatterns, calculateLeagueInsights } from '@/lib/models/predictions';
+import { getCalibration, applyCalibration } from '@/lib/models/calibration-store';
 
 // ---------------------------------------------------------------------------
 // combineWeightedTeamStats – merge per-season TeamStats using exponential weights
@@ -272,6 +273,31 @@ export async function GET(request: NextRequest) {
 
     // Run Monte Carlo simulation with H2H-adjusted lambdas
     const prediction = runMonteCarlo(adjustedLambdaHome, adjustedLambdaAway, 100000, h2hMatches.length >= H2H_MIN_SAMPLE ? 0.1 : 0);
+
+    // Apply calibration correction if backtest data is available for this league
+    const calData = getCalibration(league);
+    if (calData) {
+      // Normalize 1X2 calibrated probs so they sum to ~100
+      const rawH = applyCalibration(prediction.homeWin, calData.homeWin);
+      const rawD = applyCalibration(prediction.draw, calData.draw);
+      const rawA = applyCalibration(prediction.awayWin, calData.awayWin);
+      const total1X2 = rawH + rawD + rawA;
+
+      prediction.calibrated = {
+        homeWin: Math.round((rawH / total1X2) * 100 * 10) / 10,
+        draw: Math.round((rawD / total1X2) * 100 * 10) / 10,
+        awayWin: Math.round((rawA / total1X2) * 100 * 10) / 10,
+        over25: applyCalibration(prediction.over25, calData.over25),
+        over15: applyCalibration(prediction.over15, calData.over15),
+        btts: applyCalibration(prediction.btts, calData.bttsYes),
+        over35: applyCalibration(prediction.over35, calData.over25), // use O2.5 ratio as proxy
+      };
+      prediction.calibrationSource = {
+        testSeason: calData.testSeason,
+        matches: calData.matches,
+        brierScore: calData.brierScore,
+      };
+    }
 
     // H2H stats (reuse h2hMatches from above)
 

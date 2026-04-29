@@ -367,6 +367,22 @@ export interface PredictionResult {
     htDraw: number;
     htAwayWin: number;
   };
+  // Calibration-corrected probabilities (null if no backtest data available)
+  calibrated?: {
+    homeWin: number;
+    draw: number;
+    awayWin: number;
+    over25: number;
+    over15: number;
+    btts: number;
+    over35: number;
+  };
+  // Calibration metadata
+  calibrationSource?: {
+    testSeason: string;
+    matches: number;
+    brierScore: number;
+  };
 }
 
 export interface PatternAnalysis {
@@ -538,6 +554,15 @@ export interface BacktestResult {
   ensemble: ModelAccuracy;
   predictions: PredictionRecord[];
   calibrationData: { predicted: number; actual: number; count: number }[];
+  // Per-market calibration ratios (actual_rate / avg_predicted_rate)
+  calibrationRatios: {
+    over25: number;
+    over15: number;
+    bttsYes: number;
+    homeWin: number;
+    draw: number;
+    awayWin: number;
+  };
   summary: {
     bestModel1X2: string;
     bestModelO25: string;
