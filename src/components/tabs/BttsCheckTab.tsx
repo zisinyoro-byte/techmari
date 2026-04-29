@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Target, CheckCircle, AlertTriangle, BarChart3 } from 'lucide-react'
 import type { BttsCheckTabProps } from './types'
 import { factorial } from '@/lib/utils'
+import { BTTS_THRESHOLDS } from '@/lib/betting-filters'
 
 export default function BttsCheckTab({
   results,
@@ -91,27 +92,27 @@ export default function BttsCheckTab({
                 const checklistItems = [
                   {
                     id: 1,
-                    label: "League Avg Goals Per Game ≥ 2.5",
+                    label: `League Avg Goals Per Game ≥ ${BTTS_THRESHOLDS.leagueAvgGoals}`,
                     description: `Current league average: ${analytics.avgGoalsPerGame.toFixed(2)} goals/game`,
-                    passing: analytics.avgGoalsPerGame >= 2.5,
+                    passing: analytics.avgGoalsPerGame >= BTTS_THRESHOLDS.leagueAvgGoals,
                     value: analytics.avgGoalsPerGame.toFixed(2),
-                    threshold: "≥ 2.50"
+                    threshold: `≥ ${BTTS_THRESHOLDS.leagueAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 2,
-                    label: "Over 2.5 Goals Rate ≥ 50%",
+                    label: `Over 2.5 Goals Rate ≥ ${BTTS_THRESHOLDS.leagueO25Rate}%`,
                     description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals`,
-                    passing: analytics.over25Percent >= 50,
+                    passing: analytics.over25Percent >= BTTS_THRESHOLDS.leagueO25Rate,
                     value: `${analytics.over25Percent.toFixed(1)}%`,
-                    threshold: "≥ 50%"
+                    threshold: `≥ ${BTTS_THRESHOLDS.leagueO25Rate}%`
                   },
                   {
                     id: 3,
-                    label: "Model BTTS Probability ≥ 53%",
+                    label: `Model BTTS Probability ≥ ${BTTS_THRESHOLDS.modelBttsProb}%`,
                     description: `Model predicts ${(bttsProb * 100).toFixed(1)}% BTTS chance`,
-                    passing: bttsProb >= 0.53,
+                    passing: bttsProb >= BTTS_THRESHOLDS.modelBttsProb / 100,
                     value: `${(bttsProb * 100).toFixed(1)}%`,
-                    threshold: "≥ 53%"
+                    threshold: `≥ ${BTTS_THRESHOLDS.modelBttsProb}%`
                   },
                   {
                     id: 4,
@@ -123,27 +124,27 @@ export default function BttsCheckTab({
                   },
                   {
                     id: 5,
-                    label: "Home Team Avg Goals Scored ≥ 1.2",
+                    label: `Home Team Avg Goals Scored ≥ ${BTTS_THRESHOLDS.homeAvgGoals}`,
                     description: `League home teams avg ${analytics.avgHomeGoals.toFixed(2)} goals`,
-                    passing: analytics.avgHomeGoals >= 1.2,
+                    passing: analytics.avgHomeGoals >= BTTS_THRESHOLDS.homeAvgGoals,
                     value: analytics.avgHomeGoals.toFixed(2),
-                    threshold: "≥ 1.20"
+                    threshold: `≥ ${BTTS_THRESHOLDS.homeAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 6,
-                    label: "Away Team Avg Goals Scored ≥ 1.0",
+                    label: `Away Team Avg Goals Scored ≥ ${BTTS_THRESHOLDS.awayAvgGoals}`,
                     description: `League away teams avg ${analytics.avgAwayGoals.toFixed(2)} goals`,
-                    passing: analytics.avgAwayGoals >= 1.0,
+                    passing: analytics.avgAwayGoals >= BTTS_THRESHOLDS.awayAvgGoals,
                     value: analytics.avgAwayGoals.toFixed(2),
-                    threshold: "≥ 1.00"
+                    threshold: `≥ ${BTTS_THRESHOLDS.awayAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 7,
-                    label: "Model O2.5 Probability ≥ 68%",
-                    description: `Model predicts ${prediction?.prediction?.over25?.toFixed(1) || 'N/A'}% O2.5 chance (100% win rate)`,
-                    passing: prediction?.prediction?.over25 >= 68,
+                    label: `Model O2.5 Probability ≥ ${BTTS_THRESHOLDS.modelO25Prob}%`,
+                    description: `Model predicts ${prediction?.prediction?.over25?.toFixed(1) || 'N/A'}% O2.5 chance`,
+                    passing: prediction?.prediction?.over25 >= BTTS_THRESHOLDS.modelO25Prob,
                     value: `${prediction?.prediction?.over25?.toFixed(1) || 'N/A'}%`,
-                    threshold: "≥ 68%"
+                    threshold: `≥ ${BTTS_THRESHOLDS.modelO25Prob}%`
                   },
                   {
                     id: 8,
@@ -155,11 +156,11 @@ export default function BttsCheckTab({
                   },
                   {
                     id: 9,
-                    label: "Both Teams Have Decent Shot Conversion",
+                    label: `Both Teams Have Decent Shot Conversion (≥ ${BTTS_THRESHOLDS.shotConversion}%)`,
                     description: `League avg: ${analytics.overallShotConversion}% shot conversion`,
-                    passing: parseFloat(analytics.overallShotConversion) >= 10,
+                    passing: parseFloat(analytics.overallShotConversion) >= BTTS_THRESHOLDS.shotConversion,
                     value: `${analytics.overallShotConversion}%`,
-                    threshold: "≥ 10%"
+                    threshold: `≥ ${BTTS_THRESHOLDS.shotConversion}%`
                   },
                   {
                     id: 10,

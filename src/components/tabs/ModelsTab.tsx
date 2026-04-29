@@ -10,6 +10,11 @@ import { Fragment } from 'react'
 import type { ModelsTabProps } from './types'
 import { COLORS } from '@/lib/constants'
 import { parseDateSafe, factorial } from '@/lib/utils'
+import {
+  computeBttsChecklistLabels, computeOver35ChecklistLabels,
+  computeStrongBet, computeGreyResult,
+  type ChecklistInput, type SignalInput,
+} from '@/lib/betting-filters'
 
 export default function ModelsTab({
   results,
@@ -555,33 +560,22 @@ export default function ModelsTab({
                             if (bttsProb >= 60) bttsStrength = 'Strong'
                             else if (bttsProb >= 50) bttsStrength = 'Medium'
 
-                            // Calculate Over 3.5 check items (7 auto-check criteria)
-                            const over35Checks: string[] = []
-                            // 1. League Avg Goals ≥ 2.8
-                            if (analytics.avgGoalsPerGame >= 2.8) over35Checks.push('League Avg Goals ≥2.8')
-                            // 2. Model O3.5 Prob ≥ 35%
-                            if (prediction.prediction.over35 >= 35) over35Checks.push('Model O3.5 Prob ≥35%')
-                            // 3. BTTS Prob ≥ 53%
-                            if (bttsProb >= 53) over35Checks.push('BTTS Prob ≥53%')
-                            // 4. O2.5 Rate ≥ 55%
-                            if (analytics.over25Percent >= 55) over35Checks.push('O2.5 Rate ≥55%')
-                            // 5. Home Avg Goals ≥ 1.4%
-                            if (analytics.avgHomeGoals >= 1.4) over35Checks.push('Home Avg Goals ≥1.4')
-                            // 6. Away Avg Goals ≥ 1.2
-                            if (analytics.avgAwayGoals >= 1.2) over35Checks.push('Away Avg Goals ≥1.2')
-                            // 7. Shot Conversion ≥ 12%
-                            if (parseFloat(analytics.overallShotConversion) >= 12) over35Checks.push('Shot Conversion ≥12%')
+                            // Calculate Over 3.5 check items (7 auto-check criteria) using shared utility
+                            const checklistInput: ChecklistInput = {
+                              avgGoalsPerGame: analytics.avgGoalsPerGame,
+                              over25Percent: analytics.over25Percent,
+                              bttsProb: prediction.prediction.btts,
+                              avgHomeGoals: analytics.avgHomeGoals,
+                              avgAwayGoals: analytics.avgAwayGoals,
+                              o25Prob: prediction.prediction.over25,
+                              o35Prob: prediction.prediction.over35,
+                              overallShotConversion: parseFloat(analytics.overallShotConversion),
+                            };
+                            const over35Checks = computeOver35ChecklistLabels(checklistInput);
                             const over35Checklist = `${over35Checks.length} of 7`
 
-                            // BTTS Check items (7 criteria matching display - based on analysis)
-                            const bttsChecks: string[] = []
-                            if (analytics.avgGoalsPerGame >= 2.5) bttsChecks.push('League Avg Goals ≥2.5')
-                            if (analytics.over25Percent >= 50) bttsChecks.push('League O2.5 Rate ≥50%')
-                            if (prediction.prediction.btts >= 53) bttsChecks.push('Model BTTS Prob ≥53%')
-                            if (analytics.avgHomeGoals >= 1.2) bttsChecks.push('Home Avg Goals ≥1.2')
-                            if (analytics.avgAwayGoals >= 1.0) bttsChecks.push('Away Avg Goals ≥1.0')
-                            if (prediction.prediction.over25 >= 68) bttsChecks.push('Model O2.5 Prob ≥68%')
-                            if (parseFloat(analytics.overallShotConversion) >= 10) bttsChecks.push('Shot Conversion ≥10%')
+                            // BTTS Check items (7 criteria) using shared utility
+                            const bttsChecks = computeBttsChecklistLabels(checklistInput);
                             const bttsChecklist = `${bttsChecks.length} of 7`
 
                             // Z-Score Analysis Overall Signal - computed independently using Z-Score methodology
@@ -708,39 +702,19 @@ export default function ModelsTab({
                               else if (totalXgDiff >= 0.3) xgOverallSignal = 'Under';
                             }
 
-                            // Updated Strong Bet Indicator based on ACTUAL BETTING RESULTS
-                            // Analysis showed O2.5 >= 68% has 100% BTTS win rate
-                            const o25ProbForBet = prediction.prediction.over25;
-                            const o35ProbForBet = prediction.prediction.over35;
-                            const o25StrongCheckDownload = o25ProbForBet >= 68; // 100% win rate
+                            // Updated Strong Bet — Points-based system using shared utility
+                            const signalInput: SignalInput = {
+                              xgSignal: xgOverallSignal,
+                              regressionSignal: regressionOverallSignal,
+                              zScoreSignal: zScoreOverallSignal,
+                            };
+                            const strongBetResult = computeStrongBet(checklistInput, signalInput);
+                            const isStrongBet = strongBetResult.isStrongBet;
+                            const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetResult.points}/${strongBetResult.maxPoints} pts`;
 
-                            const strongBetChecks = [
-                              o25StrongCheckDownload, // O2.5 >= 68% (CRITICAL)
-                              o35ProbForBet >= 35, // O3.5 >= 35% (more goals = more BTTS potential)
-                              bttsProb >= 53, // BTTS >= 53%
-                              bttsChecks.length >= 6, // BTTS Checklist >= 6/7
-                              xgOverallSignal === 'Strong Over' || xgOverallSignal === 'Over',
-                              regressionOverallSignal === 'Strong Over' || regressionOverallSignal === 'Over'
-                            ];
-
-                            const strongBetScore = strongBetChecks.filter(Boolean).length;
-                            const isStrongBet = o25StrongCheckDownload || strongBetScore >= 4;
-                            const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetScore}/6 checks`;
-
-                            // Grey Result Predictor (Both Teams Score in Both Halves)
-                            // Based on ACTUAL BETTING RESULTS - 7 grey results analyzed
-                            const greyResultChecks = [
-                              regressionOverallSignal === 'Strong Over',
-                              zScoreOverallSignal === 'Strong Over',
-                              xgOverallSignal === 'Strong Over',
-                              bttsChecks.length >= 5,
-                              bttsProb >= 53, // Updated from 45% to 53%
-                              o25ProbForBet >= 68, // O2.5 >= 68% (consistent across all sections)
-                              over35Checks.length >= 3,
-                              o35ProbForBet >= 35 // O3.5 Prob >= 35% bonus check
-                            ];
-                            const greyScore = greyResultChecks.filter(Boolean).length;
-                            const greyResultIndicator = greyScore >= 6 ? 'GREY RESULT' : `${greyScore}/8 checks`;
+                            // Grey Result — Tightened criteria using shared utility
+                            const greyResultData = computeGreyResult(checklistInput, signalInput);
+                            const greyResultIndicator = greyResultData.isGreyResult ? 'GREY RESULT' : `${greyResultData.score}/${greyResultData.totalChecks} checks`;
 
                             // Build CSV row with exact headers
                             const headers = [
