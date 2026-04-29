@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Goal, CheckCircle, AlertTriangle, BarChart3, TrendingUp } from 'lucide-react'
 import type { Over35TabProps } from './types'
 import { factorial } from '@/lib/utils'
-import { OVER35_THRESHOLDS } from '@/lib/betting-filters'
+import { computeLeagueBaselines, getOver35DisplayThresholds } from '@/lib/betting-filters'
 
 export default function Over35Tab({
   results,
@@ -57,6 +57,10 @@ export default function Over35Tab({
             </CardHeader>
             <CardContent>
               {(() => {
+                // Compute league-adapted baselines for hybrid thresholds
+                const baselines = computeLeagueBaselines(results, analytics);
+                const displayT = getOver35DisplayThresholds(baselines);
+
                 // Calculate Over 3.5 related metrics from league data
                 const lambdaHome = analytics.avgHomeGoals
                 const lambdaAway = analytics.avgAwayGoals
@@ -102,59 +106,59 @@ export default function Over35Tab({
                 const checklistItems = [
                   {
                     id: 1,
-                    label: `League Avg Goals Per Game ≥ ${OVER35_THRESHOLDS.leagueAvgGoals}`,
-                    description: `Current league average: ${analytics.avgGoalsPerGame.toFixed(2)} goals/game (need ${OVER35_THRESHOLDS.leagueAvgGoals}+ for O3.5)`,
-                    passing: analytics.avgGoalsPerGame >= OVER35_THRESHOLDS.leagueAvgGoals,
+                    label: `League Avg Goals Per Game ≥ ${displayT.leagueAvgGoals}`,
+                    description: `Current league average: ${analytics.avgGoalsPerGame.toFixed(2)} goals/game (need ${displayT.leagueAvgGoals}+ for O3.5)`,
+                    passing: analytics.avgGoalsPerGame >= displayT.leagueAvgGoals,
                     value: analytics.avgGoalsPerGame.toFixed(2),
-                    threshold: `≥ ${OVER35_THRESHOLDS.leagueAvgGoals.toFixed(2)}`
+                    threshold: `≥ ${displayT.leagueAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 2,
-                    label: `Model Over 3.5 Probability ≥ ${OVER35_THRESHOLDS.modelO35Prob}%`,
+                    label: `Model Over 3.5 Probability ≥ ${displayT.modelO35Prob.toFixed(0)}%`,
                     description: `Model predicts ${((prediction?.prediction?.calibrated?.over35 ?? prediction?.prediction?.over35) ?? 0).toFixed(1)}% Over 3.5 chance`,
-                    passing: (prediction?.prediction?.calibrated?.over35 ?? prediction?.prediction?.over35 ?? 0) >= OVER35_THRESHOLDS.modelO35Prob,
+                    passing: (prediction?.prediction?.calibrated?.over35 ?? prediction?.prediction?.over35 ?? 0) >= displayT.modelO35Prob,
                     value: `${((prediction?.prediction?.calibrated?.over35 ?? prediction?.prediction?.over35) ?? 0).toFixed(1)}%`,
-                    threshold: `≥ ${OVER35_THRESHOLDS.modelO35Prob}%`
+                    threshold: `≥ ${displayT.modelO35Prob.toFixed(0)}%`
                   },
                   {
                     id: 3,
-                    label: `BTTS Probability ≥ ${OVER35_THRESHOLDS.bttsProb}%`,
+                    label: `BTTS Probability ≥ ${displayT.bttsProb.toFixed(0)}%`,
                     description: `BTTS probability indicates goal-scoring potential for O3.5`,
-                    passing: (prediction?.prediction?.calibrated?.btts ?? prediction?.prediction?.btts ?? 0) >= OVER35_THRESHOLDS.bttsProb,
+                    passing: (prediction?.prediction?.calibrated?.btts ?? prediction?.prediction?.btts ?? 0) >= displayT.bttsProb,
                     value: `${((prediction?.prediction?.calibrated?.btts ?? prediction?.prediction?.btts) ?? 0).toFixed(1)}%`,
-                    threshold: `≥ ${OVER35_THRESHOLDS.bttsProb}%`
+                    threshold: `≥ ${displayT.bttsProb.toFixed(0)}%`
                   },
                   {
                     id: 4,
-                    label: `Over 2.5 Goals Rate ≥ ${OVER35_THRESHOLDS.leagueO25Rate}%`,
+                    label: `Over 2.5 Goals Rate ≥ ${displayT.leagueO25Rate}%`,
                     description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals (foundation for O3.5)`,
-                    passing: analytics.over25Percent >= OVER35_THRESHOLDS.leagueO25Rate,
+                    passing: analytics.over25Percent >= displayT.leagueO25Rate,
                     value: `${analytics.over25Percent.toFixed(1)}%`,
-                    threshold: `≥ ${OVER35_THRESHOLDS.leagueO25Rate}%`
+                    threshold: `≥ ${displayT.leagueO25Rate}%`
                   },
                   {
                     id: 5,
-                    label: `Home Team Avg Goals ≥ ${OVER35_THRESHOLDS.homeAvgGoals}`,
+                    label: `Home Team Avg Goals ≥ ${displayT.homeAvgGoals.toFixed(2)}`,
                     description: `League home teams avg ${analytics.avgHomeGoals.toFixed(2)} goals per game`,
-                    passing: analytics.avgHomeGoals >= OVER35_THRESHOLDS.homeAvgGoals,
+                    passing: analytics.avgHomeGoals >= displayT.homeAvgGoals,
                     value: analytics.avgHomeGoals.toFixed(2),
-                    threshold: `≥ ${OVER35_THRESHOLDS.homeAvgGoals.toFixed(2)}`
+                    threshold: `≥ ${displayT.homeAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 6,
-                    label: `Away Team Avg Goals ≥ ${OVER35_THRESHOLDS.awayAvgGoals}`,
+                    label: `Away Team Avg Goals ≥ ${displayT.awayAvgGoals.toFixed(2)}`,
                     description: `League away teams avg ${analytics.avgAwayGoals.toFixed(2)} goals per game`,
-                    passing: analytics.avgAwayGoals >= OVER35_THRESHOLDS.awayAvgGoals,
+                    passing: analytics.avgAwayGoals >= displayT.awayAvgGoals,
                     value: analytics.avgAwayGoals.toFixed(2),
-                    threshold: `≥ ${OVER35_THRESHOLDS.awayAvgGoals.toFixed(2)}`
+                    threshold: `≥ ${displayT.awayAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 7,
-                    label: `Shot Conversion Rate ≥ ${OVER35_THRESHOLDS.shotConversion}%`,
+                    label: `Shot Conversion Rate ≥ ${displayT.shotConversion.toFixed(0)}%`,
                     description: `Overall shot conversion: ${analytics.overallShotConversion}% (higher = more clinical finishing)`,
-                    passing: parseFloat(analytics.overallShotConversion) >= OVER35_THRESHOLDS.shotConversion,
+                    passing: parseFloat(analytics.overallShotConversion) >= displayT.shotConversion,
                     value: `${analytics.overallShotConversion}%`,
-                    threshold: `≥ ${OVER35_THRESHOLDS.shotConversion}%`
+                    threshold: `≥ ${displayT.shotConversion.toFixed(0)}%`
                   },
                   {
                     id: 8,

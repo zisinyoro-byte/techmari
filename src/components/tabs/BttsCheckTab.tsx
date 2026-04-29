@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Target, CheckCircle, AlertTriangle, BarChart3 } from 'lucide-react'
 import type { BttsCheckTabProps } from './types'
 import { factorial } from '@/lib/utils'
-import { BTTS_THRESHOLDS } from '@/lib/betting-filters'
+import { computeLeagueBaselines, getBttsDisplayThresholds } from '@/lib/betting-filters'
 
 export default function BttsCheckTab({
   results,
@@ -57,6 +57,10 @@ export default function BttsCheckTab({
             </CardHeader>
             <CardContent>
               {(() => {
+                // Compute league-adapted baselines for hybrid thresholds
+                const baselines = computeLeagueBaselines(results, analytics);
+                const displayT = getBttsDisplayThresholds(baselines);
+
                 // Calculate BTTS-related metrics from league data
                 const lambdaHome = analytics.avgHomeGoals
                 const lambdaAway = analytics.avgAwayGoals
@@ -92,27 +96,27 @@ export default function BttsCheckTab({
                 const checklistItems = [
                   {
                     id: 1,
-                    label: `League Avg Goals Per Game ≥ ${BTTS_THRESHOLDS.leagueAvgGoals}`,
+                    label: `League Avg Goals Per Game ≥ ${displayT.leagueAvgGoals}`,
                     description: `Current league average: ${analytics.avgGoalsPerGame.toFixed(2)} goals/game`,
-                    passing: analytics.avgGoalsPerGame >= BTTS_THRESHOLDS.leagueAvgGoals,
+                    passing: analytics.avgGoalsPerGame >= displayT.leagueAvgGoals,
                     value: analytics.avgGoalsPerGame.toFixed(2),
-                    threshold: `≥ ${BTTS_THRESHOLDS.leagueAvgGoals.toFixed(2)}`
+                    threshold: `≥ ${displayT.leagueAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 2,
-                    label: `Over 2.5 Goals Rate ≥ ${BTTS_THRESHOLDS.leagueO25Rate}%`,
+                    label: `Over 2.5 Goals Rate ≥ ${displayT.leagueO25Rate}%`,
                     description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals`,
-                    passing: analytics.over25Percent >= BTTS_THRESHOLDS.leagueO25Rate,
+                    passing: analytics.over25Percent >= displayT.leagueO25Rate,
                     value: `${analytics.over25Percent.toFixed(1)}%`,
-                    threshold: `≥ ${BTTS_THRESHOLDS.leagueO25Rate}%`
+                    threshold: `≥ ${displayT.leagueO25Rate}%`
                   },
                   {
                     id: 3,
-                    label: `Model BTTS Probability ≥ ${BTTS_THRESHOLDS.modelBttsProb}%`,
+                    label: `Model BTTS Probability ≥ ${displayT.modelBttsProb.toFixed(0)}%`,
                     description: `Model predicts ${(bttsProb * 100).toFixed(1)}% BTTS chance`,
-                    passing: bttsProb >= BTTS_THRESHOLDS.modelBttsProb / 100,
+                    passing: bttsProb >= displayT.modelBttsProb / 100,
                     value: `${(bttsProb * 100).toFixed(1)}%`,
-                    threshold: `≥ ${BTTS_THRESHOLDS.modelBttsProb}%`
+                    threshold: `≥ ${displayT.modelBttsProb.toFixed(0)}%`
                   },
                   {
                     id: 4,
@@ -124,27 +128,27 @@ export default function BttsCheckTab({
                   },
                   {
                     id: 5,
-                    label: `Home Team Avg Goals Scored ≥ ${BTTS_THRESHOLDS.homeAvgGoals}`,
+                    label: `Home Team Avg Goals Scored ≥ ${displayT.homeAvgGoals.toFixed(2)}`,
                     description: `League home teams avg ${analytics.avgHomeGoals.toFixed(2)} goals`,
-                    passing: analytics.avgHomeGoals >= BTTS_THRESHOLDS.homeAvgGoals,
+                    passing: analytics.avgHomeGoals >= displayT.homeAvgGoals,
                     value: analytics.avgHomeGoals.toFixed(2),
-                    threshold: `≥ ${BTTS_THRESHOLDS.homeAvgGoals.toFixed(2)}`
+                    threshold: `≥ ${displayT.homeAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 6,
-                    label: `Away Team Avg Goals Scored ≥ ${BTTS_THRESHOLDS.awayAvgGoals}`,
+                    label: `Away Team Avg Goals Scored ≥ ${displayT.awayAvgGoals.toFixed(2)}`,
                     description: `League away teams avg ${analytics.avgAwayGoals.toFixed(2)} goals`,
-                    passing: analytics.avgAwayGoals >= BTTS_THRESHOLDS.awayAvgGoals,
+                    passing: analytics.avgAwayGoals >= displayT.awayAvgGoals,
                     value: analytics.avgAwayGoals.toFixed(2),
-                    threshold: `≥ ${BTTS_THRESHOLDS.awayAvgGoals.toFixed(2)}`
+                    threshold: `≥ ${displayT.awayAvgGoals.toFixed(2)}`
                   },
                   {
                     id: 7,
-                    label: `Model O2.5 Probability ≥ ${BTTS_THRESHOLDS.modelO25Prob}%`,
+                    label: `Model O2.5 Probability ≥ ${displayT.modelO25Prob.toFixed(0)}%`,
                     description: `Model predicts ${((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1)}% O2.5 chance`,
-                    passing: (prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25 ?? 0) >= BTTS_THRESHOLDS.modelO25Prob,
+                    passing: (prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25 ?? 0) >= displayT.modelO25Prob,
                     value: `${((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1)}%`,
-                    threshold: `≥ ${BTTS_THRESHOLDS.modelO25Prob}%`
+                    threshold: `≥ ${displayT.modelO25Prob.toFixed(0)}%`
                   },
                   {
                     id: 8,
@@ -156,11 +160,11 @@ export default function BttsCheckTab({
                   },
                   {
                     id: 9,
-                    label: `Both Teams Have Decent Shot Conversion (≥ ${BTTS_THRESHOLDS.shotConversion}%)`,
+                    label: `Both Teams Have Decent Shot Conversion (≥ ${displayT.shotConversion.toFixed(0)}%)`,
                     description: `League avg: ${analytics.overallShotConversion}% shot conversion`,
-                    passing: parseFloat(analytics.overallShotConversion) >= BTTS_THRESHOLDS.shotConversion,
+                    passing: parseFloat(analytics.overallShotConversion) >= displayT.shotConversion,
                     value: `${analytics.overallShotConversion}%`,
-                    threshold: `≥ ${BTTS_THRESHOLDS.shotConversion}%`
+                    threshold: `≥ ${displayT.shotConversion.toFixed(0)}%`
                   },
                   {
                     id: 10,

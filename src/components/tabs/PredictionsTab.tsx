@@ -10,10 +10,10 @@ import type { PredictionsTabProps } from './types'
 import { COLORS, SEASON_NAMES } from '@/lib/constants'
 import { parseDateSafe } from '@/lib/utils'
 import {
-  BTTS_THRESHOLDS, OVER35_THRESHOLDS, STRONG_BET_POINTS,
-  computeBttsChecklist, computeOver35Checklist,
+  STRONG_BET_POINTS,
+  computeLeagueBaselines, computeBttsChecklist, computeOver35Checklist,
   computeStrongBet, computeGreyResult,
-  type ChecklistInput, type SignalInput,
+  type ChecklistInput, type SignalInput, type LeagueBaselines,
 } from '@/lib/betting-filters'
 
 export default function PredictionsTab({
@@ -357,6 +357,9 @@ export default function PredictionsTab({
                     }
                   }
 
+                  // Compute league-adapted baselines for hybrid thresholds
+                  const baselines: LeagueBaselines = computeLeagueBaselines(results, analytics);
+
                   // Calculate BTTS Check list count (7 criteria) using shared utility
                   const bttsChecklistInput: ChecklistInput = {
                     avgGoalsPerGame: analytics.avgGoalsPerGame,
@@ -368,7 +371,7 @@ export default function PredictionsTab({
                     o35Prob: prediction.prediction.over35,
                     overallShotConversion: parseFloat(analytics.overallShotConversion),
                   };
-                  const bttsChecksQuickCount = computeBttsChecklist(bttsChecklistInput);
+                  const bttsChecksQuickCount = computeBttsChecklist(bttsChecklistInput, baselines);
 
                   // BTTS Confidence
                   const bttsConf = bttsProbValue >= 60 ? 'High' : bttsProbValue >= 50 ? 'Medium' : 'Low';
@@ -415,7 +418,7 @@ export default function PredictionsTab({
                   }
 
                   // Calculate Over 3.5 Checklist (7 auto-check criteria) using shared utility
-                  const over35ChecksQuickCount = computeOver35Checklist(bttsChecklistInput);
+                  const over35ChecksQuickCount = computeOver35Checklist(bttsChecklistInput, baselines);
 
                   // Z-Score Signal - computed independently using Z-Score methodology
                   // matching the detailed Z-Score Analysis & Confidence Intervals card
@@ -495,13 +498,13 @@ export default function PredictionsTab({
                     regressionSignal: regressionSignalQuick,
                     zScoreSignal: zScoreSignalQuick,
                   };
-                  const strongBetResult = computeStrongBet(bttsChecklistInput, signalInput);
+                  const strongBetResult = computeStrongBet(bttsChecklistInput, signalInput, baselines);
                   const isStrongBet = strongBetResult.isStrongBet;
                   const strongBetChecks = strongBetResult.breakdown.map(c => c.passed);
                   const strongBetScore = strongBetResult.points;
 
                   // Grey Result Predictor — Tightened criteria using shared utility
-                  const greyResultData = computeGreyResult(bttsChecklistInput, signalInput);
+                  const greyResultData = computeGreyResult(bttsChecklistInput, signalInput, baselines);
                   const isGreyResult = greyResultData.isGreyResult;
                   const greyResultChecks = greyResultData.breakdown.map(c => c.passed);
                   const greyScore = greyResultData.score;
