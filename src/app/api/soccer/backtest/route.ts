@@ -149,6 +149,9 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
   const bttsNoTotal = predictions.length - bttsYesTotal;
 
   const overallCorrect = homeWinCorrect + drawCorrect + awayWinCorrect;
+  const avgPredictedProb = Math.round(predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length * 10) / 10;
+  const avgActualRate = Math.round(predictions.filter(p => p.actual.over25).length / predictions.length * 1000) / 10;
+  const calibration = avgActualRate > 0 ? Math.round((predictions.filter(p => p.actual.over25).length / predictions.length) / (predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length / 100) * 1000) / 1000 : 0;
 
   return {
     model: 'ensemble',
@@ -162,9 +165,9 @@ function calculateMetrics(predictions: PredictionRecord[]): ModelAccuracy {
     under25Accuracy: Math.round(over25Correct / predictions.length * 1000) / 10,
     bttsYesAccuracy: bttsYesTotal > 0 ? Math.round(bttsYesCorrect / bttsYesTotal * 1000) / 10 : 0,
     bttsNoAccuracy: bttsNoTotal > 0 ? Math.round(bttsNoCorrect / bttsNoTotal * 1000) / 10 : 0,
-    avgPredictedProb: Math.round(predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length * 10) / 10,
-    avgActualRate: Math.round(predictions.filter(p => p.actual.over25).length / predictions.length * 1000) / 10,
-    calibration: avgActualRate > 0 ? Math.round((predictions.filter(p => p.actual.over25).length / predictions.length) / (predictions.reduce((sum, p) => sum + p.predicted.over25, 0) / predictions.length / 100) * 1000) / 1000 : 0,
+    avgPredictedProb,
+    avgActualRate,
+    calibration,
     valueBetsFound,
     valueBetWinRate: valueBetsFound > 0 ? Math.round(valueBetsWon / valueBetsFound * 1000) / 10 : 0,
     roi: valueBetsFound > 0 ? Math.round((valueBetsWon * 1.85 - valueBetsFound) / valueBetsFound * 1000) / 10 : 0,
