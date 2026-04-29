@@ -111,17 +111,17 @@ export default function Over35Tab({
                   {
                     id: 2,
                     label: `Model Over 3.5 Probability ≥ ${OVER35_THRESHOLDS.modelO35Prob}%`,
-                    description: `Model predicts ${prediction?.prediction?.over35?.toFixed(1) || 'N/A'}% Over 3.5 chance`,
-                    passing: prediction?.prediction?.over35 >= OVER35_THRESHOLDS.modelO35Prob,
-                    value: `${prediction?.prediction?.over35?.toFixed(1) || 'N/A'}%`,
+                    description: `Model predicts ${((prediction?.prediction?.calibrated?.over35 ?? prediction?.prediction?.over35) ?? 0).toFixed(1)}% Over 3.5 chance`,
+                    passing: (prediction?.prediction?.calibrated?.over35 ?? prediction?.prediction?.over35 ?? 0) >= OVER35_THRESHOLDS.modelO35Prob,
+                    value: `${((prediction?.prediction?.calibrated?.over35 ?? prediction?.prediction?.over35) ?? 0).toFixed(1)}%`,
                     threshold: `≥ ${OVER35_THRESHOLDS.modelO35Prob}%`
                   },
                   {
                     id: 3,
                     label: `BTTS Probability ≥ ${OVER35_THRESHOLDS.bttsProb}%`,
                     description: `BTTS probability indicates goal-scoring potential for O3.5`,
-                    passing: prediction?.prediction?.btts >= OVER35_THRESHOLDS.bttsProb,
-                    value: `${prediction?.prediction?.btts?.toFixed(1) || 'N/A'}%`,
+                    passing: (prediction?.prediction?.calibrated?.btts ?? prediction?.prediction?.btts ?? 0) >= OVER35_THRESHOLDS.bttsProb,
+                    value: `${((prediction?.prediction?.calibrated?.btts ?? prediction?.prediction?.btts) ?? 0).toFixed(1)}%`,
                     threshold: `≥ ${OVER35_THRESHOLDS.bttsProb}%`
                   },
                   {

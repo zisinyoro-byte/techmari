@@ -217,8 +217,9 @@ export default function PredictionsTab({
                   if (!analytics || !prediction?.prediction) return null;
                   
                   // Calculate Strong Bet indicator
-                  const bttsProbValue = prediction.prediction.btts;
-                  const o25ProbValue = prediction.prediction.over25;
+                  // Use calibrated probabilities when available (more accurate from backtest), fall back to raw
+                  const bttsProbValue = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts;
+                  const o25ProbValue = prediction.prediction.calibrated?.over25 ?? prediction.prediction.over25;
 
                   // Calculate Regression to Mean signal for Strong Bet check (matching main Regression to Mean Analysis)
                   const sortedResultsForRegression = [...results].sort((a, b) => {
@@ -488,7 +489,7 @@ export default function PredictionsTab({
 
                   // STRONG BET — New points-based system (need 7+ of 11 points)
                   // Replaces old auto-qualify on O2.5 ≥ 68% + 4/6 checks
-                  const o35ProbValue = prediction.prediction.over35; // O3.5 probability
+                  const o35ProbValue = prediction.prediction.calibrated?.over35 ?? prediction.prediction.over35; // O3.5 probability (calibrated preferred)
                   const signalInput: SignalInput = {
                     xgSignal: xgSignalQuick,
                     regressionSignal: regressionSignalQuick,

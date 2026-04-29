@@ -141,9 +141,9 @@ export default function BttsCheckTab({
                   {
                     id: 7,
                     label: `Model O2.5 Probability ≥ ${BTTS_THRESHOLDS.modelO25Prob}%`,
-                    description: `Model predicts ${prediction?.prediction?.over25?.toFixed(1) || 'N/A'}% O2.5 chance`,
-                    passing: prediction?.prediction?.over25 >= BTTS_THRESHOLDS.modelO25Prob,
-                    value: `${prediction?.prediction?.over25?.toFixed(1) || 'N/A'}%`,
+                    description: `Model predicts ${((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1)}% O2.5 chance`,
+                    passing: (prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25 ?? 0) >= BTTS_THRESHOLDS.modelO25Prob,
+                    value: `${((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1)}%`,
                     threshold: `≥ ${BTTS_THRESHOLDS.modelO25Prob}%`
                   },
                   {

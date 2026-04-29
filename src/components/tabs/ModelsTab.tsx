@@ -560,15 +560,20 @@ export default function ModelsTab({
                             if (bttsProb >= 60) bttsStrength = 'Strong'
                             else if (bttsProb >= 50) bttsStrength = 'Medium'
 
-                            // Calculate Over 3.5 check items (7 auto-check criteria) using shared utility
+                            // Use calibrated probabilities when available (more accurate from backtest), fall back to raw
+                            const calBtts = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts;
+                            const calO25 = prediction.prediction.calibrated?.over25 ?? prediction.prediction.over25;
+                            const calO35 = prediction.prediction.calibrated?.over35 ?? prediction.prediction.over35;
+
+                            // Calculate checklists using shared utility
                             const checklistInput: ChecklistInput = {
                               avgGoalsPerGame: analytics.avgGoalsPerGame,
                               over25Percent: analytics.over25Percent,
-                              bttsProb: prediction.prediction.btts,
+                              bttsProb: calBtts,
                               avgHomeGoals: analytics.avgHomeGoals,
                               avgAwayGoals: analytics.avgAwayGoals,
-                              o25Prob: prediction.prediction.over25,
-                              o35Prob: prediction.prediction.over35,
+                              o25Prob: calO25,
+                              o35Prob: calO35,
                               overallShotConversion: parseFloat(analytics.overallShotConversion),
                             };
                             const over35Checks = computeOver35ChecklistLabels(checklistInput);
