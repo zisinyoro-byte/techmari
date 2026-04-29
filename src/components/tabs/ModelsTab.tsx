@@ -770,7 +770,7 @@ export default function ModelsTab({
                             const over35ChecklistExport = `${over35Checks.length} of 7`;
                             
                             const row = [
-                              `"${selectedLeagueName}"`,
+                              `"${selectedLeague}"`,
                               `"${predHomeTeam}"`,
                               `"${predAwayTeam}"`,
                               lastH2H ? `"'${lastH2H.ftHomeGoals}-${lastH2H.ftAwayGoals}"` : 'N/A',
@@ -806,28 +806,10 @@ export default function ModelsTab({
                           🎯 Analysis Export
                         </Button>
                         <Button 
-                          onClick={() => {
-                            // Export H2H data if available
-                            if (!h2hAnalytics || h2hMatches.length === 0) return
-                            const headers = ['Date', 'Home Team', 'Away Team', 'HT Score', 'FT Score', 'SH Score', 'Result', 'BTTS FT', 'BTTS 1H', 'BTTS 2H']
-                            const csvRows = [headers.join(',')]
-                            h2hMatches.forEach(m => {
-                              csvRows.push([
-                                m.date, `"${m.homeTeam}"`, `"${m.awayTeam}"`,
-                                `${m.htHomeGoals}-${m.htAwayGoals}`, `${m.ftHomeGoals}-${m.ftAwayGoals}`, `${m.shHomeGoals}-${m.shAwayGoals}`,
-                                m.ftResult, m.bttsFullTime ? 'Yes' : 'No', m.bttsFirstHalf ? 'Yes' : 'No', m.bttsSecondHalf ? 'Yes' : 'No'
-                              ].join(','))
-                            })
-                            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' })
-                            const url = URL.createObjectURL(blob)
-                            const a = document.createElement('a')
-                            a.href = url
-                            a.download = `h2h_${team1}_vs_${team2}.csv`
-                            a.click()
-                          }}
                           variant="outline"
                           className="w-full"
-                          disabled={!h2hAnalytics || h2hMatches.length === 0}
+                          disabled={true}
+                          title="H2H export is available on the Head-to-Head tab"
                         >
                           🔄 H2H Data
                         </Button>
