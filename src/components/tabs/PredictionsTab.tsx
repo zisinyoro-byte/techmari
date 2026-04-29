@@ -12,6 +12,7 @@ import { parseDateSafe } from '@/lib/utils'
 import {
   STRONG_BET_POINTS,
   computeLeagueBaselines, resolveAllThresholds,
+  computeBttsChecklist, computeOver35Checklist,
   computeStrongBet, computeGreyResult,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
