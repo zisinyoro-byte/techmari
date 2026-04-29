@@ -290,8 +290,12 @@ export interface Analytics {
 // --- Prediction Types (canonical from predict/route.ts) ---
 
 export interface TeamStats {
-  attack: number;          // Attack strength relative to league avg
-  defense: number;         // Defense strength relative to league avg
+  attack: number;          // Overall attack strength relative to league avg
+  defense: number;         // Overall defense strength relative to league avg
+  homeAttack: number;      // Attack strength when playing at home (relative to league avg home goals)
+  awayAttack: number;      // Attack strength when playing away (relative to league avg away goals)
+  homeDefense: number;     // Defense strength when playing at home (conceded, relative to league avg away goals)
+  awayDefense: number;     // Defense strength when playing away (conceded, relative to league avg home goals)
   homeAdvantage: number;   // Home advantage factor
   avgScored: number;       // Average goals scored per game
   avgConceded: number;     // Average goals conceded per game

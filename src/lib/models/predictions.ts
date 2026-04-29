@@ -262,13 +262,6 @@ export function generateBacktestPredictions(
   const homeStats = calculateBacktestTeamStats(trainingData, homeTeam, seasonWeights);
   const awayStats = calculateBacktestTeamStats(trainingData, awayTeam, seasonWeights);
 
-  // Expected goals based on attack/defense
-  // Fall back to league average for missing home/away splits instead of using 0
-  const homeAttack = homeStats.homeGames > 0 ? homeStats.avgHomeScored : leagueAvgs.avgHomeGoals;
-  const awayDefense = awayStats.awayGames > 0 ? awayStats.avgAwayConceded : leagueAvgs.avgAwayGoals;
-  const awayAttack = awayStats.awayGames > 0 ? awayStats.avgAwayScored : leagueAvgs.avgAwayGoals;
-  const homeDefense = homeStats.homeGames > 0 ? homeStats.avgHomeConceded : leagueAvgs.avgAwayGoals;
-
   // Apply bidirectional home advantage to xG calculation
   const ha = calculateBidirectionalHomeAdvantage(
     homeStats.homeGames > 0 ? homeStats.avgHomeScored : leagueAvgs.avgHomeGoals,
@@ -279,8 +272,24 @@ export function generateBacktestPredictions(
     leagueAvgs.avgAwayGoals
   );
 
-  const homeXg = (homeAttack + awayDefense) / 2 * ha.scoringAdvantage;
-  const awayXg = (awayAttack + homeDefense) / 2 * ha.defensiveAdvantage;
+  // Phase 2e: Unified multiplicative xG formula (same as predict route)
+  // homeXg = homeAttack * awayDefense * leagueHomeAvg * scoringAdvantage
+  // awayXg = awayAttack * homeDefense * leagueAwayAvg * defensiveAdvantage
+  const homeAttackRatio = leagueAvgs.avgTotalGoals > 0
+    ? (homeStats.homeGames > 0 ? homeStats.avgHomeScored : leagueAvgs.avgHomeGoals) / (leagueAvgs.avgTotalGoals / 2)
+    : 1;
+  const awayDefenseRatio = leagueAvgs.avgTotalGoals > 0
+    ? (awayStats.awayGames > 0 ? awayStats.avgAwayConceded : leagueAvgs.avgHomeGoals) / (leagueAvgs.avgTotalGoals / 2)
+    : 1;
+  const awayAttackRatio = leagueAvgs.avgTotalGoals > 0
+    ? (awayStats.awayGames > 0 ? awayStats.avgAwayScored : leagueAvgs.avgAwayGoals) / (leagueAvgs.avgTotalGoals / 2)
+    : 1;
+  const homeDefenseRatio = leagueAvgs.avgTotalGoals > 0
+    ? (homeStats.homeGames > 0 ? homeStats.avgHomeConceded : leagueAvgs.avgAwayGoals) / (leagueAvgs.avgTotalGoals / 2)
+    : 1;
+
+  const homeXg = homeAttackRatio * awayDefenseRatio * leagueAvgs.avgHomeGoals * ha.scoringAdvantage;
+  const awayXg = awayAttackRatio * homeDefenseRatio * leagueAvgs.avgAwayGoals * ha.defensiveAdvantage;
   const totalXg = homeXg + awayXg;
 
   // Poisson-based probabilities - iterate over sufficient range (0-7) to capture

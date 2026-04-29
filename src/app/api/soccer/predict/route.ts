@@ -63,6 +63,23 @@ function combineWeightedTeamStats(entries: SeasonStatsEntry[]): Map<string, Team
       weight: e.weight,
       value: e.stats.get(team)!.defense,
     })));
+    // Phase 2a: decomposed home/away attack/defense ratios
+    const homeAttack = weightedAverage(teamEntries.map(e => ({
+      weight: e.weight,
+      value: e.stats.get(team)!.homeAttack,
+    })));
+    const awayAttack = weightedAverage(teamEntries.map(e => ({
+      weight: e.weight,
+      value: e.stats.get(team)!.awayAttack,
+    })));
+    const homeDefense = weightedAverage(teamEntries.map(e => ({
+      weight: e.weight,
+      value: e.stats.get(team)!.homeDefense,
+    })));
+    const awayDefense = weightedAverage(teamEntries.map(e => ({
+      weight: e.weight,
+      value: e.stats.get(team)!.awayDefense,
+    })));
     const homeScored = weightedAverage(teamEntries.map(e => ({
       weight: e.weight,
       value: e.stats.get(team)!.homeScored,
@@ -102,6 +119,10 @@ function combineWeightedTeamStats(entries: SeasonStatsEntry[]): Map<string, Team
     combined.set(team, {
       attack: attack || 1,
       defense: defense || 1,
+      homeAttack: homeAttack || 1,
+      awayAttack: awayAttack || 1,
+      homeDefense: homeDefense || 1,
+      awayDefense: awayDefense || 1,
       homeAdvantage: Math.min(Math.max(homeAdvantage, 0.8), 1.3),
       avgScored,
       avgConceded,
@@ -220,20 +241,39 @@ export async function GET(request: NextRequest) {
       leagueAwayAvg
     );
 
-    // Calculate expected goals using bidirectional home advantage
-    // λ_home = home_attack * away_defense * league_home_avg * scoring_advantage
-    const lambdaHome = homeStats.attack * awayStats.defense * leagueHomeAvg * ha.scoringAdvantage;
-    // λ_away = away_attack * home_defense * league_away_avg * defensive_advantage
-    const lambdaAway = awayStats.attack * homeStats.defense * leagueAwayAvg * ha.defensiveAdvantage;
+    // Phase 2a: Context-specific lambda calculation using decomposed ratios
+    // λ_home = home team's home attack × away team's away defense × league avg
+    // This is more accurate than using overall attack/defense because it accounts for
+    // the fact that teams perform differently at home vs away
+    const lambdaHome = homeStats.homeAttack * awayStats.awayDefense * leagueHomeAvg * ha.scoringAdvantage;
+    const lambdaAway = awayStats.awayAttack * homeStats.homeDefense * leagueAwayAvg * ha.defensiveAdvantage;
 
-    // Run Monte Carlo simulation
-    const prediction = runMonteCarlo(lambdaHome, lambdaAway, 100000);
-
-    // H2H stats
+    // Phase 2c: H2H-based lambda adjustment
+    // If there are enough H2H matches (≥4), blend base lambdas with H2H-informed lambdas
     const h2hMatches = allMatches.filter(
       m => (m.homeTeam === homeTeam && m.awayTeam === awayTeam) ||
            (m.homeTeam === awayTeam && m.awayTeam === homeTeam)
     );
+    const H2H_MIN_SAMPLE = 4;
+    const H2H_BLEND_WEIGHT = 0.3; // 30% H2H influence, 70% base model
+
+    let adjustedLambdaHome = lambdaHome;
+    let adjustedLambdaAway = lambdaAway;
+
+    if (h2hMatches.length >= H2H_MIN_SAMPLE) {
+      // Calculate H2H-based expected goals for both teams
+      const h2hAvgHomeGoals = h2hMatches.reduce((sum, m) => sum + (m.homeTeam === homeTeam ? m.ftHomeGoals : m.ftAwayGoals), 0) / h2hMatches.length;
+      const h2hAvgAwayGoals = h2hMatches.reduce((sum, m) => sum + (m.homeTeam === awayTeam ? m.ftHomeGoals : m.ftAwayGoals), 0) / h2hMatches.length;
+
+      // Blend base lambdas with H2H-informed lambdas
+      adjustedLambdaHome = lambdaHome * (1 - H2H_BLEND_WEIGHT) + h2hAvgHomeGoals * H2H_BLEND_WEIGHT;
+      adjustedLambdaAway = lambdaAway * (1 - H2H_BLEND_WEIGHT) + h2hAvgAwayGoals * H2H_BLEND_WEIGHT;
+    }
+
+    // Run Monte Carlo simulation with H2H-adjusted lambdas
+    const prediction = runMonteCarlo(adjustedLambdaHome, adjustedLambdaAway, 100000, h2hMatches.length >= H2H_MIN_SAMPLE ? 0.1 : 0);
+
+    // H2H stats (reuse h2hMatches from above)
 
     let homeTeamWins = 0;
     let draws = 0;
