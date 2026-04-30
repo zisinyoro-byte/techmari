@@ -13,6 +13,7 @@ export default function BttsCheckTab({
   analytics,
   prediction,
   loading,
+  selectedLeague,
   selectedLeagueName,
 }: BttsCheckTabProps) {
   return (
@@ -60,7 +61,7 @@ export default function BttsCheckTab({
                 // Compute league-adapted baselines and resolve thresholds
                 // (backtest-derived when available, hybrid fallback otherwise)
                 const baselines = computeLeagueBaselines(results, analytics);
-                const resolved = resolveAllThresholds(selectedLeagueName, baselines);
+                const resolved = resolveAllThresholds(selectedLeague, baselines);
                 const displayT = getBttsDisplayThresholds(resolved);
 
                 // Calculate BTTS-related metrics from league data

@@ -15,6 +15,7 @@ export interface BttsCheckTabProps {
   analytics: Analytics | null
   prediction: PredictionResponse | null
   loading: boolean
+  selectedLeague: string
   selectedLeagueName: string
 }
 
@@ -24,6 +25,7 @@ export interface Over35TabProps {
   analytics: Analytics | null
   prediction: PredictionResponse | null
   loading: boolean
+  selectedLeague: string
   selectedLeagueName: string
 }
 

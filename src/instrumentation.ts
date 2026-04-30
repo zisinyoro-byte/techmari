@@ -1,14 +1,15 @@
 /**
  * Next.js Instrumentation Hook
  *
- * Runs once on server startup. Loads persisted backtest-derived thresholds
- * from disk into the in-memory registry so they're available immediately.
+ * Currently a no-op. Threshold persistence is initialized lazily
+ * from server-side API routes (predict, backtest) which run in Node.js
+ * runtime and can access fs/path modules.
  *
  * https://nextjs.org/docs/app/api-reference/config/instrumentation
  */
 
 export async function register() {
-  // Dynamic import to keep threshold-init server-only
-  const { initializeThresholds } = await import('@/lib/models/threshold-init');
-  initializeThresholds();
+  // No-op: threshold initialization moved to lazy API-route loading
+  // because Edge Runtime (instrumentation) does not support Node.js fs/path.
+  // See src/lib/models/threshold-init.ts → initializeThresholdsIfNecessary()
 }

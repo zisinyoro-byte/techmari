@@ -2,10 +2,10 @@
  * Threshold Initialization (Server-Side Only)
  *
  * Loads persisted backtest-derived thresholds from disk into the
- * in-memory registry on server startup.
+ * in-memory registry. Uses lazy initialization — only loads once,
+ * triggered from any server-side API route (predict, backtest, etc.).
  *
- * Import this from a server-only entry point (e.g. backtest route, layout, etc.)
- * — NOT from client components.
+ * NOT safe to import from Edge Runtime (instrumentation.ts, middleware).
  */
 
 import { registerBacktestThresholds, getAllBacktestThresholds } from '@/lib/betting-filters';
@@ -18,7 +18,7 @@ let initialized = false;
 
 /**
  * Initialize thresholds from disk. Safe to call multiple times — only loads once.
- * Call this early in server startup (e.g. in an API route or instrumentation file).
+ * Call this early in any server-side API route handler.
  */
 export function initializeThresholds(): void {
   if (initialized) return;

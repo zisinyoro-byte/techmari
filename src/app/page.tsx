@@ -373,11 +373,11 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="btts-checklist" className="space-y-6">
-            <BttsCheckTab results={results} analytics={analytics} prediction={prediction} loading={loading} selectedLeagueName={selectedLeagueName} />
+            <BttsCheckTab results={results} analytics={analytics} prediction={prediction} loading={loading} selectedLeague={selectedLeague} selectedLeagueName={selectedLeagueName} />
           </TabsContent>
 
           <TabsContent value="over35-checklist" className="space-y-6">
-            <Over35Tab results={results} analytics={analytics} prediction={prediction} loading={loading} selectedLeagueName={selectedLeagueName} />
+            <Over35Tab results={results} analytics={analytics} prediction={prediction} loading={loading} selectedLeague={selectedLeague} selectedLeagueName={selectedLeagueName} />
           </TabsContent>
 
           <TabsContent value="summary" className="space-y-6">

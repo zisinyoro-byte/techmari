@@ -11,6 +11,7 @@ import { calculateTeamStats } from '@/lib/models/team-stats';
 import { runMonteCarlo } from '@/lib/models/monte-carlo';
 import { calculatePatterns, calculateLeagueInsights } from '@/lib/models/predictions';
 import { getCalibration, applyCalibration } from '@/lib/models/calibration-store';
+import { initializeThresholds } from '@/lib/models/threshold-init';
 
 // ---------------------------------------------------------------------------
 // combineWeightedTeamStats – merge per-season TeamStats using exponential weights
@@ -184,6 +185,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Ensure persisted thresholds are loaded (lazy, one-time)
+    initializeThresholds();
+
     // Fetch match data — with season weighting when season === 'all'
     let allMatches: typeof import('@/lib/types').MatchResult[];
     let teamStats: Map<string, TeamStats>;

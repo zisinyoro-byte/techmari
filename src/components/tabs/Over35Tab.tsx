@@ -13,6 +13,7 @@ export default function Over35Tab({
   analytics,
   prediction,
   loading,
+  selectedLeague,
   selectedLeagueName,
 }: Over35TabProps) {
   return (
@@ -60,7 +61,7 @@ export default function Over35Tab({
                 // Compute league-adapted baselines and resolve thresholds
                 // (backtest-derived when available, hybrid fallback otherwise)
                 const baselines = computeLeagueBaselines(results, analytics);
-                const resolved = resolveAllThresholds(selectedLeagueName, baselines);
+                const resolved = resolveAllThresholds(selectedLeague, baselines);
                 const displayT = getOver35DisplayThresholds(resolved);
 
                 // Calculate Over 3.5 related metrics from league data
