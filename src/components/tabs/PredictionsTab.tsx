@@ -363,7 +363,11 @@ export default function PredictionsTab({
                   const baselines = computeLeagueBaselines(results, analytics);
                   const resolved = resolveAllThresholds(selectedLeague, baselines);
 
+                  // Compute calibrated O3.5 probability (preferred over raw for checklist accuracy)
+                  const o35ProbValue = prediction.prediction.calibrated?.over35 ?? prediction.prediction.over35;
+
                   // Calculate BTTS Check list count (7 criteria) using shared utility
+                  // All probability inputs use calibrated values when available
                   const bttsChecklistInput: ChecklistInput = {
                     avgGoalsPerGame: analytics.avgGoalsPerGame,
                     over25Percent: analytics.over25Percent,
@@ -371,7 +375,7 @@ export default function PredictionsTab({
                     avgHomeGoals: analytics.avgHomeGoals,
                     avgAwayGoals: analytics.avgAwayGoals,
                     o25Prob: o25ProbValue,
-                    o35Prob: prediction.prediction.over35,
+                    o35Prob: o35ProbValue,
                     overallShotConversion: parseFloat(analytics.overallShotConversion),
                   };
                   const bttsChecksQuickCount = computeBttsChecklist(bttsChecklistInput, resolved);
@@ -495,7 +499,7 @@ export default function PredictionsTab({
 
                   // STRONG BET — New points-based system (need 7+ of 11 points)
                   // Replaces old auto-qualify on O2.5 ≥ 68% + 4/6 checks
-                  const o35ProbValue = prediction.prediction.calibrated?.over35 ?? prediction.prediction.over35; // O3.5 probability (calibrated preferred)
+                  // o35ProbValue already computed above with calibrated fallback
                   const signalInput: SignalInput = {
                     xgSignal: xgSignalQuick,
                     regressionSignal: regressionSignalQuick,
@@ -633,13 +637,13 @@ export default function PredictionsTab({
                           <div>
                             <label className="text-xs text-muted-foreground">Model Probability</label>
                             <div className="mt-1 p-2 bg-teal-100 rounded text-center">
-                              <span className="text-lg font-bold text-teal-700">{prediction.prediction.over15}%</span>
+                              <span className="text-lg font-bold text-teal-700">{prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15}%</span>
                             </div>
                           </div>
                         </div>
                         {bookmakerOdds15 && parseFloat(bookmakerOdds15) > 1 && (
                           <div className={`p-4 rounded-lg ${
-                            ((prediction.prediction.over15 / 100) * parseFloat(bookmakerOdds15)) > 1 
+                            (((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 
                               ? 'bg-green-100 border-2 border-green-400' 
                               : 'bg-red-100 border-2 border-red-300'
                           }`}>
@@ -650,20 +654,20 @@ export default function PredictionsTab({
                               </div>
                               <div>
                                 <p className="text-xs text-muted-foreground">Expected Value</p>
-                                <p className={`font-bold text-lg ${((prediction.prediction.over15 / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {(((prediction.prediction.over15 / 100) * parseFloat(bookmakerOdds15)) * 100 - 100).toFixed(1)}%
+                                <p className={`font-bold text-lg ${(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {((((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) * 100 - 100).toFixed(1)}%
                                 </p>
                               </div>
                               <div>
                                 <p className="text-xs text-muted-foreground">Verdict</p>
-                                <p className={`font-bold ${((prediction.prediction.over15 / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {((prediction.prediction.over15 / 100) * parseFloat(bookmakerOdds15)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
+                                <p className={`font-bold ${(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
                                 </p>
                               </div>
                             </div>
-                            {((prediction.prediction.over15 / 100) * parseFloat(bookmakerOdds15)) > 1 && (
+                            {(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 && (
                               <p className="text-center text-sm text-green-700 mt-2">
-                                Edge: Model rates this {(prediction.prediction.over15 - (100 / parseFloat(bookmakerOdds15))).toFixed(1)}% higher than bookmaker
+                                Edge: Model rates this {((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) - (100 / parseFloat(bookmakerOdds15))).toFixed(1)}% higher than bookmaker
                               </p>
                             )}
                           </div>
@@ -689,13 +693,13 @@ export default function PredictionsTab({
                           <div>
                             <label className="text-xs text-muted-foreground">Model Probability</label>
                             <div className="mt-1 p-2 bg-purple-100 rounded text-center">
-                              <span className="text-lg font-bold text-purple-700">{prediction.prediction.btts}%</span>
+                              <span className="text-lg font-bold text-purple-700">{prediction.prediction.calibrated?.btts ?? prediction.prediction.btts}%</span>
                             </div>
                           </div>
                         </div>
                         {bookmakerOddsBtts && parseFloat(bookmakerOddsBtts) > 1 && (
                           <div className={`p-4 rounded-lg ${
-                            ((prediction.prediction.btts / 100) * parseFloat(bookmakerOddsBtts)) > 1 
+                            (((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 
                               ? 'bg-green-100 border-2 border-green-400' 
                               : 'bg-red-100 border-2 border-red-300'
                           }`}>
@@ -706,20 +710,20 @@ export default function PredictionsTab({
                               </div>
                               <div>
                                 <p className="text-xs text-muted-foreground">Expected Value</p>
-                                <p className={`font-bold text-lg ${((prediction.prediction.btts / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {(((prediction.prediction.btts / 100) * parseFloat(bookmakerOddsBtts)) * 100 - 100).toFixed(1)}%
+                                <p className={`font-bold text-lg ${(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {((((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) * 100 - 100).toFixed(1)}%
                                 </p>
                               </div>
                               <div>
                                 <p className="text-xs text-muted-foreground">Verdict</p>
-                                <p className={`font-bold ${((prediction.prediction.btts / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {((prediction.prediction.btts / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
+                                <p className={`font-bold ${(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
                                 </p>
                               </div>
                             </div>
-                            {((prediction.prediction.btts / 100) * parseFloat(bookmakerOddsBtts)) > 1 && (
+                            {(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 && (
                               <p className="text-center text-sm text-green-700 mt-2">
-                                Edge: Model rates this {(prediction.prediction.btts - (100 / parseFloat(bookmakerOddsBtts))).toFixed(1)}% higher than bookmaker
+                                Edge: Model rates this {((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) - (100 / parseFloat(bookmakerOddsBtts))).toFixed(1)}% higher than bookmaker
                               </p>
                             )}
                           </div>

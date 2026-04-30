@@ -544,14 +544,14 @@ export default function ModelsTab({
                             else if (totalSignal >= 1.2) regressionOverallSignal = 'Strong Under'
                             else if (totalSignal >= 0.5) regressionOverallSignal = 'Under'
 
-                            // Calculate BTTS confidence
-                            const bttsProb = prediction.prediction.btts
+                            // Calculate BTTS confidence (use calibrated when available)
+                            const bttsProb = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts
                             let bttsConfidence = 'Low'
                             if (bttsProb >= 60) bttsConfidence = 'High'
                             else if (bttsProb >= 50) bttsConfidence = 'Medium'
 
-                            // Calculate O1.5 confidence
-                            const o15Prob = prediction.prediction.over15
+                            // Calculate O1.5 confidence (use calibrated when available)
+                            const o15Prob = prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15
                             let o15Confidence = 'Low'
                             if (o15Prob >= 75) o15Confidence = 'High'
                             else if (o15Prob >= 60) o15Confidence = 'Medium'
@@ -762,11 +762,11 @@ export default function ModelsTab({
                               prediction.prediction.likelyScore ? `"'${prediction.prediction.likelyScore}"` : 'N/A',
                               prediction.prediction.impliedOdds.over15,
                               prediction.prediction.impliedOdds.bttsYes,
-                              `${prediction.prediction.over25.toFixed(2)}`,
-                              `${prediction.prediction.over35.toFixed(2)}`,
+                              `${calO25.toFixed(2)}`,
+                              `${calO35.toFixed(2)}`,
                               bttsConfidence,
                               o15Confidence,
-                              `${prediction.prediction.btts.toFixed(2)}`,
+                              `${calBtts.toFixed(2)}`,
                               regressionOverallSignal,
                               zScoreOverallSignal,
                               xgOverallSignal,
