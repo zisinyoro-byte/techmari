@@ -756,10 +756,9 @@ export default function ModelsTab({
                               'xG Overperformance Signal',
                               'BTTS Check list',
                               'Over 3.5 Check list',
-                              'Home Team Shot Conversion %',
-                              'Away Team Shot Conversion %',
                               'Home Team SOT Conversion %',
                               'Away Team SOT Conversion %',
+                              'Avg SOT Conversion %',
                               'Strong Bet',
                               'Grey Result Predictor',
                               'Goal Fest'
@@ -787,10 +786,9 @@ export default function ModelsTab({
                               xgOverallSignal,
                               bttsChecklistExport,
                               over35ChecklistExport,
-                              `${homeTeamData && homeTeamData.shots > 0 ? ((homeTeamData.goalsScored / homeTeamData.shots) * 100).toFixed(1) : 'N/A'}%`,
-                              `${awayTeamData && awayTeamData.shots > 0 ? ((awayTeamData.goalsScored / awayTeamData.shots) * 100).toFixed(1) : 'N/A'}%`,
                               `${homeTeamData && homeTeamData.shotsOnTarget > 0 ? ((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
                               `${awayTeamData && awayTeamData.shotsOnTarget > 0 ? ((awayTeamData.goalsScored / awayTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
+                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 && awayTeamData && awayTeamData.shotsOnTarget > 0 ? (((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) + (awayTeamData.goalsScored / awayTeamData.shotsOnTarget)) / 2 * 100).toFixed(1) : 'N/A'}%`,
                               strongBetIndicator,
                               greyResultIndicator,
                               goalFestIndicator
