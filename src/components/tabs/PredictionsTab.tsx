@@ -575,7 +575,7 @@ export default function PredictionsTab({
                           )}
                         </CardTitle>
                         <CardDescription>
-                          Backtest-optimized combo from 7,110 matches (4 leagues x 5 seasons)
+                          Backtest-optimized combo v2 — 7,230 + 7,110 matches (4 leagues x 5 seasons). 5 of 6 checks must pass.
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -586,12 +586,12 @@ export default function PredictionsTab({
                               {isGoalFest ? 'GOAL FEST DETECTED' : `${goalFestData.score}/${goalFestData.totalChecks} Checks`}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {isGoalFest ? 'All 5 signals aligned — high-probability goal fest combo' : 'Needs all 5 checks for Goal Fest qualification'}
+                              {isGoalFest ? '5 of 6 signals aligned — high-probability goal fest combo' : `Needs ${goalFestData.totalChecks > goalFestData.score ? (goalFestData.totalChecks - goalFestData.score) : 0} more check(s) for Goal Fest (${goalFestData.score}/${goalFestData.totalChecks})`}
                             </p>
                           </div>
 
-                          {/* Checklist - 5 items */}
-                          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 text-sm">
+                          {/* Checklist - 6 items (v2) */}
+                          <div className="grid grid-cols-1 md:grid-cols-6 gap-2 text-sm">
                             {goalFestData.breakdown.map((check, i) => (
                               <div key={i} className={`p-2 rounded-lg text-center ${check.passed ? 'bg-orange-100 dark:bg-orange-800/30 text-orange-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                                 {check.passed ? '✅' : '❌'} {check.check}
@@ -600,10 +600,11 @@ export default function PredictionsTab({
                           </div>
 
                           <div className="p-3 rounded-lg bg-orange-100/50 dark:bg-orange-800/20 text-sm">
-                            <p className="font-semibold text-orange-700 dark:text-orange-300 mb-1">The Sweet Spot Combo:</p>
+                            <p className="font-semibold text-orange-700 dark:text-orange-300 mb-1">Two Goal-Fest Patterns Captured:</p>
                             <p className="text-xs text-muted-foreground">
-                              xG = Over/Under + Regression = Under + Z-Score = Neutral + Model confirms goals.
-                              This combo delivered <strong>59.2% O2.5</strong> and <strong>61.7% BTTS</strong> across 206 matches.
+                              <strong>Pattern A (Divergence):</strong> xG=Over/Under + Reg=Under/StrongUnder + ZS=Neutral — teams underperforming xG but on hot streaks.<br />
+                              <strong>Pattern B (Overperformance):</strong> xG=Under/StrongUnder + Reg=Neutral + ZS=Neutral — clinical finishing, natural high-scoring games.<br />
+                              Both share <strong>Z-Score = Neutral</strong> as the common thread. Updated with O3.5 direct check.
                             </p>
                           </div>
                         </div>
@@ -649,7 +650,7 @@ export default function PredictionsTab({
                               <li>• Z-Score = <strong>Neutral</strong> (universal goal-fest sweet spot)</li>
                               <li>• xG = <strong>Over or Under</strong> (mild states beat extremes)</li>
                               <li>• BTTS Checklist: <strong>5+/7</strong> + BTTS, O2.5, O3.5 probabilities</li>
-                              <li>• Updated from 7,110-match backtest across 4 leagues x 5 seasons</li>
+                              <li>• Updated from 7,230 + 7,110-match backtest across 4 leagues x 5 seasons</li>
                             </ul>
                           </div>
                         </div>

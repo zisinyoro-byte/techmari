@@ -278,18 +278,29 @@ export const GREY_RESULT_CONFIG = {
   requiredChecks: 6,
 } as const;
 
-// ---- GOAL FEST — Backtest-optimized combo detector ----
-// Fires when: xG=Over/Under + Regression=Under/StrongUnder + Z-Score=Neutral + model agrees
-// Best combo from 7,110-match analysis: 59.2% O2.5, 61.7% BTTS (206-match sample)
+// ---- GOAL FEST — Backtest-optimized combo detector (v2) ----
+// Updated from 7,110-match analysis — captures both Pattern A (divergence) and
+// Pattern B (overperformance). Uses 5-of-6 points system with O3.5 check.
+//
+// Pattern A (Signal Divergence): xG=Over + Reg=Under/StrongUnder + ZS=Neutral
+//   → Teams underperforming xG but on hot streaks = finishing about to explode
+// Pattern B (Overperformance): xG=Under/StrongUnder + Reg=Neutral + ZS=Neutral
+//   → Teams scoring above xG, normal regression, no anomaly = natural high-scoring
+//
+// Both patterns share: Z-Score = Neutral. The check catches EITHER pattern.
 export const GOAL_FEST_CONFIG = {
   o25Prob:   { floor: 55, multiplier: 1.10 },
   bttsProb:  { floor: 55, multiplier: 1.10 },
+  o35Prob:   { floor: 35, multiplier: 1.20 },
+  requiredChecks: 5, // 5 of 6 must pass
 } as const;
 
 /** Resolved GOAL FEST thresholds */
 export interface ResolvedGoalFestThresholds {
   o25Prob: number;
   bttsProb: number;
+  o35Prob: number;
+  requiredChecks: number;
   source: 'backtest' | 'hybrid';
 }
 
@@ -459,16 +470,20 @@ export function resolveAllThresholds(
         source: 'hybrid',
       };
 
-  // GOAL FEST thresholds
+  // GOAL FEST thresholds (v2 — includes O3.5 and requiredChecks)
   const goalFest: ResolvedGoalFestThresholds = useBacktest
     ? {
         o25Prob: bt!.strongBet.o25Prob,  // reuse STRONG BET O2.5 threshold
         bttsProb: bt!.strongBet.bttsProb, // reuse STRONG BET BTTS threshold
+        o35Prob: bt!.over35.modelO35Prob, // reuse Over 3.5 O3.5 threshold
+        requiredChecks: GOAL_FEST_CONFIG.requiredChecks,
         source: 'backtest',
       }
     : {
         o25Prob: hybridThreshold(GOAL_FEST_CONFIG.o25Prob.floor, baselines.over25Rate, GOAL_FEST_CONFIG.o25Prob.multiplier),
         bttsProb: hybridThreshold(GOAL_FEST_CONFIG.bttsProb.floor, baselines.bttsRate, GOAL_FEST_CONFIG.bttsProb.multiplier),
+        o35Prob: hybridThreshold(GOAL_FEST_CONFIG.o35Prob.floor, baselines.over35Rate, GOAL_FEST_CONFIG.o35Prob.multiplier),
+        requiredChecks: GOAL_FEST_CONFIG.requiredChecks,
         source: 'hybrid',
       };
 
@@ -683,15 +698,26 @@ export function computeGreyResult(
 }
 
 /**
- * Compute GOAL FEST indicator — backtest-optimized combo detector.
- * Best combo from 7,110-match analysis across 4 leagues x 5 seasons:
- *   xG = Over or Under (mild signal on either side)
- *   Regression = Under or Strong Under (teams are hot)
- *   Z-Score = Neutral (no anomaly)
- *   O2.5 >= threshold (model agrees on goals)
- *   BTTS >= threshold (model agrees both teams score)
+ * Compute GOAL FEST indicator v2 — backtest-optimized combo detector.
+ * Updated from 7,230 + 7,110-match analysis across 4 leagues x 5 seasons.
  *
- * This combo delivered: 59.2% O2.5, 61.7% BTTS (206-match sample)
+ * Captures two distinct goal-fest patterns:
+ *   Pattern A (Divergence): xG=Over + Reg=Under/StrongUnder + ZS=Neutral
+ *     → Teams underperforming xG but on hot streaks = finishing is about to explode
+ *   Pattern B (Overperformance): xG=Under/StrongUnder + Reg=Neutral + ZS=Neutral
+ *     → Teams scoring above xG, normal regression, no anomaly = natural high-scoring
+ *
+ * Both patterns share Z-Score = Neutral as the common thread.
+ *
+ * 6 checks, need 5 of 6 to qualify:
+ *   1. xG = Over/Under/Strong Under (expanded — Strong Under = clinical finishing goldmine)
+ *   2. Signal Divergence OR Regression = Under/StrongUnder (broadened combo check)
+ *   3. Z-Score = Neutral (the universal goal-fest sweet spot)
+ *   4. O2.5 >= threshold (model agrees on goals)
+ *   5. BTTS >= threshold (model agrees both teams score)
+ *   6. NEW: O3.5 >= threshold (more direct predictor for 4+ goals)
+ *
+ * Expected: ~300-400 matches per 7,110, ~33-35% O3.5 hit rate
  * Returns { isGoalFest, score, totalChecks, breakdown }
  */
 export function computeGoalFest(
@@ -706,24 +732,34 @@ export function computeGoalFest(
 } {
   const gf = resolved.goalFest;
 
-  // Signal conditions
-  const isXgMild = (sig: string) => sig === 'Over' || sig === 'Under';
-  const isRegressionUnder = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+  // Signal conditions (v2)
+  // Check 1: xG mild — Over, Under, or Strong Under
+  //   Strong Under = teams massively outperforming xG = clinical finishing goldmine
+  const isXgMild = (sig: string) => sig === 'Over' || sig === 'Under' || sig === 'Strong Under';
+
+  // Check 2: Signal Divergence OR Regression Bearish
+  //   Pattern A: xG=Over/Under + Reg=Under/StrongUnder (divergence = high-variance games)
+  //   Pattern B: captured by xG=Under/StrongUnder + Reg=Neutral + ZS=Neutral (check 3)
+  const isRegressionBearish = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+  const hasSignalDivergence = (xg: string, reg: string) =>
+    (xg === 'Over' || xg === 'Under' || xg === 'Strong Under') && isRegressionBearish(reg);
+
   const isZScoreNeutral = (sig: string) => sig === 'Neutral';
 
   const checks = [
-    { check: 'xG = Over/Under', passed: isXgMild(signals.xgSignal) },
-    { check: 'Regression = Under', passed: isRegressionUnder(signals.regressionSignal) },
+    { check: 'xG = Over/Under/StrongUnder', passed: isXgMild(signals.xgSignal) },
+    { check: 'Signal Divergence OR Reg=Under', passed: hasSignalDivergence(signals.xgSignal, signals.regressionSignal) || isRegressionBearish(signals.regressionSignal) },
     { check: 'Z-Score = Neutral', passed: isZScoreNeutral(signals.zScoreSignal) },
     { check: `O2.5 >=${gf.o25Prob.toFixed(0)}%`, passed: checklistInput.o25Prob >= gf.o25Prob },
     { check: `BTTS >=${gf.bttsProb.toFixed(0)}%`, passed: checklistInput.bttsProb >= gf.bttsProb },
+    { check: `O3.5 >=${gf.o35Prob.toFixed(0)}%`, passed: checklistInput.o35Prob >= gf.o35Prob },
   ];
 
   const score = checks.filter(c => c.passed).length;
 
-  // Need all 5 checks to qualify
+  // Need 5 of 6 checks to qualify
   return {
-    isGoalFest: score === checks.length,
+    isGoalFest: score >= gf.requiredChecks,
     score,
     totalChecks: checks.length,
     breakdown: checks,
