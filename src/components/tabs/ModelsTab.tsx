@@ -13,7 +13,7 @@ import { parseDateSafe, factorial } from '@/lib/utils'
 import {
   computeLeagueBaselines, resolveAllThresholds,
   computeBttsChecklistLabels, computeOver35ChecklistLabels,
-  computeStrongBet, computeGreyResult,
+  computeStrongBet, computeGreyResult, computeGoalFest,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
 
@@ -727,6 +727,10 @@ export default function ModelsTab({
                             const greyResultData = computeGreyResult(checklistInput, signalInput, resolved);
                             const greyResultIndicator = greyResultData.isGreyResult ? 'GREY RESULT' : `${greyResultData.score}/${greyResultData.totalChecks} checks`;
 
+                            // GOAL FEST — Backtest-optimized combo detector
+                            const goalFestData = computeGoalFest(checklistInput, signalInput, resolved);
+                            const goalFestIndicator = goalFestData.isGoalFest ? 'GOAL FEST' : `${goalFestData.score}/${goalFestData.totalChecks} checks`;
+
                             // Build CSV row with exact headers
                             const headers = [
                               'League',
@@ -747,7 +751,8 @@ export default function ModelsTab({
                               'BTTS Check list',
                               'Over 3.5 Check list',
                               'Strong Bet',
-                              'Grey Result Predictor'
+                              'Grey Result Predictor',
+                              'Goal Fest'
                             ]
 
                             // Format check lists for export - matching display exactly
@@ -773,7 +778,8 @@ export default function ModelsTab({
                               bttsChecklistExport,
                               over35ChecklistExport,
                               strongBetIndicator,
-                              greyResultIndicator
+                              greyResultIndicator,
+                              goalFestIndicator
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')

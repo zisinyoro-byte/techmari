@@ -13,7 +13,7 @@ import {
   STRONG_BET_POINTS,
   computeLeagueBaselines, resolveAllThresholds,
   computeBttsChecklist, computeOver35Checklist,
-  computeStrongBet, computeGreyResult,
+  computeStrongBet, computeGreyResult, computeGoalFest,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
 
@@ -516,6 +516,10 @@ export default function PredictionsTab({
                   const greyResultChecks = greyResultData.breakdown.map(c => c.passed);
                   const greyScore = greyResultData.score;
 
+                  // GOAL FEST — Backtest-optimized combo detector
+                  const goalFestData = computeGoalFest(bttsChecklistInput, signalInput, resolved);
+                  const isGoalFest = goalFestData.isGoalFest;
+
                   return (
                     <>
                     {/* Strong Bet Indicator - Updated based on actual betting results */}
@@ -552,8 +556,56 @@ export default function PredictionsTab({
                           </div>
 
                           <p className="text-xs text-muted-foreground text-center">
-                            Points-based system: need {STRONG_BET_POINTS.threshold}+ of {STRONG_BET_POINTS.maxPoints} points. No auto-qualify.
+                            Points-based system: need {STRONG_BET_POINTS.threshold}+ of {STRONG_BET_POINTS.maxPoints} points. Signal checks optimized from 7,110-match backtest.
                           </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* GOAL FEST Indicator - Backtest-Optimized Combo */}
+                    <Card className={`shadow-md border-2 ${isGoalFest ? 'border-orange-400 bg-gradient-to-r from-orange-50 to-yellow-50 dark:from-orange-900/20 dark:to-yellow-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Goal className={`w-5 h-5 ${isGoalFest ? 'text-orange-600' : 'text-gray-400'}`} />
+                          Goal Fest Detector
+                          {isGoalFest && (
+                            <Badge className="bg-orange-500 text-white text-xs border border-orange-400">
+                              LIVE
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        <CardDescription>
+                          Backtest-optimized combo from 7,110 matches (4 leagues x 5 seasons)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {/* Result Badge */}
+                          <div className={`text-center p-4 rounded-lg ${isGoalFest ? 'bg-orange-100 dark:bg-orange-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
+                            <p className={`text-2xl font-bold ${isGoalFest ? 'text-orange-600' : 'text-gray-500'}`}>
+                              {isGoalFest ? 'GOAL FEST DETECTED' : `${goalFestData.score}/${goalFestData.totalChecks} Checks`}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {isGoalFest ? 'All 5 signals aligned — high-probability goal fest combo' : 'Needs all 5 checks for Goal Fest qualification'}
+                            </p>
+                          </div>
+
+                          {/* Checklist - 5 items */}
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 text-sm">
+                            {goalFestData.breakdown.map((check, i) => (
+                              <div key={i} className={`p-2 rounded-lg text-center ${check.passed ? 'bg-orange-100 dark:bg-orange-800/30 text-orange-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                                {check.passed ? '✅' : '❌'} {check.check}
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="p-3 rounded-lg bg-orange-100/50 dark:bg-orange-800/20 text-sm">
+                            <p className="font-semibold text-orange-700 dark:text-orange-300 mb-1">The Sweet Spot Combo:</p>
+                            <p className="text-xs text-muted-foreground">
+                              xG = Over/Under + Regression = Under + Z-Score = Neutral + Model confirms goals.
+                              This combo delivered <strong>59.2% O2.5</strong> and <strong>61.7% BTTS</strong> across 206 matches.
+                            </p>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -591,13 +643,13 @@ export default function PredictionsTab({
                           </div>
 
                           <div className="p-3 rounded-lg bg-purple-100/50 dark:bg-purple-800/20 text-sm">
-                            <p className="font-semibold text-purple-700 dark:text-purple-300 mb-1">📊 Key Findings from Your Results (7 Greys Analyzed):</p>
+                            <p className="font-semibold text-purple-700 dark:text-purple-300 mb-1">Backtest-Optimized Signal Checks:</p>
                             <ul className="text-xs text-muted-foreground space-y-1">
-                              <li>• 100% had <strong>Regression Strong Over</strong> and <strong>Z-Score Strong Over</strong></li>
-                              <li>• BTTS Checklist score: <strong>5-7 of 7</strong></li>
-                              <li>• BTTS Probability: <strong>≥53%</strong></li>
-                              <li>• O2.5 Probability: <strong>≥68%</strong> (consistent across all sections)</li>
-                              <li>• O3.5 Probability: <strong>≥35%</strong> (bonus check)</li>
+                              <li>• Regression = <strong>Neutral or Under</strong> (normal variance or recently hot)</li>
+                              <li>• Z-Score = <strong>Neutral</strong> (universal goal-fest sweet spot)</li>
+                              <li>• xG = <strong>Over or Under</strong> (mild states beat extremes)</li>
+                              <li>• BTTS Checklist: <strong>5+/7</strong> + BTTS, O2.5, O3.5 probabilities</li>
+                              <li>• Updated from 7,110-match backtest across 4 leagues x 5 seasons</li>
                             </ul>
                           </div>
                         </div>

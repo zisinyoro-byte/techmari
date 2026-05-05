@@ -238,7 +238,12 @@ export const OVER35_HYBRID_THRESHOLDS = {
   shotConversion: { floor: 12, multiplier: 1.15 },
 } as const;
 
-// ---- STRONG BET — Points-based system (need 7+ of 11) ----
+// ---- STRONG BET — Points-based system (need 7+ of 12) ----
+// Updated signal checks based on 7,110-match backtest data:
+//   xG = Over (mild underperformance = finishing due to click)
+//   Regression = Under (recently hot = goals keep flowing)
+//   Z-Score = Neutral (no anomaly = natural attacking football)
+//   Signal Divergence = xG and Regression point opposite (high-variance games)
 export const STRONG_BET_POINTS = {
   o25: 2,
   o35: 1,
@@ -247,8 +252,9 @@ export const STRONG_BET_POINTS = {
   xgSignal: 2,
   regressionSignal: 2,
   zScoreSignal: 1,
+  signalDivergence: 1,
   threshold: 7,
-  maxPoints: 11,
+  maxPoints: 12,
 } as const;
 
 export const STRONG_BET_HYBRID = {
@@ -259,6 +265,10 @@ export const STRONG_BET_HYBRID = {
 } as const;
 
 // ---- GREY RESULT — 8 checks, need 6+ ----
+// Updated signal checks based on backtest data:
+//   Regression = Neutral or Under (normal variance or recently hot)
+//   Z-Score = Neutral (universal goal-fest sweet spot, Strong Over nearly impossible)
+//   xG = Over or Under (both mild states beat extremes)
 export const GREY_RESULT_CONFIG = {
   bttsProb:  { floor: 55, multiplier: 1.12 },
   o25Prob:   { floor: 65, multiplier: 1.10 },
@@ -267,6 +277,21 @@ export const GREY_RESULT_CONFIG = {
   over35ChecklistCount: 3,
   requiredChecks: 6,
 } as const;
+
+// ---- GOAL FEST — Backtest-optimized combo detector ----
+// Fires when: xG=Over/Under + Regression=Under/StrongUnder + Z-Score=Neutral + model agrees
+// Best combo from 7,110-match analysis: 59.2% O2.5, 61.7% BTTS (206-match sample)
+export const GOAL_FEST_CONFIG = {
+  o25Prob:   { floor: 55, multiplier: 1.10 },
+  bttsProb:  { floor: 55, multiplier: 1.10 },
+} as const;
+
+/** Resolved GOAL FEST thresholds */
+export interface ResolvedGoalFestThresholds {
+  o25Prob: number;
+  bttsProb: number;
+  source: 'backtest' | 'hybrid';
+}
 
 // ---- Signal thresholds (xG, Regression, Z-Score) — unchanged ----
 export const XG_THRESHOLDS = {
@@ -434,7 +459,20 @@ export function resolveAllThresholds(
         source: 'hybrid',
       };
 
-  return { league, btts, over35, strongBet, greyResult, source: src };
+  // GOAL FEST thresholds
+  const goalFest: ResolvedGoalFestThresholds = useBacktest
+    ? {
+        o25Prob: bt!.strongBet.o25Prob,  // reuse STRONG BET O2.5 threshold
+        bttsProb: bt!.strongBet.bttsProb, // reuse STRONG BET BTTS threshold
+        source: 'backtest',
+      }
+    : {
+        o25Prob: hybridThreshold(GOAL_FEST_CONFIG.o25Prob.floor, baselines.over25Rate, GOAL_FEST_CONFIG.o25Prob.multiplier),
+        bttsProb: hybridThreshold(GOAL_FEST_CONFIG.bttsProb.floor, baselines.bttsRate, GOAL_FEST_CONFIG.bttsProb.multiplier),
+        source: 'hybrid',
+      };
+
+  return { league, btts, over35, strongBet, greyResult, goalFest, source: src };
 }
 
 // ============================================================================
@@ -545,6 +583,11 @@ export function computeOver35ChecklistLabels(
 
 /**
  * Compute STRONG BET using points-based system with resolved thresholds.
+ * Signal checks updated based on 7,110-match backtest analysis:
+ *   xG = Over (mild underperformance, finishing due to click)
+ *   Regression = Under (recently hot, goals keep flowing)
+ *   Z-Score = Neutral (no anomaly, natural attacking football)
+ *   Signal Divergence (xG + Regression point opposite = high-variance games)
  * Returns { isStrongBet, points, maxPoints, breakdown }
  */
 export function computeStrongBet(
@@ -561,16 +604,24 @@ export function computeStrongBet(
   const p = STRONG_BET_POINTS;
 
   const bttsCount = computeBttsChecklist(checklistInput, resolved);
-  const isOverSignal = (sig: string) => sig === 'Over' || sig === 'Strong Over';
+
+  // Signal helpers — backtest-optimized conditions
+  const isXgMild = (sig: string) => sig === 'Over' || sig === 'Under';
+  const isRegressionUnder = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+  const isZScoreNeutral = (sig: string) => sig === 'Neutral';
+  // Divergence: xG points one way (Over=goals due), Regression points opposite (Under=hot)
+  const hasSignalDivergence = (xg: string, reg: string) =>
+    (xg === 'Over' || xg === 'Strong Over') && isRegressionUnder(reg);
 
   const checks = [
     { check: `O2.5 >=${st.o25Prob.toFixed(0)}%`, points: p.o25, passed: checklistInput.o25Prob >= st.o25Prob },
     { check: `O3.5 >=${st.o35Prob.toFixed(0)}%`, points: p.o35, passed: checklistInput.o35Prob >= st.o35Prob },
     { check: `BTTS >=${st.bttsProb.toFixed(0)}%`, points: p.btts, passed: checklistInput.bttsProb >= st.bttsProb },
     { check: `BTTS Checklist >=${st.bttsChecklistCount}/7`, points: p.bttsChecklist, passed: bttsCount >= st.bttsChecklistCount },
-    { check: 'xG Signal = Over', points: p.xgSignal, passed: isOverSignal(signals.xgSignal) },
-    { check: 'Regression Signal = Over', points: p.regressionSignal, passed: isOverSignal(signals.regressionSignal) },
-    { check: 'Z-Score Signal = Over', points: p.zScoreSignal, passed: isOverSignal(signals.zScoreSignal) },
+    { check: 'xG = Over/Under', points: p.xgSignal, passed: isXgMild(signals.xgSignal) },
+    { check: 'Regression = Under', points: p.regressionSignal, passed: isRegressionUnder(signals.regressionSignal) },
+    { check: 'Z-Score = Neutral', points: p.zScoreSignal, passed: isZScoreNeutral(signals.zScoreSignal) },
+    { check: 'Signal Divergence', points: p.signalDivergence, passed: hasSignalDivergence(signals.xgSignal, signals.regressionSignal) },
   ];
 
   const totalPoints = checks.reduce((sum, c) => sum + (c.passed ? c.points : 0), 0);
@@ -585,6 +636,10 @@ export function computeStrongBet(
 
 /**
  * Compute GREY RESULT using resolved thresholds.
+ * Signal checks updated based on 7,110-match backtest analysis:
+ *   Regression = Neutral or Under (normal variance or recently hot)
+ *   Z-Score = Neutral (universal goal-fest sweet spot, Strong Over nearly impossible)
+ *   xG = Over or Under (both mild states beat extremes)
  * Returns { isGreyResult, score, totalChecks, breakdown }
  */
 export function computeGreyResult(
@@ -601,10 +656,15 @@ export function computeGreyResult(
   const bttsCount = computeBttsChecklist(checklistInput, resolved);
   const o35Count = computeOver35Checklist(checklistInput, resolved);
 
+  // Backtest-optimized signal helpers
+  const isRegNeutralOrUnder = (sig: string) => sig === 'Neutral' || sig === 'Under' || sig === 'Strong Under';
+  const isZsNeutral = (sig: string) => sig === 'Neutral';
+  const isXgMild = (sig: string) => sig === 'Over' || sig === 'Under';
+
   const checks = [
-    { check: 'Regression = Strong Over', passed: signals.regressionSignal === 'Strong Over' },
-    { check: 'Z-Score = Strong Over', passed: signals.zScoreSignal === 'Strong Over' },
-    { check: 'xG = Strong Over', passed: signals.xgSignal === 'Strong Over' },
+    { check: 'Regression = Neutral/Under', passed: isRegNeutralOrUnder(signals.regressionSignal) },
+    { check: 'Z-Score = Neutral', passed: isZsNeutral(signals.zScoreSignal) },
+    { check: 'xG = Over/Under', passed: isXgMild(signals.xgSignal) },
     { check: `BTTS Checklist >=${gt.bttsChecklistCount}/7`, passed: bttsCount >= gt.bttsChecklistCount },
     { check: `BTTS >=${gt.bttsProb.toFixed(0)}%`, passed: checklistInput.bttsProb >= gt.bttsProb },
     { check: `O2.5 >=${gt.o25Prob.toFixed(0)}%`, passed: checklistInput.o25Prob >= gt.o25Prob },
@@ -616,6 +676,54 @@ export function computeGreyResult(
 
   return {
     isGreyResult: score >= gt.requiredChecks,
+    score,
+    totalChecks: checks.length,
+    breakdown: checks,
+  };
+}
+
+/**
+ * Compute GOAL FEST indicator — backtest-optimized combo detector.
+ * Best combo from 7,110-match analysis across 4 leagues x 5 seasons:
+ *   xG = Over or Under (mild signal on either side)
+ *   Regression = Under or Strong Under (teams are hot)
+ *   Z-Score = Neutral (no anomaly)
+ *   O2.5 >= threshold (model agrees on goals)
+ *   BTTS >= threshold (model agrees both teams score)
+ *
+ * This combo delivered: 59.2% O2.5, 61.7% BTTS (206-match sample)
+ * Returns { isGoalFest, score, totalChecks, breakdown }
+ */
+export function computeGoalFest(
+  checklistInput: ChecklistInput,
+  signals: SignalInput,
+  resolved: ReturnType<typeof resolveAllThresholds>
+): {
+  isGoalFest: boolean;
+  score: number;
+  totalChecks: number;
+  breakdown: { check: string; passed: boolean }[];
+} {
+  const gf = resolved.goalFest;
+
+  // Signal conditions
+  const isXgMild = (sig: string) => sig === 'Over' || sig === 'Under';
+  const isRegressionUnder = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+  const isZScoreNeutral = (sig: string) => sig === 'Neutral';
+
+  const checks = [
+    { check: 'xG = Over/Under', passed: isXgMild(signals.xgSignal) },
+    { check: 'Regression = Under', passed: isRegressionUnder(signals.regressionSignal) },
+    { check: 'Z-Score = Neutral', passed: isZScoreNeutral(signals.zScoreSignal) },
+    { check: `O2.5 >=${gf.o25Prob.toFixed(0)}%`, passed: checklistInput.o25Prob >= gf.o25Prob },
+    { check: `BTTS >=${gf.bttsProb.toFixed(0)}%`, passed: checklistInput.bttsProb >= gf.bttsProb },
+  ];
+
+  const score = checks.filter(c => c.passed).length;
+
+  // Need all 5 checks to qualify
+  return {
+    isGoalFest: score === checks.length,
     score,
     totalChecks: checks.length,
     breakdown: checks,
