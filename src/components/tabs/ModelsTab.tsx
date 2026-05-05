@@ -750,6 +750,7 @@ export default function ModelsTab({
                               'xG Overperformance Signal',
                               'BTTS Check list',
                               'Over 3.5 Check list',
+                              'Overall Shot Conversion %',
                               'Strong Bet',
                               'Grey Result Predictor',
                               'Goal Fest'
@@ -777,6 +778,7 @@ export default function ModelsTab({
                               xgOverallSignal,
                               bttsChecklistExport,
                               over35ChecklistExport,
+                              `${analytics.overallShotConversion.toFixed(1)}%`,
                               strongBetIndicator,
                               greyResultIndicator,
                               goalFestIndicator
