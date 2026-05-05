@@ -751,6 +751,7 @@ export default function ModelsTab({
                               'BTTS Check list',
                               'Over 3.5 Check list',
                               'Overall Shot Conversion %',
+                              'Overall SOT Conversion %',
                               'Strong Bet',
                               'Grey Result Predictor',
                               'Goal Fest'
@@ -779,6 +780,7 @@ export default function ModelsTab({
                               bttsChecklistExport,
                               over35ChecklistExport,
                               `${analytics.overallShotConversion.toFixed(1)}%`,
+                              `${analytics.overallShotOnTargetConversion.toFixed(1)}%`,
                               strongBetIndicator,
                               greyResultIndicator,
                               goalFestIndicator
