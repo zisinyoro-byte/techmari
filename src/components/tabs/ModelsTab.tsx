@@ -466,11 +466,13 @@ export default function ModelsTab({
                               concededThisSeason: number;
                               last10Matches: { totalGoals: number }[];
                               last3Matches: { totalGoals: number }[];
+                              shots: number;
+                              shotsOnTarget: number;
                             }>()
 
                             sortedResults.forEach(r => {
                               const totalGoals = r.ftHomeGoals + r.ftAwayGoals
-                              const homeStats = teamGoalStats.get(r.homeTeam) || { matches: 0, goalsScored: 0, goalsConceded: 0, matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [] }
+                              const homeStats = teamGoalStats.get(r.homeTeam) || { matches: 0, goalsScored: 0, goalsConceded: 0, matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [], shots: 0, shotsOnTarget: 0 }
                               homeStats.matches++
                               homeStats.goalsScored += r.ftHomeGoals
                               homeStats.goalsConceded += r.ftAwayGoals
@@ -479,9 +481,11 @@ export default function ModelsTab({
                               homeStats.concededThisSeason += r.ftAwayGoals
                               homeStats.last10Matches.push({ totalGoals })
                               homeStats.last3Matches.push({ totalGoals })
+                              homeStats.shots += r.homeShots
+                              homeStats.shotsOnTarget += r.homeShotsOnTarget
                               teamGoalStats.set(r.homeTeam, homeStats)
 
-                              const awayStats = teamGoalStats.get(r.awayTeam) || { matches: 0, goalsScored: 0, goalsConceded: 0, matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [] }
+                              const awayStats = teamGoalStats.get(r.awayTeam) || { matches: 0, goalsScored: 0, goalsConceded: 0, matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [], shots: 0, shotsOnTarget: 0 }
                               awayStats.matches++
                               awayStats.goalsScored += r.ftAwayGoals
                               awayStats.goalsConceded += r.ftHomeGoals
@@ -490,6 +494,8 @@ export default function ModelsTab({
                               awayStats.concededThisSeason += r.ftHomeGoals
                               awayStats.last10Matches.push({ totalGoals })
                               awayStats.last3Matches.push({ totalGoals })
+                              awayStats.shots += r.awayShots
+                              awayStats.shotsOnTarget += r.awayShotsOnTarget
                               teamGoalStats.set(r.awayTeam, awayStats)
                             })
 
@@ -750,8 +756,10 @@ export default function ModelsTab({
                               'xG Overperformance Signal',
                               'BTTS Check list',
                               'Over 3.5 Check list',
-                              'Overall Shot Conversion %',
-                              'Overall SOT Conversion %',
+                              'Home Team Shot Conversion %',
+                              'Away Team Shot Conversion %',
+                              'Home Team SOT Conversion %',
+                              'Away Team SOT Conversion %',
                               'Strong Bet',
                               'Grey Result Predictor',
                               'Goal Fest'
@@ -779,8 +787,10 @@ export default function ModelsTab({
                               xgOverallSignal,
                               bttsChecklistExport,
                               over35ChecklistExport,
-                              `${analytics.overallShotConversion.toFixed(1)}%`,
-                              `${analytics.overallShotOnTargetConversion.toFixed(1)}%`,
+                              `${homeTeamData && homeTeamData.shots > 0 ? ((homeTeamData.goalsScored / homeTeamData.shots) * 100).toFixed(1) : 'N/A'}%`,
+                              `${awayTeamData && awayTeamData.shots > 0 ? ((awayTeamData.goalsScored / awayTeamData.shots) * 100).toFixed(1) : 'N/A'}%`,
+                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 ? ((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
+                              `${awayTeamData && awayTeamData.shotsOnTarget > 0 ? ((awayTeamData.goalsScored / awayTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
                               strongBetIndicator,
                               greyResultIndicator,
                               goalFestIndicator
