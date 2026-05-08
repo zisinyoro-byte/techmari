@@ -277,6 +277,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Phase 2c: H2H-based lambda adjustment
+    // If there are enough H2H matches (≥4), blend base lambdas with H2H-informed lambdas
+    const h2hMatches = allMatches.filter(
+      m => (m.homeTeam === homeTeam && m.awayTeam === awayTeam) ||
+           (m.homeTeam === awayTeam && m.awayTeam === homeTeam)
+    );
+    const H2H_MIN_SAMPLE = 4;
+    const H2H_BLEND_WEIGHT = 0.3; // 30% H2H influence, 70% base model
+
     // Use optimized home advantage if available, otherwise use bidirectional
     const effectiveHomeAdv = optimizedHomeAdv ?? ha.scoringAdvantage;
     const effectiveRho = optimizedRho ?? (h2hMatches.length >= H2H_MIN_SAMPLE ? 0.1 : 0);
@@ -286,15 +295,6 @@ export async function GET(request: NextRequest) {
     // Phase 2g: Use optimized home advantage from gradient descent when available
     const lambdaHome = homeStats.homeAttack * awayStats.awayDefense * leagueHomeAvg * effectiveHomeAdv;
     const lambdaAway = awayStats.awayAttack * homeStats.homeDefense * leagueAwayAvg * ha.defensiveAdvantage;
-
-    // Phase 2c: H2H-based lambda adjustment
-    // If there are enough H2H matches (≥4), blend base lambdas with H2H-informed lambdas
-    const h2hMatches = allMatches.filter(
-      m => (m.homeTeam === homeTeam && m.awayTeam === awayTeam) ||
-           (m.homeTeam === awayTeam && m.awayTeam === homeTeam)
-    );
-    const H2H_MIN_SAMPLE = 4;
-    const H2H_BLEND_WEIGHT = 0.3; // 30% H2H influence, 70% base model
 
     let adjustedLambdaHome = lambdaHome;
     let adjustedLambdaAway = lambdaAway;
