@@ -1,5 +1,4 @@
-import { poissonRandom } from './poisson';
-import { poissonProb } from './poisson';
+import { poissonRandom, goalRandom } from './poisson';
 import type { PredictionResult } from '@/lib/types';
 
 /**
@@ -14,19 +13,31 @@ function calculateImpliedOdds(probability: number): number {
 
 /**
  * Run Monte Carlo simulation to generate match predictions.
- * Simulates thousands of matches using Poisson-distributed goal counts.
- * Extracted from predict/route.ts lines 386-554.
+ * Simulates thousands of matches using Poisson or Negative Binomial distributed goal counts.
  *
  * Phase 2d: Dixon-Coles correction
  *   When rho > 0, adjusts the final scoreline probabilities to correct for
  *   the independent Poissons' underestimation of draws (especially 0-0, 1-1)
  *   and overestimation of narrow wins (0-1, 1-0).
+ *
+ * Phase 2f: Negative Binomial distribution
+ *   When dispersion < Infinity, uses NB distribution instead of Poisson.
+ *   NB handles overdispersion better (variance > mean), which is typical in
+ *   football where strong teams can run up high scores against weak ones.
+ *   Falls back to Poisson when dispersion is Infinity or > 100.
+ *
+ * @param lambdaHome  - Expected home goals
+ * @param lambdaAway  - Expected away goals
+ * @param iterations  - Number of Monte Carlo simulations (default 100,000)
+ * @param rho         - Dixon-Coles correlation parameter (0 = no correction)
+ * @param dispersion  - NB dispersion parameter r (Infinity = Poisson fallback)
  */
 export function runMonteCarlo(
   lambdaHome: number,
   lambdaAway: number,
   iterations: number = 100000,
-  rho: number = 0  // Dixon-Coles correlation parameter (0 = independent Poisson, 0.1-0.2 typical)
+  rho: number = 0,
+  dispersion: number = Infinity
 ): PredictionResult {
   let homeWins = 0;
   let draws = 0;
@@ -48,10 +59,13 @@ export function runMonteCarlo(
   let htAwayWins = 0;
   const htScoreCounts = new Map<string, number>();
 
+  const useNB = isFinite(dispersion) && dispersion <= 100;
+
   for (let i = 0; i < iterations; i++) {
     // Full-time simulation
-    const homeGoals = poissonRandom(lambdaHome);
-    const awayGoals = poissonRandom(lambdaAway);
+    // Phase 2f: Use NB when dispersion is finite, Poisson otherwise
+    const homeGoals = useNB ? goalRandom(lambdaHome, dispersion) : poissonRandom(lambdaHome);
+    const awayGoals = useNB ? goalRandom(lambdaAway, dispersion) : poissonRandom(lambdaAway);
 
     if (homeGoals > awayGoals) homeWins++;
     else if (awayGoals > homeGoals) awayWins++;
@@ -68,8 +82,8 @@ export function runMonteCarlo(
     scoreCounts.set(scoreKey, (scoreCounts.get(scoreKey) || 0) + 1);
 
     // Halftime simulation
-    const htHomeGoals = poissonRandom(htLambdaHome);
-    const htAwayGoals = poissonRandom(htLambdaAway);
+    const htHomeGoals = useNB ? goalRandom(htLambdaHome, dispersion) : poissonRandom(htLambdaHome);
+    const htAwayGoals = useNB ? goalRandom(htLambdaAway, dispersion) : poissonRandom(htLambdaAway);
 
     if (htHomeGoals > htAwayGoals) htHomeWins++;
     else if (htAwayGoals > htHomeGoals) htAwayWins++;

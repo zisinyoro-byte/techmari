@@ -1,5 +1,5 @@
 import type { MatchResult, TeamStats, PatternAnalysis, LeagueInsights, LeagueAverages } from '@/lib/types';
-import { poissonProb } from './poisson';
+import { goalProb, estimateDispersion } from './poisson';
 import { calculateBidirectionalHomeAdvantage } from './home-advantage';
 import { calculateSeasonWeights, weightedAverage } from './season-weighting';
 
@@ -242,8 +242,11 @@ function calculateBacktestTeamStats(
 }
 
 /**
- * Generate backtest predictions using Poisson-based model with form adjustment
- * and bidirectional home advantage.
+ * Generate backtest predictions using Negative Binomial-based model (with Poisson
+ * fallback) with form adjustment and bidirectional home advantage.
+ *
+ * Phase 2f: When training data shows overdispersion, uses Negative Binomial
+ * instead of Poisson for more accurate goal probability estimation.
  *
  * @param trainingData  - Historical match results used for team stat calculation
  * @param homeTeam      - Home team name
@@ -257,7 +260,7 @@ export function generateBacktestPredictions(
   awayTeam: string,
   leagueAvgs: LeagueAverages,
   seasonWeights?: Map<string, number>
-): { homeWin: number; draw: number; awayWin: number; over15: number; over25: number; btts: number; totalXg: number } {
+): { homeWin: number; draw: number; awayWin: number; over15: number; over25: number; btts: number; totalXg: number; dispersion?: number } {
 
   const homeStats = calculateBacktestTeamStats(trainingData, homeTeam, seasonWeights);
   const awayStats = calculateBacktestTeamStats(trainingData, awayTeam, seasonWeights);
@@ -292,14 +295,20 @@ export function generateBacktestPredictions(
   const awayXg = awayAttackRatio * homeDefenseRatio * leagueAvgs.avgAwayGoals * ha.defensiveAdvantage;
   const totalXg = homeXg + awayXg;
 
-  // Poisson-based probabilities - iterate over sufficient range (0-7) to capture
+  // Phase 2f: Estimate dispersion from training data for NB distribution
+  // If data shows overdispersion (variance > mean), use Negative Binomial
+  const allGoals = trainingData.map(m => m.ftHomeGoals + m.ftAwayGoals);
+  const dispersion = estimateDispersion(allGoals);
+  const useNB = isFinite(dispersion) && dispersion <= 100;
+
+  // NB/Poisson-based probabilities - iterate over sufficient range (0-7) to capture
   // all likely scorelines, avoiding the truncated approximation that missed 4-6% of probability mass
   let homeWinProb = 0;
   let awayWinProb = 0;
   let drawProbCalc = 0;
   for (let i = 0; i <= 7; i++) {
     for (let j = 0; j <= 7; j++) {
-      const p = poissonProb(homeXg, i) * poissonProb(awayXg, j);
+      const p = goalProb(homeXg, i, dispersion) * goalProb(awayXg, j, dispersion);
       if (i > j) homeWinProb += p;
       else if (j > i) awayWinProb += p;
       else drawProbCalc += p;
@@ -321,16 +330,17 @@ export function generateBacktestPredictions(
   const finalDraw = drawProb / total;
   const finalAwayWin = adjustedAwayWin / total;
 
-  // Goals markets
-  const p0 = Math.exp(-totalXg);
-  const p1 = totalXg * Math.exp(-totalXg);
-  const p2 = (totalXg * totalXg / 2) * Math.exp(-totalXg);
+  // Goals markets — use NB/Poisson goal probabilities
+  const p0 = goalProb(totalXg, 0, dispersion);
+  const p1 = goalProb(totalXg, 1, dispersion);
+  const p2 = goalProb(totalXg, 2, dispersion);
   const over15Prob = 1 - p0 - p1;
   const over25Prob = 1 - p0 - p1 - p2;
 
-  // BTTS
-  const homeScoresProb = 1 - Math.exp(-homeXg);
-  const awayScoresProb = 1 - Math.exp(-awayXg);
+  // BTTS — probability both teams score at least 1
+  // P(team scores >= 1) = 1 - P(team scores 0)
+  const homeScoresProb = 1 - goalProb(homeXg, 0, dispersion);
+  const awayScoresProb = 1 - goalProb(awayXg, 0, dispersion);
   const bttsProb = homeScoresProb * awayScoresProb;
 
   return {
@@ -341,5 +351,6 @@ export function generateBacktestPredictions(
     over25: Math.round(Math.min(85, Math.max(35, over25Prob * 100))),
     btts: Math.round(Math.min(80, Math.max(30, bttsProb * 100))),
     totalXg: Math.round(totalXg * 100) / 100,
+    ...(useNB ? { dispersion: Math.round(dispersion * 100) / 100 } : {}),
   };
 }

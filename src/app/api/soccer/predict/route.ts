@@ -9,6 +9,8 @@ import { calculateSeasonWeights, weightedAverage } from '@/lib/models/season-wei
 import { calculateBidirectionalHomeAdvantage } from '@/lib/models/home-advantage';
 import { calculateTeamStats } from '@/lib/models/team-stats';
 import { runMonteCarlo } from '@/lib/models/monte-carlo';
+import { estimateDispersion } from '@/lib/models/poisson';
+import { optimizeDixonColes } from '@/lib/models/dixon-coles-optimizer';
 import { calculatePatterns, calculateLeagueInsights } from '@/lib/models/predictions';
 import { getCalibration, applyCalibration } from '@/lib/models/calibration-store';
 import { initializeThresholds } from '@/lib/models/threshold-init';
@@ -246,11 +248,43 @@ export async function GET(request: NextRequest) {
       leagueAwayAvg
     );
 
+    // Phase 2g: Gradient descent on Dixon-Coles parameters
+    // When there's sufficient data, optimize attack/defense/home-advantage parameters
+    // by minimizing negative log-likelihood. Uses Adam optimizer with momentum.
+    let optimizedHomeAdv: number | null = null;
+    let optimizedRho: number | null = null;
+    const DC_MIN_MATCHES = 100; // need at least 100 matches for meaningful optimization
+    if (allMatches.length >= DC_MIN_MATCHES) {
+      try {
+        const dcMatches = allMatches.map(m => ({
+          homeTeam: m.homeTeam,
+          awayTeam: m.awayTeam,
+          homeGoals: m.ftHomeGoals,
+          awayGoals: m.ftAwayGoals,
+        }));
+        const dcParams = optimizeDixonColes(dcMatches, leagueHomeAvg, leagueAwayAvg, {
+          maxIterations: 150,
+          learningRate: 0.008,
+          verbose: true,
+        });
+        if (dcParams.converged) {
+          optimizedHomeAdv = dcParams.homeAdvantage;
+          optimizedRho = dcParams.rho;
+          console.log(`[Predict] Dixon-Coles optimized: homeAdv=${optimizedHomeAdv.toFixed(4)}, rho=${optimizedRho.toFixed(4)}, NLL=${dcParams.nll.toFixed(2)}, iterations=${dcParams.iterations}`);
+        }
+      } catch (dcError) {
+        console.warn('[Predict] Dixon-Coles optimization failed (non-fatal):', dcError);
+      }
+    }
+
+    // Use optimized home advantage if available, otherwise use bidirectional
+    const effectiveHomeAdv = optimizedHomeAdv ?? ha.scoringAdvantage;
+    const effectiveRho = optimizedRho ?? (h2hMatches.length >= H2H_MIN_SAMPLE ? 0.1 : 0);
+
     // Phase 2a: Context-specific lambda calculation using decomposed ratios
     // λ_home = home team's home attack × away team's away defense × league avg
-    // This is more accurate than using overall attack/defense because it accounts for
-    // the fact that teams perform differently at home vs away
-    const lambdaHome = homeStats.homeAttack * awayStats.awayDefense * leagueHomeAvg * ha.scoringAdvantage;
+    // Phase 2g: Use optimized home advantage from gradient descent when available
+    const lambdaHome = homeStats.homeAttack * awayStats.awayDefense * leagueHomeAvg * effectiveHomeAdv;
     const lambdaAway = awayStats.awayAttack * homeStats.homeDefense * leagueAwayAvg * ha.defensiveAdvantage;
 
     // Phase 2c: H2H-based lambda adjustment
@@ -275,8 +309,19 @@ export async function GET(request: NextRequest) {
       adjustedLambdaAway = lambdaAway * (1 - H2H_BLEND_WEIGHT) + h2hAvgAwayGoals * H2H_BLEND_WEIGHT;
     }
 
-    // Run Monte Carlo simulation with H2H-adjusted lambdas
-    const prediction = runMonteCarlo(adjustedLambdaHome, adjustedLambdaAway, 100000, h2hMatches.length >= H2H_MIN_SAMPLE ? 0.1 : 0);
+    // Phase 2f: Estimate dispersion from match data for NB distribution
+    // If data shows overdispersion, use Negative Binomial instead of Poisson
+    const allTotalGoals = allMatches.map(m => m.ftHomeGoals + m.ftAwayGoals);
+    const dispersion = estimateDispersion(allTotalGoals);
+
+    // Run Monte Carlo simulation with H2H-adjusted lambdas, NB dispersion, and optimized rho
+    const prediction = runMonteCarlo(
+      adjustedLambdaHome,
+      adjustedLambdaAway,
+      100000,
+      effectiveRho,
+      dispersion
+    );
 
     // Apply calibration correction if backtest data is available for this league
     const calData = getCalibration(league);

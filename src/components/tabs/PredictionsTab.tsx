@@ -16,6 +16,10 @@ import {
   computeStrongBet, computeGreyResult, computeGoalFest,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
+import {
+  computeAllSignalMomentum,
+  computeCumulativeZScore,
+} from '@/lib/models/signal-calculus'
 
 export default function PredictionsTab({
   results,
@@ -497,6 +501,121 @@ export default function PredictionsTab({
                     }
                   }
 
+                  // ============================================================
+                  // Signal Momentum (Derivatives) — compare current vs previous
+                  // ============================================================
+                  // Compute signals for previous period (offset by 5 games)
+                  // to detect whether signals are Rising, Falling, or Flat
+                  let prevXgSignal = 'Neutral';
+                  let prevRegressionSignal = 'Neutral';
+                  let prevZScoreSignal = 'Neutral';
+                  {
+                    const offset = 5; // compare to 5 games ago
+                    const prevXgStats = new Map<string, { matches: number; totalXg: number; actualGoals: number }>();
+                    sortedResultsForRegression.slice(offset).forEach(r => {
+                      const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+                      const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+                      const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+                      const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+                      const hs = prevXgStats.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                      hs.matches++; hs.totalXg += homeXg; hs.actualGoals += r.ftHomeGoals;
+                      prevXgStats.set(r.homeTeam, hs);
+                      const as = prevXgStats.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                      as.matches++; as.totalXg += awayXg; as.actualGoals += r.ftAwayGoals;
+                      prevXgStats.set(r.awayTeam, as);
+                    });
+                    const prevHomeXg = prevXgStats.get(predHomeTeam);
+                    const prevAwayXg = prevXgStats.get(predAwayTeam);
+                    if (prevHomeXg && prevAwayXg && prevHomeXg.matches >= 3 && prevAwayXg.matches >= 3) {
+                      const prevHomeDiff = (prevHomeXg.actualGoals / prevHomeXg.matches) - (prevHomeXg.totalXg / prevHomeXg.matches);
+                      const prevAwayDiff = (prevAwayXg.actualGoals / prevAwayXg.matches) - (prevAwayXg.totalXg / prevAwayXg.matches);
+                      const prevTotal = prevHomeDiff + prevAwayDiff;
+                      if (prevTotal <= -0.7) prevXgSignal = 'Strong Over';
+                      else if (prevTotal <= -0.3) prevXgSignal = 'Over';
+                      else if (prevTotal >= 0.7) prevXgSignal = 'Strong Under';
+                      else if (prevTotal >= 0.3) prevXgSignal = 'Under';
+                    }
+
+                    // Previous period regression
+                    const prevTeamGoalStats = new Map<string, {
+                      matchesThisSeason: number; scoredThisSeason: number; concededThisSeason: number;
+                      last10Matches: { totalGoals: number }[]; last3Matches: { totalGoals: number }[];
+                    }>();
+                    sortedResultsForRegression.slice(offset).forEach(r => {
+                      const tg = r.ftHomeGoals + r.ftAwayGoals;
+                      const ph = prevTeamGoalStats.get(r.homeTeam) || { matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [] };
+                      ph.matchesThisSeason++; ph.scoredThisSeason += r.ftHomeGoals; ph.concededThisSeason += r.ftAwayGoals;
+                      ph.last10Matches.push({ totalGoals: tg }); ph.last3Matches.push({ totalGoals: tg });
+                      prevTeamGoalStats.set(r.homeTeam, ph);
+                      const pa = prevTeamGoalStats.get(r.awayTeam) || { matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [] };
+                      pa.matchesThisSeason++; pa.scoredThisSeason += r.ftAwayGoals; pa.concededThisSeason += r.ftHomeGoals;
+                      pa.last10Matches.push({ totalGoals: tg }); pa.last3Matches.push({ totalGoals: tg });
+                      prevTeamGoalStats.set(r.awayTeam, pa);
+                    });
+                    const prevHomeGoal = prevTeamGoalStats.get(predHomeTeam);
+                    const prevAwayGoal = prevTeamGoalStats.get(predAwayTeam);
+                    if (prevHomeGoal && prevAwayGoal) {
+                      const calcPrevDev = (td: typeof prevHomeGoal) => {
+                        const sAvg = td.matchesThisSeason > 0 ? (td.scoredThisSeason + td.concededThisSeason) / td.matchesThisSeason : 0;
+                        const l10 = td.last10Matches.slice(0, 10); const l10Avg = l10.length > 0 ? l10.reduce((s, m) => s + m.totalGoals, 0) / l10.length : 0;
+                        const l3 = td.last3Matches.slice(0, 3); const l3Avg = l3.length > 0 ? l3.reduce((s, m) => s + m.totalGoals, 0) / l3.length : 0;
+                        return { combinedSignal: (l3Avg - sAvg) * 0.4 + (l3Avg - l10Avg) * 0.3 };
+                      };
+                      const prevTotal = calcPrevDev(prevHomeGoal).combinedSignal + calcPrevDev(prevAwayGoal).combinedSignal;
+                      if (prevTotal <= -1.2) prevRegressionSignal = 'Strong Over';
+                      else if (prevTotal <= -0.5) prevRegressionSignal = 'Over';
+                      else if (prevTotal >= 1.2) prevRegressionSignal = 'Strong Under';
+                      else if (prevTotal >= 0.5) prevRegressionSignal = 'Under';
+                    }
+
+                    // Previous period Z-Score
+                    const prevZTeamStats = new Map<string, { matches: number; goals: number[]; totalGoals: number; mean: number; stdDev: number; last3Avg: number }>();
+                    sortedResultsForRegression.slice(offset).forEach(r => {
+                      const tg = r.ftHomeGoals + r.ftAwayGoals;
+                      const ph = prevZTeamStats.get(r.homeTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+                      ph.matches++; ph.goals.push(tg); ph.totalGoals += tg;
+                      prevZTeamStats.set(r.homeTeam, ph);
+                      const pa = prevZTeamStats.get(r.awayTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+                      pa.matches++; pa.goals.push(tg); pa.totalGoals += tg;
+                      prevZTeamStats.set(r.awayTeam, pa);
+                    });
+                    prevZTeamStats.forEach(s => { s.mean = s.totalGoals / s.matches; const l3 = s.goals.slice(0, 3); s.last3Avg = l3.length > 0 ? l3.reduce((a, b) => a + b, 0) / l3.length : 0; s.stdDev = Math.sqrt(s.goals.map(g => (g - s.mean) ** 2).reduce((a, b) => a + b, 0) / s.matches); });
+                    const prevHomeZ = prevZTeamStats.get(predHomeTeam);
+                    const prevAwayZ = prevZTeamStats.get(predAwayTeam);
+                    if (prevHomeZ && prevAwayZ && prevHomeZ.matches >= 3 && prevAwayZ.matches >= 3) {
+                      const hz = prevHomeZ.stdDev > 0 ? (prevHomeZ.last3Avg - prevHomeZ.mean) / prevHomeZ.stdDev : 0;
+                      const az = prevAwayZ.stdDev > 0 ? (prevAwayZ.last3Avg - prevAwayZ.mean) / prevAwayZ.stdDev : 0;
+                      let ps = 0; if (hz <= -1.5) ps += 2; else if (hz <= -1.0) ps += 1; if (az <= -1.5) ps += 2; else if (az <= -1.0) ps += 1;
+                      if (hz >= 1.5) ps -= 2; else if (hz >= 1.0) ps -= 1; if (az >= 1.5) ps -= 2; else if (az >= 1.0) ps -= 1;
+                      if (ps >= 4) prevZScoreSignal = 'Strong Over';
+                      else if (ps >= 2.5) prevZScoreSignal = 'Over';
+                      else if (ps <= -3) prevZScoreSignal = 'Strong Under';
+                      else if (ps <= -1.5) prevZScoreSignal = 'Under';
+                    }
+                  }
+
+                  const signalMomentum = computeAllSignalMomentum(
+                    { xgSignal: xgSignalQuick, regressionSignal: regressionSignalQuick, zScoreSignal: zScoreSignalQuick },
+                    { xgSignal: prevXgSignal, regressionSignal: prevRegressionSignal, zScoreSignal: prevZScoreSignal }
+                  );
+
+                  // ============================================================
+                  // Cumulative Z-Score Trend (Integration) — accumulate deviations
+                  // ============================================================
+                  // Cumulative Z-Score: compute from recent match goals for both teams
+                  const matchGoalsForCumZ = sortedResultsForRegression
+                    .filter(r => r.homeTeam === predHomeTeam || r.awayTeam === predHomeTeam || r.homeTeam === predAwayTeam || r.awayTeam === predHomeTeam)
+                    .slice(0, 5)
+                    .map(r => r.ftHomeGoals + r.ftAwayGoals);
+                  // Use league average as expected goals baseline for the cumulative Z-Score
+                  const leagueAvgForZ = (leagueHomeAvg + leagueAwayAvg);
+                  const expectedGoalsForZ = matchGoalsForCumZ.map(() => leagueAvgForZ);
+                  const cumulativeZ = computeCumulativeZScore(
+                    matchGoalsForCumZ,
+                    expectedGoalsForZ,
+                    5
+                  );
+
                   // STRONG BET — New points-based system (need 7+ of 11 points)
                   // Replaces old auto-qualify on O2.5 ≥ 68% + 4/6 checks
                   // o35ProbValue already computed above with calibrated fallback
@@ -522,6 +641,43 @@ export default function PredictionsTab({
 
                   return (
                     <>
+                    {/* Signal Momentum Strip — Derivatives & Integration */}
+                    <Card className="shadow-md bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-900/30 dark:to-gray-900/30">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-blue-600" />
+                          Signal Momentum & Cumulative Trend
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+                          <div className={`p-2 rounded-lg text-center ${signalMomentum.xgMomentum.direction === 'Rising' ? 'bg-green-50 border border-green-200' : signalMomentum.xgMomentum.direction === 'Falling' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+                            <p className="text-xs text-muted-foreground">xG Signal</p>
+                            <p className="font-semibold">{xgSignalQuick} <span className="text-lg">{signalMomentum.xgMomentum.arrow}</span></p>
+                            <p className="text-xs text-muted-foreground">{signalMomentum.xgMomentum.direction}</p>
+                          </div>
+                          <div className={`p-2 rounded-lg text-center ${signalMomentum.regressionMomentum.direction === 'Rising' ? 'bg-green-50 border border-green-200' : signalMomentum.regressionMomentum.direction === 'Falling' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+                            <p className="text-xs text-muted-foreground">Regression Signal</p>
+                            <p className="font-semibold">{regressionSignalQuick} <span className="text-lg">{signalMomentum.regressionMomentum.arrow}</span></p>
+                            <p className="text-xs text-muted-foreground">{signalMomentum.regressionMomentum.direction}</p>
+                          </div>
+                          <div className={`p-2 rounded-lg text-center ${signalMomentum.zScoreMomentum.direction === 'Rising' ? 'bg-green-50 border border-green-200' : signalMomentum.zScoreMomentum.direction === 'Falling' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+                            <p className="text-xs text-muted-foreground">Z-Score Signal</p>
+                            <p className="font-semibold">{zScoreSignalQuick} <span className="text-lg">{signalMomentum.zScoreMomentum.arrow}</span></p>
+                            <p className="text-xs text-muted-foreground">{signalMomentum.zScoreMomentum.direction}</p>
+                          </div>
+                          <div className={`p-2 rounded-lg text-center ${cumulativeZ.trend === 'Accumulating Positive' ? 'bg-emerald-50 border border-emerald-200' : cumulativeZ.trend === 'Accumulating Negative' ? 'bg-orange-50 border border-orange-200' : cumulativeZ.trend === 'Volatile' ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50 border border-gray-200'}`}>
+                            <p className="text-xs text-muted-foreground">Cumulative Z-Score</p>
+                            <p className="font-semibold">{cumulativeZ.cumulativeZScore >= 0 ? '+' : ''}{cumulativeZ.cumulativeZScore}</p>
+                            <p className="text-xs text-muted-foreground">{cumulativeZ.displayTag}</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground text-center mt-2">
+                          Derivatives: comparing current signals vs previous period. Integration: accumulated Z-Score over last {cumulativeZ.windowSize} games.
+                        </p>
+                      </CardContent>
+                    </Card>
+
                     {/* Strong Bet Indicator - Updated based on actual betting results */}
                     <Card className={`shadow-md border-2 ${isStrongBet ? 'border-green-400 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
                       <CardHeader className="pb-2">
