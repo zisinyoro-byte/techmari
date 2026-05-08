@@ -602,13 +602,14 @@ export default function PredictionsTab({
                   // ============================================================
                   // Cumulative Z-Score Trend (Integration) — accumulate deviations
                   // ============================================================
+                  // Compute league average goals from the regression data
+                  const totalLeagueGoals = sortedResultsForRegression.reduce((s, r) => s + r.ftHomeGoals + r.ftAwayGoals, 0);
+                  const leagueAvgForZ = sortedResultsForRegression.length > 0 ? totalLeagueGoals / sortedResultsForRegression.length : 2.7;
                   // Cumulative Z-Score: compute from recent match goals for both teams
                   const matchGoalsForCumZ = sortedResultsForRegression
                     .filter(r => r.homeTeam === predHomeTeam || r.awayTeam === predHomeTeam || r.homeTeam === predAwayTeam || r.awayTeam === predHomeTeam)
                     .slice(0, 5)
                     .map(r => r.ftHomeGoals + r.ftAwayGoals);
-                  // Use league average as expected goals baseline for the cumulative Z-Score
-                  const leagueAvgForZ = (leagueHomeAvg + leagueAwayAvg);
                   const expectedGoalsForZ = matchGoalsForCumZ.map(() => leagueAvgForZ);
                   const cumulativeZ = computeCumulativeZScore(
                     matchGoalsForCumZ,
