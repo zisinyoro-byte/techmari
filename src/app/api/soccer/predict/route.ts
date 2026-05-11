@@ -14,6 +14,7 @@ import { optimizeDixonColes } from '@/lib/models/dixon-coles-optimizer';
 import { calculatePatterns, calculateLeagueInsights } from '@/lib/models/predictions';
 import { getCalibration, applyCalibration } from '@/lib/models/calibration-store';
 import { initializeThresholds } from '@/lib/models/threshold-init';
+import { applyBookieOddsDampener, computeTeamAvgOdds } from '@/lib/betting-filters';
 
 // ---------------------------------------------------------------------------
 // combineWeightedTeamStats – merge per-season TeamStats using exponential weights
@@ -322,6 +323,51 @@ export async function GET(request: NextRequest) {
       effectiveRho,
       dispersion
     );
+
+    // Phase 2h: Bookie odds dampener for heavy favorites
+    // When either team is a heavy favorite (avg odds <=1.70), reduce goal market
+    // probabilities to account for "park the bus" effect in one-sided games.
+    const homeAvgOdds = computeTeamAvgOdds(allMatches, homeTeam);
+    const awayAvgOdds = computeTeamAvgOdds(allMatches, awayTeam);
+    const dampened = applyBookieOddsDampener(
+      prediction.over25, prediction.over35, prediction.btts,
+      homeAvgOdds, awayAvgOdds
+    );
+    if (dampened.dampened) {
+      prediction.over25 = dampened.over25;
+      prediction.over35 = dampened.over35;
+      prediction.btts = dampened.btts;
+      console.log(`[Predict] ${dampened.reason} → O2.5: ${dampened.over25}%, BTTS: ${dampened.btts}%`);
+    }
+
+    // Phase 2i: SOT Conversion BTTS modifier
+    // When either team has low shot-on-target conversion (<30%), cap BTTS probability.
+    // Low SOT conversion means the team is generating chances but not finishing them,
+    // which historically leads to more BTTS=No outcomes than the model predicts.
+    const SOT_BTTS_CAP = 45;
+    const SOT_LOW_THRESHOLD = 30;
+    {
+      const computeTeamSOT = (team: string) => {
+        const teamMatches = allMatches.filter(m => m.homeTeam === team || m.awayTeam === team);
+        let sots = 0, goals = 0;
+        for (const m of teamMatches) {
+          if (m.homeTeam === team) { sots += m.homeShotsOnTarget; goals += m.ftHomeGoals; }
+          else { sots += m.awayShotsOnTarget; goals += m.ftAwayGoals; }
+        }
+        return sots > 0 ? (goals / sots) * 100 : null;
+      };
+      const homeSOT = computeTeamSOT(homeTeam);
+      const awaySOT = computeTeamSOT(awayTeam);
+      if ((homeSOT !== null && homeSOT < SOT_LOW_THRESHOLD) ||
+          (awaySOT !== null && awaySOT < SOT_LOW_THRESHOLD)) {
+        const lowTeam = (homeSOT !== null && homeSOT < SOT_LOW_THRESHOLD) ? homeTeam : awayTeam;
+        const lowSOT = (homeSOT !== null && homeSOT < SOT_LOW_THRESHOLD) ? homeSOT : awaySOT;
+        if (prediction.btts > SOT_BTTS_CAP) {
+          console.log(`[Predict] Low SOT conversion for ${lowTeam} (${lowSOT.toFixed(1)}% < ${SOT_LOW_THRESHOLD}%): capping BTTS at ${SOT_BTTS_CAP}%`);
+          prediction.btts = SOT_BTTS_CAP;
+        }
+      }
+    }
 
     // Apply calibration correction if backtest data is available for this league
     const calData = getCalibration(league);

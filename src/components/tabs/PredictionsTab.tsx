@@ -14,6 +14,7 @@ import {
   computeLeagueBaselines, resolveAllThresholds,
   computeBttsChecklist, computeOver35Checklist,
   computeStrongBet, computeGreyResult, computeGoalFest,
+  applyBlowoutQualifier, computeTeamAvgOdds,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
 import {
@@ -422,10 +423,13 @@ export default function PredictionsTab({
                     const awayXgDiff = (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches);
                     const totalXgDiff = homeXgDiff + awayXgDiff;
 
-                    if (totalXgDiff <= -0.7) xgSignalQuick = 'Strong Over';
-                    else if (totalXgDiff <= -0.3) xgSignalQuick = 'Over';
-                    else if (totalXgDiff >= 0.7) xgSignalQuick = 'Strong Under';
-                    else if (totalXgDiff >= 0.3) xgSignalQuick = 'Under';
+                    // Tightened thresholds: was ±0.3/±0.7 (fired 89% of the time = no discrimination)
+                    // Now ±0.5/±1.0 — only fires when there's meaningful xG deviation
+                    // This restores the signal's predictive power as a Strong Bet input
+                    if (totalXgDiff <= -1.0) xgSignalQuick = 'Strong Over';
+                    else if (totalXgDiff <= -0.5) xgSignalQuick = 'Over';
+                    else if (totalXgDiff >= 1.0) xgSignalQuick = 'Strong Under';
+                    else if (totalXgDiff >= 0.5) xgSignalQuick = 'Under';
                   }
 
                   // Calculate Over 3.5 Checklist (7 auto-check criteria) using shared utility
@@ -530,10 +534,10 @@ export default function PredictionsTab({
                       const prevHomeDiff = (prevHomeXg.actualGoals / prevHomeXg.matches) - (prevHomeXg.totalXg / prevHomeXg.matches);
                       const prevAwayDiff = (prevAwayXg.actualGoals / prevAwayXg.matches) - (prevAwayXg.totalXg / prevAwayXg.matches);
                       const prevTotal = prevHomeDiff + prevAwayDiff;
-                      if (prevTotal <= -0.7) prevXgSignal = 'Strong Over';
-                      else if (prevTotal <= -0.3) prevXgSignal = 'Over';
-                      else if (prevTotal >= 0.7) prevXgSignal = 'Strong Under';
-                      else if (prevTotal >= 0.3) prevXgSignal = 'Under';
+                      if (prevTotal <= -1.0) prevXgSignal = 'Strong Over';
+                      else if (prevTotal <= -0.5) prevXgSignal = 'Over';
+                      else if (prevTotal >= 1.0) prevXgSignal = 'Strong Under';
+                      else if (prevTotal >= 0.5) prevXgSignal = 'Under';
                     }
 
                     // Previous period regression
@@ -617,14 +621,25 @@ export default function PredictionsTab({
                     5
                   );
 
-                  // STRONG BET — New points-based system (need 7+ of 11 points)
-                  // Replaces old auto-qualify on O2.5 ≥ 68% + 4/6 checks
-                  // o35ProbValue already computed above with calibrated fallback
-                  const signalInput: SignalInput = {
+                  // ---- Blowout Risk Qualifier (Change 5) ----
+                  // When either team is a massive favorite (avg odds <= 1.50),
+                  // override Regression "Under" to "Neutral" — quality gap outweighs form.
+                  const homeAvgOdds = computeTeamAvgOdds(results, predHomeTeam);
+                  const awayAvgOdds = computeTeamAvgOdds(results, predAwayTeam);
+                  const rawSignalInput: SignalInput = {
                     xgSignal: xgSignalQuick,
                     regressionSignal: regressionSignalQuick,
                     zScoreSignal: zScoreSignalQuick,
                   };
+                  const blowoutResult = applyBlowoutQualifier(rawSignalInput, homeAvgOdds, awayAvgOdds);
+                  const signalInput: SignalInput = blowoutResult.signals;
+                  if (blowoutResult.blowoutOverride) {
+                    console.log(`[PredictionsTab] ${blowoutResult.reason}`);
+                  }
+
+                  // STRONG BET — New points-based system (need 7+ of 11 points)
+                  // Replaces old auto-qualify on O2.5 ≥ 68% + 4/6 checks
+                  // o35ProbValue already computed above with calibrated fallback
                   const strongBetResult = computeStrongBet(bttsChecklistInput, signalInput, resolved);
                   const isStrongBet = strongBetResult.isStrongBet;
                   const strongBetChecks = strongBetResult.breakdown.map(c => c.passed);

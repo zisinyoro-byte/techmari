@@ -264,18 +264,20 @@ export const STRONG_BET_HYBRID = {
   bttsChecklistCount: 6,
 } as const;
 
-// ---- GREY RESULT — 8 checks, need 6+ ----
-// Updated signal checks based on backtest data:
+// ---- GREY RESULT — 8 checks, need 7+ (tightened from 6 based on live results analysis) ----
+// Updated signal checks based on backtest data + live validation:
 //   Regression = Neutral or Under (normal variance or recently hot)
 //   Z-Score = Neutral (universal goal-fest sweet spot, Strong Over nearly impossible)
 //   xG = Over or Under (both mild states beat extremes)
+// Raised requiredChecks from 6 → 7 after observing 46.2% O2.5 hit rate at 6/8 threshold.
+// At 7/8, only the strongest signals pass through.
 export const GREY_RESULT_CONFIG = {
   bttsProb:  { floor: 55, multiplier: 1.12 },
   o25Prob:   { floor: 65, multiplier: 1.10 },
   o35Prob:   { floor: 40, multiplier: 1.20 },
   bttsChecklistCount: 5,
   over35ChecklistCount: 3,
-  requiredChecks: 6,
+  requiredChecks: 7,
 } as const;
 
 // ---- GOAL FEST — Backtest-optimized combo detector (v2) ----
@@ -304,12 +306,14 @@ export interface ResolvedGoalFestThresholds {
   source: 'backtest' | 'hybrid';
 }
 
-// ---- Signal thresholds (xG, Regression, Z-Score) — unchanged ----
+// ---- Signal thresholds (xG, Regression, Z-Score) ----
+// xG thresholds tightened from ±0.3/±0.7 to ±0.5/±1.0 based on live results analysis.
+// Old thresholds fired 89% of the time (no discrimination). New thresholds target ~30-40%.
 export const XG_THRESHOLDS = {
-  strongOver: -0.7,
-  over: -0.3,
-  strongUnder: 0.7,
-  under: 0.3,
+  strongOver: -1.0,
+  over: -0.5,
+  strongUnder: 1.0,
+  under: 0.5,
 } as const;
 
 export const REGRESSION_THRESHOLDS = {
@@ -1186,5 +1190,166 @@ export function deriveSimpleThresholdsFromBacktest(
     },
     sampleSize: matches.length,
     derivedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// Bookie Odds Dampener — Heavy Favorite Adjustment
+// ============================================================================
+// Based on live results analysis: when bookie odds for one side are <=1.70,
+// the model systematically overestimates O2.5 probability by 10-15%.
+// Heavy favorites tend to win tight, controlling games (1-0, 2-0) rather
+// than high-scoring shootouts. This dampener accounts for that pattern.
+// ============================================================================
+
+/** Heavy favorite odds threshold (decimal odds) */
+const HEAVY_FAVORITE_ODDS = 1.70;
+
+/** Maximum dampener amount (percentage points to subtract) */
+const HEAVY_FAVORITE_DAMPENER = 10;
+
+/**
+ * Apply bookie odds dampener to goal market probabilities.
+ * When either team is a heavy favorite (avg odds <=1.70), reduce O2.5/O3.5/BTTS
+ * probabilities to account for the "park the bus" effect.
+ *
+ * Only applies when valid odds are available (non-null, positive).
+ *
+ * @param over25Prob  - Model O2.5 probability (%)
+ * @param over35Prob  - Model O3.5 probability (%)
+ * @param bttsProb    - Model BTTS probability (%)
+ * @param homeAvgOdds - Home team average odds (decimal)
+ * @param awayAvgOdds - Away team average odds (decimal)
+ * @returns Adjusted probabilities with dampener applied
+ */
+export function applyBookieOddsDampener(
+  over25Prob: number,
+  over35Prob: number,
+  bttsProb: number,
+  homeAvgOdds: number | null | undefined,
+  awayAvgOdds: number | null | undefined
+): { over25: number; over35: number; btts: number; dampened: boolean; reason: string } {
+  if (!homeAvgOdds || !awayAvgOdds || homeAvgOdds <= 0 || awayAvgOdds <= 0) {
+    return { over25: over25Prob, over35: over35Prob, btts: bttsProb, dampened: false, reason: '' };
+  }
+
+  const homeIsHeavy = homeAvgOdds <= HEAVY_FAVORITE_ODDS;
+  const awayIsHeavy = awayAvgOdds <= HEAVY_FAVORITE_ODDS;
+
+  if (!homeIsHeavy && !awayIsHeavy) {
+    return { over25: over25Prob, over35: over35Prob, btts: bttsProb, dampened: false, reason: '' };
+  }
+
+  const heavyOdds = Math.min(homeAvgOdds, awayAvgOdds);
+  // Scale dampener: heavier favorite = bigger reduction
+  // At 1.17 (PSG level): full 10% dampener
+  // At 1.70 (threshold): minimal 3% dampener
+  const scale = Math.max(0, 1 - (heavyOdds - 1.17) / (HEAVY_FAVORITE_ODDS - 1.17));
+  const dampener = Math.round(3 + (HEAVY_FAVORITE_DAMPENER - 3) * scale);
+
+  const reason = homeIsHeavy
+    ? `Heavy home favorite (${homeAvgOdds.toFixed(2)}): -${dampener}% dampener`
+    : `Heavy away favorite (${awayAvgOdds.toFixed(2)}): -${dampener}% dampener`;
+
+  return {
+    over25: Math.max(30, over25Prob - dampener),
+    over35: Math.max(20, over35Prob - dampener),
+    btts: Math.max(25, bttsProb - Math.round(dampener * 0.5)), // BTTS dampened less
+    dampened: true,
+    reason,
+  };
+}
+
+/**
+ * Compute average bookie odds for a team from match results.
+ * Averages odds across all matches for that team.
+ *
+ * @param matches - Match results with odds data
+ * @param team    - Team name
+ * @returns Average decimal odds, or null if insufficient data
+ */
+export function computeTeamAvgOdds(
+  matches: { homeTeam: string; awayTeam: string; oddsAvgHome: number | null; oddsAvgAway: number | null }[],
+  team: string
+): number | null {
+  const teamOdds: number[] = [];
+
+  for (const m of matches) {
+    const odds = m.homeTeam === team ? m.oddsAvgHome : (m.awayTeam === team ? m.oddsAvgAway : null);
+    if (odds && odds > 1 && odds < 20) {
+      teamOdds.push(odds);
+    }
+  }
+
+  if (teamOdds.length < 3) return null;
+
+  return teamOdds.reduce((s, o) => s + o, 0) / teamOdds.length;
+}
+
+// ============================================================================
+// Blowout Risk Qualifier — Override Under signals in massive quality gaps
+// ============================================================================
+// Based on live results analysis: when there's a huge quality gap (favorite's
+// avg odds <= 1.50), the Regression "Under" signal is unreliable. Heavy favorites
+// tend to dominate regardless of recent form — a "cooling off" period doesn't
+// matter when you're 2-3 quality tiers above the opponent.
+//
+// This qualifier prevents the "Under" regression signal from canceling out
+// legitimate "Over" signals (xG, Z-Score) in STRONG BET / GREY RESULT / GOAL FEST.
+//
+// Example: Man City (odds 1.20) vs Luton — Regression says "Under" (City only
+// scored 1 goal last 3 games), but City will likely score 3-4 regardless.
+// Without this qualifier, the Under signal would block 2 points in STRONG BET.
+// ============================================================================
+
+/** Blowout threshold: favorite's average odds at or below this triggers override */
+const BLOWOUT_ODDS_THRESHOLD = 1.50;
+
+/**
+ * Apply blowout risk qualifier to regression signal.
+ * When either team is a massive favorite (avg odds <= 1.50), override
+ * Regression "Under"/"Strong Under" to "Neutral" because quality advantage
+ * outweighs recent form in one-sided matchups.
+ *
+ * @param signals      - Current signal set (xgSignal, regressionSignal, zScoreSignal)
+ * @param homeAvgOdds  - Home team average odds (decimal)
+ * @param awayAvgOdds  - Away team average odds (decimal)
+ * @returns Modified signals (regression may be overridden to Neutral)
+ */
+export function applyBlowoutQualifier(
+  signals: SignalInput,
+  homeAvgOdds: number | null | undefined,
+  awayAvgOdds: number | null | undefined
+): { signals: SignalInput; blowoutOverride: boolean; reason: string } {
+  // Only applies when valid odds are available
+  if (!homeAvgOdds || !awayAvgOdds || homeAvgOdds <= 0 || awayAvgOdds <= 0) {
+    return { signals, blowoutOverride: false, reason: '' };
+  }
+
+  const homeIsMassiveFavorite = homeAvgOdds <= BLOWOUT_ODDS_THRESHOLD;
+  const awayIsMassiveFavorite = awayAvgOdds <= BLOWOUT_ODDS_THRESHOLD;
+
+  // Only trigger when one team is a massive favorite
+  if (!homeIsMassiveFavorite && !awayIsMassiveFavorite) {
+    return { signals, blowoutOverride: false, reason: '' };
+  }
+
+  // Only override "Under" regression — "Over" and "Neutral" are fine
+  const isRegressionUnder = signals.regressionSignal === 'Under' || signals.regressionSignal === 'Strong Under';
+  if (!isRegressionUnder) {
+    return { signals, blowoutOverride: false, reason: '' };
+  }
+
+  const favoriteOdds = Math.min(homeAvgOdds, awayAvgOdds);
+  const favorite = homeIsMassiveFavorite ? 'Home' : 'Away';
+  const reason = `Blowout qualifier: ${favorite} favorite (${favoriteOdds.toFixed(2)} <= ${BLOWOUT_ODDS_THRESHOLD}) — Regression "${signals.regressionSignal}" overridden to Neutral (quality gap outweighs form)`;
+
+  return {
+    signals: {
+      ...signals,
+      regressionSignal: 'Neutral',
+    },
+    blowoutOverride: true,
+    reason,
   };
 }
