@@ -14,6 +14,7 @@ import {
   computeLeagueBaselines, resolveAllThresholds,
   computeBttsChecklistLabels, computeOver35ChecklistLabels,
   computeStrongBet, computeGreyResult, computeGoalFest,
+  applyBlowoutQualifier, computeTeamAvgOdds,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
 
@@ -713,18 +714,28 @@ export default function ModelsTab({
                               const awayXgDiff = (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches);
                               const totalXgDiff = homeXgDiff + awayXgDiff;
 
-                              if (totalXgDiff <= -0.7) xgOverallSignal = 'Strong Over';
-                              else if (totalXgDiff <= -0.3) xgOverallSignal = 'Over';
-                              else if (totalXgDiff >= 0.7) xgOverallSignal = 'Strong Under';
-                              else if (totalXgDiff >= 0.3) xgOverallSignal = 'Under';
+                              // Tightened thresholds: matching PredictionsTab (was ±0.3/±0.7, fired 89% = no discrimination)
+                              // Now ±0.5/±1.0 — only fires when there's meaningful xG deviation
+                              if (totalXgDiff <= -1.0) xgOverallSignal = 'Strong Over';
+                              else if (totalXgDiff <= -0.5) xgOverallSignal = 'Over';
+                              else if (totalXgDiff >= 1.0) xgOverallSignal = 'Strong Under';
+                              else if (totalXgDiff >= 0.5) xgOverallSignal = 'Under';
                             }
 
-                            // Updated Strong Bet — Points-based system using shared utility
-                            const signalInput: SignalInput = {
+                            // Apply Blowout Risk Qualifier (matching PredictionsTab)
+                            // When either team is a massive favorite (avg odds <= 1.50),
+                            // override Regression "Under" to "Neutral" before Strong Bet/Grey/GoalFest
+                            const csvHomeAvgOdds = computeTeamAvgOdds(results, predHomeTeam);
+                            const csvAwayAvgOdds = computeTeamAvgOdds(results, predAwayTeam);
+                            const rawSignalInput: SignalInput = {
                               xgSignal: xgOverallSignal,
                               regressionSignal: regressionOverallSignal,
                               zScoreSignal: zScoreOverallSignal,
                             };
+                            const blowoutResult = applyBlowoutQualifier(rawSignalInput, csvHomeAvgOdds, csvAwayAvgOdds);
+                            const signalInput: SignalInput = blowoutResult.signals;
+
+                            // Updated Strong Bet — Points-based system using shared utility
                             const strongBetResult = computeStrongBet(checklistInput, signalInput, resolved);
                             const isStrongBet = strongBetResult.isStrongBet;
                             const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetResult.points}/${strongBetResult.maxPoints} pts`;
