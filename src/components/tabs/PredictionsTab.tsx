@@ -669,6 +669,15 @@ export default function PredictionsTab({
                     console.log(`[PredictionsTab] ${blowoutResult.reason}`);
                   }
 
+                  // ---- LOW-OPEN SIGNAL — Strong Over trend + tight last H2H ----
+                  const lastH2HGoalsTotal = lastH2HQuick ? lastH2HQuick.ftHomeGoals + lastH2HQuick.ftAwayGoals : null;
+                  const lastH2HScoreline = lastH2HQuick ? `${lastH2HQuick.ftHomeGoals}-${lastH2HQuick.ftAwayGoals}` : null;
+                  const isTightH2H = lastH2HGoalsTotal !== null && lastH2HGoalsTotal <= 1;
+                  const isLowOpenSignal = signalInput.regressionSignal === 'Strong Over'
+                    && signalInput.zScoreSignal === 'Neutral'
+                    && signalInput.xgSignal === 'Strong Over'
+                    && isTightH2H;
+
                   // ============================================================
                   // Dominant Team Detector — One-Sided Demolition Flag
                   // ============================================================
@@ -838,6 +847,16 @@ export default function PredictionsTab({
                             <p className="text-xs text-muted-foreground">{cumulativeZ.displayTag}</p>
                           </div>
                         </div>
+                        {isLowOpenSignal && lastH2HScoreline && (
+                          <div className="mt-3 p-3 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-300 dark:border-teal-700">
+                            <p className="text-sm font-bold text-teal-700 dark:text-teal-300">
+                              🔒 LOW-OPEN SIGNAL
+                            </p>
+                            <p className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+                              Strong Over trend (Reg + xG), Z-Score Neutral, tight last H2H ({lastH2HScoreline})
+                            </p>
+                          </div>
+                        )}
                         <p className="text-xs text-muted-foreground text-center mt-2">
                           Derivatives: comparing current signals vs previous period. Integration: accumulated Z-Score over last {cumulativeZ.windowSize} games.
                         </p>
