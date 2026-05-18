@@ -300,6 +300,8 @@ export default function PredictionsTab({
                     : null;
 
                   let regressionSignalQuick = 'Neutral';
+                  let homeDeviation: { combinedSignal: number } | undefined;
+                  let awayDeviation: { combinedSignal: number } | undefined;
                   
                   if (homeTeamDataQuick && awayTeamDataQuick) {
                     // Calculate means for each team (matching main analysis)
@@ -348,8 +350,8 @@ export default function PredictionsTab({
                       return { combinedSignal };
                     };
 
-                    const homeDeviation = calculateDeviation(homeMeans);
-                    const awayDeviation = calculateDeviation(awayMeans);
+                    homeDeviation = calculateDeviation(homeMeans);
+                    awayDeviation = calculateDeviation(awayMeans);
 
                     // Combined match signal (matching main analysis thresholds)
                     const totalSignal = homeDeviation.combinedSignal + awayDeviation.combinedSignal;
@@ -667,8 +669,8 @@ export default function PredictionsTab({
                   // BTTS Dual-Team Qualification + Third Goal Detector
                   // ============================================================
                   // Compute per-team signal data for the new dual-team qualifiers
-                  const homeRegDeviation = homeTeamDataQuick && awayTeamDataQuick ? homeDeviation.combinedSignal : 0;
-                  const awayRegDeviation = homeTeamDataQuick && awayTeamDataQuick ? awayDeviation.combinedSignal : 0;
+                  const homeRegDeviation = homeDeviation?.combinedSignal ?? 0;
+                  const awayRegDeviation = awayDeviation?.combinedSignal ?? 0;
                   const homeRegSignalPerTeam = classifyPerTeamRegressionSignal(homeRegDeviation);
                   const awayRegSignalPerTeam = classifyPerTeamRegressionSignal(awayRegDeviation);
 
