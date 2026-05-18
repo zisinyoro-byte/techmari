@@ -16,8 +16,10 @@ import {
   computeStrongBet, computeGreyResult, computeGoalFest,
   applyBlowoutQualifier, computeTeamAvgOdds,
   computeBTTSQualification, computeThirdGoalQualifier,
+  computeMomentumSignal, computeDominantTeamQualifier,
   classifyPerTeamRegressionSignal, classifyPerTeamXgSignal, classifyPerTeamZScoreSignal,
   type ChecklistInput, type SignalInput,
+  type MomentumTeamInput, type DominantTeamInput,
 } from '@/lib/betting-filters'
 
 export default function ModelsTab({
@@ -729,16 +731,75 @@ export default function ModelsTab({
                             // override Regression "Under" to "Neutral" before Strong Bet/Grey/GoalFest
                             const csvHomeAvgOdds = computeTeamAvgOdds(results, predHomeTeam);
                             const csvAwayAvgOdds = computeTeamAvgOdds(results, predAwayTeam);
+
+                            // ---- XG Diff / SOT / Favorite Odds (needed for momentum + BTTS qual) ----
+                            const csvHomeXgDiff = homeXgData && awayXgData
+                              ? (homeXgData.actualGoals / homeXgData.matches) - (homeXgData.totalXg / homeXgData.matches)
+                              : 0;
+                            const csvAwayXgDiff = homeXgData && awayXgData
+                              ? (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches)
+                              : 0;
+
+                            const csvHomeSotConv = homeXgData && homeXgData.shotsOnTarget > 0
+                              ? (homeXgData.actualGoals / homeXgData.shotsOnTarget) * 100 : null;
+                            const csvAwaySotConv = awayXgData && awayXgData.shotsOnTarget > 0
+                              ? (awayXgData.actualGoals / awayXgData.shotsOnTarget) * 100 : null;
+                            const csvHomeAvgSot = homeXgData && homeXgData.matches > 0
+                              ? homeXgData.shotsOnTarget / homeXgData.matches : null;
+                            const csvAwayAvgSot = awayXgData && awayXgData.matches > 0
+                              ? awayXgData.shotsOnTarget / awayXgData.matches : null;
+
+                            const csvFavoriteOdds = csvHomeAvgOdds && csvAwayAvgOdds ? Math.min(csvHomeAvgOdds, csvAwayAvgOdds) : null;
+                            const csvCombinedXg = homeXgData && awayXgData
+                              ? (homeXgData.totalXg / homeXgData.matches) + (awayXgData.totalXg / awayXgData.matches) : 0;
+
+                            // ---- Momentum Signal (Form Continuation Track) ----
+                            const csvHomeLast5Goals = homeTeamData?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+                            const csvAwayLast5Goals = awayTeamData?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+                            const csvHomeSeasonAvg = homeTeamData?.matchesThisSeason > 0 ? (homeTeamData.scoredThisSeason + homeTeamData.concededThisSeason) / homeTeamData.matchesThisSeason : 0;
+                            const csvAwaySeasonAvg = awayTeamData?.matchesThisSeason > 0 ? (awayTeamData.scoredThisSeason + awayTeamData.concededThisSeason) / awayTeamData.matchesThisSeason : 0;
+                            const csvHomeMomInput: MomentumTeamInput = { last5Goals: csvHomeLast5Goals, seasonAvg: csvHomeSeasonAvg, xgDiff: csvHomeXgDiff, sotPerGame: csvHomeAvgSot };
+                            const csvAwayMomInput: MomentumTeamInput = { last5Goals: csvAwayLast5Goals, seasonAvg: csvAwaySeasonAvg, xgDiff: csvAwayXgDiff, sotPerGame: csvAwayAvgSot };
+                            const csvMomentumResult = computeMomentumSignal(csvHomeMomInput, csvAwayMomInput);
+
+                            // ---- Dominant Team Detector ----
+                            const csvFavOdds = csvFavoriteOdds ?? 2.0;
+                            const csvIsHomeFav = csvHomeAvgOdds && csvAwayAvgOdds ? csvHomeAvgOdds <= csvAwayAvgOdds : false;
+                            const csvFavTeam = csvIsHomeFav ? homeTeamData : awayTeamData;
+                            const csvUndTeam = csvIsHomeFav ? awayTeamData : homeTeamData;
+                            const csvFavXg = csvIsHomeFav ? homeXgData : awayXgData;
+                            const csvUndXg = csvIsHomeFav ? awayXgData : homeXgData;
+                            const csvFavLast5Avg = (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).length > 0
+                              ? (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).reduce((s, g) => s + g, 0) / (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).length : 0;
+                            const csvFavLast3 = (csvIsHomeFav ? homeTeamData?.last3Matches : awayTeamData?.last3Matches)?.slice(0, 3).map(m => m.totalGoals) ?? [];
+                            const csvFavLast3AllLow = csvFavLast3.length >= 3 && csvFavLast3.every(g => g < 1.5);
+
+                            const csvDominantResult = computeDominantTeamQualifier({
+                              favoriteOdds: csvFavOdds,
+                              favoriteAvgGoalsPerGame: csvFavTeam?.matchesThisSeason > 0 ? (csvFavTeam.scoredThisSeason + csvFavTeam.concededThisSeason) / csvFavTeam.matchesThisSeason : 0,
+                              underdogAvgConcededPerGame: csvUndTeam?.matchesThisSeason > 0 ? csvUndTeam.concededThisSeason / csvUndTeam.matchesThisSeason : 0,
+                              favoriteXgPerGame: csvFavXg?.matches > 0 ? csvFavXg.totalXg / csvFavXg.matches : 0,
+                              underdogXgPerGame: csvUndXg?.matches > 0 ? csvUndXg.totalXg / csvUndXg.matches : 0,
+                              favoriteLast5Avg: csvFavLast5Avg,
+                              favoriteSotPerGame: csvFavXg?.matches > 0 ? csvFavXg.shotsOnTarget / csvFavXg.matches : null,
+                              leagueAvgGoalsPerGame: baselines.avgGoalsPerGame,
+                              underdogAwayBttsRate: null,
+                              favoriteLast3AllLow: csvFavLast3AllLow,
+                            });
+
                             const rawSignalInput: SignalInput = {
                               xgSignal: xgOverallSignal,
                               regressionSignal: regressionOverallSignal,
                               zScoreSignal: zScoreOverallSignal,
                             };
-                            const blowoutResult = applyBlowoutQualifier(rawSignalInput, csvHomeAvgOdds, csvAwayAvgOdds);
+                            const blowoutResult = applyBlowoutQualifier(rawSignalInput, csvHomeAvgOdds, csvAwayAvgOdds, baselines.avgGoalsPerGame);
                             const signalInput: SignalInput = blowoutResult.signals;
 
                             // Updated Strong Bet — Points-based system using shared utility
-                            const strongBetResult = computeStrongBet(checklistInput, signalInput, resolved);
+                            const strongBetResult = computeStrongBet(checklistInput, signalInput, resolved, {
+                              momentumSignal: csvMomentumResult.matchSignal,
+                              leagueBttsRate: baselines.bttsRate,
+                            });
                             const isStrongBet = strongBetResult.isStrongBet;
                             const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetResult.points}/${strongBetResult.maxPoints} pts`;
 
@@ -756,12 +817,6 @@ export default function ModelsTab({
                             const csvHomeRegSignal = classifyPerTeamRegressionSignal(csvHomeRegDeviation);
                             const csvAwayRegSignal = classifyPerTeamRegressionSignal(csvAwayRegDeviation);
 
-                            const csvHomeXgDiff = homeXgData && awayXgData
-                              ? (homeXgData.actualGoals / homeXgData.matches) - (homeXgData.totalXg / homeXgData.matches)
-                              : 0;
-                            const csvAwayXgDiff = homeXgData && awayXgData
-                              ? (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches)
-                              : 0;
                             const csvHomeXgSignal = classifyPerTeamXgSignal(csvHomeXgDiff);
                             const csvAwayXgSignal = classifyPerTeamXgSignal(csvAwayXgDiff);
 
@@ -770,19 +825,6 @@ export default function ModelsTab({
                               ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev : 0;
                             const csvAwayZ = homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3 && awayZStats.stdDev > 0
                               ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev : 0;
-
-                            const csvHomeSotConv = homeXgData && homeXgData.shotsOnTarget > 0
-                              ? (homeXgData.actualGoals / homeXgData.shotsOnTarget) * 100 : null;
-                            const csvAwaySotConv = awayXgData && awayXgData.shotsOnTarget > 0
-                              ? (awayXgData.actualGoals / awayXgData.shotsOnTarget) * 100 : null;
-                            const csvHomeAvgSot = homeXgData && homeXgData.matches > 0
-                              ? homeXgData.shotsOnTarget / homeXgData.matches : null;
-                            const csvAwayAvgSot = awayXgData && awayXgData.matches > 0
-                              ? awayXgData.shotsOnTarget / awayXgData.matches : null;
-
-                            const csvFavoriteOdds = csvHomeAvgOdds && csvAwayAvgOdds ? Math.min(csvHomeAvgOdds, csvAwayAvgOdds) : null;
-                            const csvCombinedXg = homeXgData && awayXgData
-                              ? (homeXgData.totalXg / homeXgData.matches) + (awayXgData.totalXg / awayXgData.matches) : 0;
 
                             const csvBttsQual = computeBTTSQualification({
                               homeRegressionSignal: csvHomeRegSignal,
@@ -794,6 +836,8 @@ export default function ModelsTab({
                               homeSotConversion: csvHomeSotConv,
                               awaySotConversion: csvAwaySotConv,
                               favoriteOdds: csvFavoriteOdds,
+                              homeMomentumSignal: csvMomentumResult.homeSignal,
+                              awayMomentumSignal: csvMomentumResult.awaySignal,
                             });
 
                             const csvThirdGoal = computeThirdGoalQualifier({
@@ -837,7 +881,14 @@ export default function ModelsTab({
                               'BTTS Qualification Tier',
                               'BTTS Qual Score',
                               'Third Goal Tier',
-                              'Third Goal Score'
+                              'Third Goal Score',
+                              'Momentum Match Signal',
+                              'Home Momentum',
+                              'Away Momentum',
+                              'Dominant Team Tier',
+                              'Dominant Team Score',
+                              'Dominant Over 2.5 Rec',
+                              'Dominant BTTS Rec',
                             ]
 
                             // Format check lists for export - matching display exactly
@@ -871,7 +922,14 @@ export default function ModelsTab({
                               csvBttsQual.tier,
                               `${csvBttsQual.score}`,
                               csvThirdGoal.tier,
-                              `${csvThirdGoal.score}`
+                              `${csvThirdGoal.score}`,
+                              `"${csvMomentumResult.matchSignal}"`,
+                              `"${csvMomentumResult.homeSignal}"`,
+                              `"${csvMomentumResult.awaySignal}"`,
+                              `"${csvDominantResult.tier}"`,
+                              `${csvDominantResult.score}`,
+                              `"${csvDominantResult.over25Rec}"`,
+                              `"${csvDominantResult.bttsRec}"`,
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')

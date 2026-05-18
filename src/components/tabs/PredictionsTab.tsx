@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3, TrendingUp, Shield, Flame } from 'lucide-react'
+import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3, TrendingUp, Shield, Flame, Trophy } from 'lucide-react'
 import type { PredictionsTabProps } from './types'
 import { COLORS, SEASON_NAMES } from '@/lib/constants'
 import { parseDateSafe } from '@/lib/utils'
@@ -16,6 +16,8 @@ import {
   computeStrongBet, computeGreyResult, computeGoalFest,
   applyBlowoutQualifier, computeTeamAvgOdds,
   computeBTTSQualification, computeThirdGoalQualifier,
+  computeMomentumSignal, computeDominantTeamQualifier, classifyLeagueVariance,
+  type MomentumTeamInput, type DominantTeamInput,
   classifyPerTeamRegressionSignal, classifyPerTeamXgSignal, classifyPerTeamZScoreSignal,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
@@ -397,6 +399,7 @@ export default function PredictionsTab({
                     matches: number;
                     totalXg: number;
                     actualGoals: number;
+                    shotsOnTarget: number;
                   }>();
 
                   results.forEach(r => {
@@ -405,16 +408,18 @@ export default function PredictionsTab({
                     const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
                     const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
 
-                    const homeStats = teamXgStatsQuick.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                    const homeStats = teamXgStatsQuick.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
                     homeStats.matches++;
                     homeStats.totalXg += homeXg;
                     homeStats.actualGoals += r.ftHomeGoals;
+                    homeStats.shotsOnTarget += r.homeShotsOnTarget;
                     teamXgStatsQuick.set(r.homeTeam, homeStats);
 
-                    const awayStats = teamXgStatsQuick.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+                    const awayStats = teamXgStatsQuick.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
                     awayStats.matches++;
                     awayStats.totalXg += awayXg;
                     awayStats.actualGoals += r.ftAwayGoals;
+                    awayStats.shotsOnTarget += r.awayShotsOnTarget;
                     teamXgStatsQuick.set(r.awayTeam, awayStats);
                   });
 
@@ -631,6 +636,23 @@ export default function PredictionsTab({
                     5
                   );
 
+                  // ============================================================
+                  // Momentum Signal — Form Continuation Track
+                  // ============================================================
+                  const homeLast5Goals = homeTeamDataQuick?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+                  const awayLast5Goals = awayTeamDataQuick?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+                  const homeSeasonAvg = homeTeamDataQuick?.matchesThisSeason > 0 ? (homeTeamDataQuick.scoredThisSeason + homeTeamDataQuick.concededThisSeason) / homeTeamDataQuick.matchesThisSeason : 0;
+                  const awaySeasonAvg = awayTeamDataQuick?.matchesThisSeason > 0 ? (awayTeamDataQuick.scoredThisSeason + awayTeamDataQuick.concededThisSeason) / awayTeamDataQuick.matchesThisSeason : 0;
+                  const homeXgDiffVal = homeXgDataQuick ? (homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches) : 0;
+                  const awayXgDiffVal = awayXgDataQuick ? (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches) : 0;
+                  const homeSotPerGame = homeXgDataQuick?.matches > 0 ? homeXgDataQuick.shotsOnTarget / homeXgDataQuick.matches : null;
+                  const awaySotPerGame = awayXgDataQuick?.matches > 0 ? awayXgDataQuick.shotsOnTarget / awayXgDataQuick.matches : null;
+
+                  const homeMomentumInput: MomentumTeamInput = { last5Goals: homeLast5Goals, seasonAvg: homeSeasonAvg, xgDiff: homeXgDiffVal, sotPerGame: homeSotPerGame };
+                  const awayMomentumInput: MomentumTeamInput = { last5Goals: awayLast5Goals, seasonAvg: awaySeasonAvg, xgDiff: awayXgDiffVal, sotPerGame: awaySotPerGame };
+
+                  const momentumResult = computeMomentumSignal(homeMomentumInput, awayMomentumInput);
+
                   // ---- Blowout Risk Qualifier (Change 5) ----
                   // When either team is a massive favorite (avg odds <= 1.50),
                   // override Regression "Under" to "Neutral" — quality gap outweighs form.
@@ -641,16 +663,50 @@ export default function PredictionsTab({
                     regressionSignal: regressionSignalQuick,
                     zScoreSignal: zScoreSignalQuick,
                   };
-                  const blowoutResult = applyBlowoutQualifier(rawSignalInput, homeAvgOdds, awayAvgOdds);
+                  const blowoutResult = applyBlowoutQualifier(rawSignalInput, homeAvgOdds, awayAvgOdds, baselines.avgGoalsPerGame);
                   const signalInput: SignalInput = blowoutResult.signals;
                   if (blowoutResult.blowoutOverride) {
                     console.log(`[PredictionsTab] ${blowoutResult.reason}`);
                   }
 
+                  // ============================================================
+                  // Dominant Team Detector — One-Sided Demolition Flag
+                  // ============================================================
+                  const favoriteOddsValue = homeAvgOdds && awayAvgOdds ? Math.min(homeAvgOdds, awayAvgOdds) : null;
+                  const isHomeFavorite = homeAvgOdds && awayAvgOdds ? homeAvgOdds <= awayAvgOdds : false;
+
+                  // Determine which team is favorite vs underdog
+                  const favTeamData = isHomeFavorite ? homeTeamDataQuick : awayTeamDataQuick;
+                  const undTeamData = isHomeFavorite ? awayTeamDataQuick : homeTeamDataQuick;
+                  const favXgData = isHomeFavorite ? homeXgDataQuick : awayXgDataQuick;
+                  const undXgData = isHomeFavorite ? awayXgDataQuick : homeXgDataQuick;
+                  const favLast5Avg = (isHomeFavorite ? homeLast5Goals : awayLast5Goals).length > 0
+                    ? (isHomeFavorite ? homeLast5Goals : awayLast5Goals).reduce((s, g) => s + g, 0) / (isHomeFavorite ? homeLast5Goals : awayLast5Goals).length : 0;
+                  const favLast3Goals = (isHomeFavorite ? homeTeamDataQuick?.last3Matches : awayTeamDataQuick?.last3Matches)?.slice(0, 3).map(m => m.totalGoals) ?? [];
+                  const favLast3AllLow = favLast3Goals.length >= 3 && favLast3Goals.every(g => g < 1.5);
+
+                  const dominantInput: DominantTeamInput = {
+                    favoriteOdds: favoriteOddsValue ?? 2.0,
+                    favoriteAvgGoalsPerGame: favTeamData?.matchesThisSeason > 0 ? (favTeamData.scoredThisSeason + favTeamData.concededThisSeason) / favTeamData.matchesThisSeason : 0,
+                    underdogAvgConcededPerGame: undTeamData?.matchesThisSeason > 0 ? undTeamData.concededThisSeason / undTeamData.matchesThisSeason : 0,
+                    favoriteXgPerGame: favXgData?.matches > 0 ? favXgData.totalXg / favXgData.matches : 0,
+                    underdogXgPerGame: undXgData?.matches > 0 ? undXgData.totalXg / undXgData.matches : 0,
+                    favoriteLast5Avg: favLast5Avg,
+                    favoriteSotPerGame: favXgData?.matches > 0 ? favXgData.shotsOnTarget / favXgData.matches : null,
+                    leagueAvgGoalsPerGame: baselines.avgGoalsPerGame,
+                    underdogAwayBttsRate: null, // Not directly available — pass null
+                    favoriteLast3AllLow: favLast3AllLow,
+                  };
+
+                  const dominantResult = computeDominantTeamQualifier(dominantInput);
+
                   // STRONG BET — New points-based system (need 7+ of 11 points)
                   // Replaces old auto-qualify on O2.5 ≥ 68% + 4/6 checks
                   // o35ProbValue already computed above with calibrated fallback
-                  const strongBetResult = computeStrongBet(bttsChecklistInput, signalInput, resolved);
+                  const strongBetResult = computeStrongBet(bttsChecklistInput, signalInput, resolved, {
+                    momentumSignal: momentumResult.matchSignal,
+                    leagueBttsRate: baselines.bttsRate,
+                  });
                   const isStrongBet = strongBetResult.isStrongBet;
                   const strongBetChecks = strongBetResult.breakdown.map(c => c.passed);
                   const strongBetScore = strongBetResult.points;
@@ -731,6 +787,8 @@ export default function PredictionsTab({
                     homeSotConversion: homeSotConv,
                     awaySotConversion: awaySotConv,
                     favoriteOdds,
+                    homeMomentumSignal: momentumResult.homeSignal,
+                    awayMomentumSignal: momentumResult.awaySignal,
                   });
 
                   // Third Goal Qualifier
@@ -802,7 +860,7 @@ export default function PredictionsTab({
                           {/* Result Badge */}
                           <div className={`text-center p-4 rounded-lg ${isStrongBet ? 'bg-green-100 dark:bg-green-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
                             <p className={`text-2xl font-bold ${isStrongBet ? 'text-green-600' : 'text-gray-500'}`}>
-                              {isStrongBet ? '✅ STRONG BET' : `⚠️ ${strongBetScore}/${STRONG_BET_POINTS.maxPoints} Points`}
+                              {isStrongBet ? '✅ STRONG BET' : `⚠️ ${strongBetScore}/${strongBetResult.maxPoints} Points`}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
                               {isStrongBet ? 'This match meets the criteria for a strong BTTS + O2.5 bet' : `Needs ${STRONG_BET_POINTS.threshold}+ points to qualify as a Strong Bet`}
@@ -1065,6 +1123,121 @@ export default function PredictionsTab({
                               <div className="p-1 rounded bg-yellow-50 dark:bg-yellow-900/20"><strong>THIN</strong> (0-1)</div>
                               <div className="p-1 rounded bg-red-50 dark:bg-red-900/20"><strong>STALL</strong> (&lt;0)</div>
                             </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Momentum Signal — Form Continuation Track */}
+                    <Card className={`shadow-md border-2 ${
+                      momentumResult.matchSignal === 'MOMENTUM OVER' ? 'border-violet-500 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20' :
+                      momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'border-violet-300 bg-gradient-to-r from-violet-50 to-fuchsia-50 dark:from-violet-900/10 dark:to-fuchsia-900/10' :
+                      momentumResult.matchSignal === 'MOMENTUM UNDER' ? 'border-slate-400 bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-900/20 dark:to-gray-900/20' :
+                      momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'border-slate-300 bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-900/10 dark:to-gray-900/10' :
+                      'border-gray-200 bg-gray-50 dark:bg-gray-800/20'
+                    }`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <TrendingUp className={`w-5 h-5 ${
+                            momentumResult.matchSignal === 'MOMENTUM OVER' || momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'text-violet-600' :
+                            momentumResult.matchSignal === 'MOMENTUM UNDER' || momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'text-slate-500' :
+                            'text-gray-400'
+                          }`} />
+                          Momentum Signal (Form Continuation)
+                        </CardTitle>
+                        <CardDescription>
+                          Parallel to Regression — detects sustained hot streaks that will keep producing goals
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          <div className={`text-center p-4 rounded-lg ${
+                            momentumResult.matchSignal === 'MOMENTUM OVER' ? 'bg-violet-100 dark:bg-violet-800/30' :
+                            momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'bg-violet-50 dark:bg-violet-800/15' :
+                            momentumResult.matchSignal === 'MOMENTUM UNDER' ? 'bg-slate-100 dark:bg-slate-800/30' :
+                            momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'bg-slate-50 dark:bg-slate-800/15' :
+                            'bg-gray-100 dark:bg-gray-700/30'
+                          }`}>
+                            <p className={`text-2xl font-bold ${
+                              momentumResult.matchSignal === 'MOMENTUM OVER' ? 'text-violet-600' :
+                              momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'text-violet-500' :
+                              momentumResult.matchSignal === 'MOMENTUM UNDER' ? 'text-slate-500' :
+                              momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'text-slate-400' :
+                              'text-gray-500'
+                            }`}>
+                              {momentumResult.matchSignal === 'MOMENTUM OVER' ? '🔥' : momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? '📈' : momentumResult.matchSignal === 'MOMENTUM UNDER' ? '📉' : momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? '⬇️' : '➖'} {momentumResult.matchSignal}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                            <div className="p-2 rounded-lg bg-white/50 dark:bg-gray-800/50 space-y-1">
+                              <p className="font-semibold text-muted-foreground">Home: {predHomeTeam}</p>
+                              <p>Momentum: <span className={momentumResult.homeSignal === 'Strong Momentum' || momentumResult.homeSignal === 'Momentum' ? 'text-violet-600 font-medium' : momentumResult.homeSignal === 'Cold' || momentumResult.homeSignal === 'Cooling' ? 'text-slate-600 font-medium' : 'text-gray-600'}>{momentumResult.homeSignal}</span></p>
+                            </div>
+                            <div className="p-2 rounded-lg bg-white/50 dark:bg-gray-800/50 space-y-1">
+                              <p className="font-semibold text-muted-foreground">Away: {predAwayTeam}</p>
+                              <p>Momentum: <span className={momentumResult.awaySignal === 'Strong Momentum' || momentumResult.awaySignal === 'Momentum' ? 'text-violet-600 font-medium' : momentumResult.awaySignal === 'Cold' || momentumResult.awaySignal === 'Cooling' ? 'text-slate-600 font-medium' : 'text-gray-600'}>{momentumResult.awaySignal}</span></p>
+                            </div>
+                          </div>
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+                            <p className="font-semibold text-muted-foreground mb-1">How It Works:</p>
+                            <ul className="text-xs text-muted-foreground space-y-1">
+                              <li>• <strong>Strong Momentum:</strong> 5+ game sustained overperformance, low variance, 2+ goals/game avg</li>
+                              <li>• <strong>Momentum:</strong> Sustained above-season output or accelerating form with xG backing</li>
+                              <li>• <strong>Neutral:</strong> Normal fluctuation around baseline</li>
+                              <li>• <strong>Cooling/Cold:</strong> Declining output — regression track may be more reliable</li>
+                              <li>• When MOMENTUM OVER, STRONG BET Regression check passes via momentum alternative pathway</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Dominant Team Detector — One-Sided Demolition Flag */}
+                    <Card className={`shadow-md border-2 ${
+                      dominantResult.tier === 'DOMINANT EXPECTED' ? 'border-amber-500 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20' :
+                      dominantResult.tier === 'DOMINANT LIKELY' ? 'border-orange-400 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20' :
+                      dominantResult.tier === 'DOMINANT POSSIBLE' ? 'border-yellow-300 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20' :
+                      'border-gray-200 bg-gray-50 dark:bg-gray-800/20'
+                    }`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Trophy className={`w-5 h-5 ${
+                            dominantResult.tier === 'DOMINANT EXPECTED' || dominantResult.tier === 'DOMINANT LIKELY' ? 'text-amber-600' :
+                            dominantResult.tier === 'DOMINANT POSSIBLE' ? 'text-orange-500' :
+                            'text-gray-400'
+                          }`} />
+                          Dominant Team Detector
+                        </CardTitle>
+                        <CardDescription>
+                          Flags one-sided demolition games — Over markets hit but BTTS does NOT
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          <div className={`text-center p-4 rounded-lg ${
+                            dominantResult.tier === 'DOMINANT EXPECTED' ? 'bg-amber-100 dark:bg-amber-800/30' :
+                            dominantResult.tier === 'DOMINANT LIKELY' ? 'bg-orange-100 dark:bg-orange-800/30' :
+                            dominantResult.tier === 'DOMINANT POSSIBLE' ? 'bg-yellow-100 dark:bg-yellow-800/30' :
+                            'bg-gray-100 dark:bg-gray-700/30'
+                          }`}>
+                            <p className={`text-2xl font-bold ${
+                              dominantResult.tier === 'DOMINANT EXPECTED' ? 'text-amber-600' :
+                              dominantResult.tier === 'DOMINANT LIKELY' ? 'text-orange-600' :
+                              dominantResult.tier === 'DOMINANT POSSIBLE' ? 'text-yellow-600' :
+                              'text-gray-500'
+                            }`}>
+                              {dominantResult.tier === 'DOMINANT EXPECTED' ? '👑' : dominantResult.tier === 'DOMINANT LIKELY' ? '⚡' : dominantResult.tier === 'DOMINANT POSSIBLE' ? '🔶' : '⚪'} {dominantResult.tier}
+                            </p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Score: {dominantResult.score} | Over 2.5: {dominantResult.over25Rec} | BTTS: {dominantResult.bttsRec}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-xs">
+                            {dominantResult.breakdown.map((check, i) => (
+                              <div key={i} className={`p-1.5 rounded text-center ${check.passed ? (check.points > 0 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600') : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400'}`}>
+                                {check.passed ? (check.points > 0 ? '✅' : '⚠️') : '❌'} {check.check}
+                              </div>
+                            ))}
                           </div>
                         </div>
                       </CardContent>
