@@ -84,7 +84,8 @@ export interface StrongBetCriterionThresholds {
 
 /** Thresholds for GREY RESULT check */
 export interface GreyResultCriterionThresholds {
-  bttsProb: number;              // %
+  bttsProb: number;              // % (lower bound)
+  bttsProbMax: number;           // % (upper bound)
   o25Prob: number;               // %
   o35Prob: number;               // %
   bttsChecklistCount: number;    // absolute count
@@ -272,7 +273,7 @@ export const STRONG_BET_HYBRID = {
 // Raised requiredChecks from 6 → 7 after observing 46.2% O2.5 hit rate at 6/8 threshold.
 // At 7/8, only the strongest signals pass through.
 export const GREY_RESULT_CONFIG = {
-  bttsProb:  { floor: 55, multiplier: 1.12 },
+  bttsProb:  { min: 25, max: 50 },
   o25Prob:   { floor: 65, multiplier: 1.10 },
   o35Prob:   { floor: 40, multiplier: 1.20 },
   bttsChecklistCount: 5,
@@ -389,6 +390,7 @@ export interface ResolvedStrongBetThresholds {
 /** Resolved GREY RESULT thresholds */
 export interface ResolvedGreyResultThresholds {
   bttsProb: number;
+  bttsProbMax: number;
   o25Prob: number;
   o35Prob: number;
   bttsChecklistCount: number;
@@ -463,9 +465,14 @@ export function resolveAllThresholds(
 
   // GREY RESULT thresholds
   const greyResult: ResolvedGreyResultThresholds = useBacktest
-    ? { ...bt!.greyResult, source: 'backtest' }
+    ? {
+        ...bt!.greyResult,
+        bttsProbMax: (bt!.greyResult as any).bttsProbMax ?? GREY_RESULT_CONFIG.bttsProb.max,
+        source: 'backtest' as const,
+      }
     : {
-        bttsProb: hybridThreshold(GREY_RESULT_CONFIG.bttsProb.floor, baselines.bttsRate, GREY_RESULT_CONFIG.bttsProb.multiplier),
+        bttsProb: GREY_RESULT_CONFIG.bttsProb.min,
+        bttsProbMax: GREY_RESULT_CONFIG.bttsProb.max,
         o25Prob: hybridThreshold(GREY_RESULT_CONFIG.o25Prob.floor, baselines.over25Rate, GREY_RESULT_CONFIG.o25Prob.multiplier),
         o35Prob: hybridThreshold(GREY_RESULT_CONFIG.o35Prob.floor, baselines.over35Rate, GREY_RESULT_CONFIG.o35Prob.multiplier),
         bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
@@ -699,7 +706,7 @@ export function computeGreyResult(
     { check: 'Z-Score = Neutral', passed: isZsNeutral(signals.zScoreSignal) },
     { check: 'xG = Over/Under', passed: isXgMild(signals.xgSignal) },
     { check: `BTTS Checklist >=${gt.bttsChecklistCount}/7`, passed: bttsCount >= gt.bttsChecklistCount },
-    { check: `BTTS >=${gt.bttsProb.toFixed(0)}%`, passed: checklistInput.bttsProb >= gt.bttsProb },
+    { check: `BTTS ${gt.bttsProb.toFixed(0)}-${gt.bttsProbMax.toFixed(0)}%`, passed: checklistInput.bttsProb >= gt.bttsProb && checklistInput.bttsProb <= gt.bttsProbMax },
     { check: `O2.5 >=${gt.o25Prob.toFixed(0)}%`, passed: checklistInput.o25Prob >= gt.o25Prob },
     { check: `O3.5 Checklist >=${gt.over35ChecklistCount}/7`, passed: o35Count >= gt.over35ChecklistCount },
     { check: `O3.5 >=${gt.o35Prob.toFixed(0)}%`, passed: checklistInput.o35Prob >= gt.o35Prob },
@@ -1058,7 +1065,7 @@ export function deriveThresholdsFromBacktest(
     m => m.ftHomeGoals >= 1 && m.ftAwayGoals >= 1 && m.ftHomeGoals + m.ftAwayGoals >= 4,
     [40, 80],
     1,
-    GREY_RESULT_CONFIG.bttsProb.floor
+    GREY_RESULT_CONFIG.bttsProb.min
   );
 
   const grO25Prob = findOptimalProbThreshold(
@@ -1111,6 +1118,7 @@ export function deriveThresholdsFromBacktest(
     },
     greyResult: {
       bttsProb: grBttsProb,
+      bttsProbMax: GREY_RESULT_CONFIG.bttsProb.max,
       o25Prob: grO25Prob,
       o35Prob: grO35Prob,
       bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
@@ -1195,7 +1203,8 @@ export function deriveSimpleThresholdsFromBacktest(
       bttsChecklistCount: STRONG_BET_HYBRID.bttsChecklistCount,
     },
     greyResult: {
-      bttsProb: Math.max(GREY_RESULT_CONFIG.bttsProb.floor, currentBaselines.bttsRate * GREY_RESULT_CONFIG.bttsProb.multiplier),
+      bttsProb: GREY_RESULT_CONFIG.bttsProb.min,
+      bttsProbMax: GREY_RESULT_CONFIG.bttsProb.max,
       o25Prob: Math.max(GREY_RESULT_CONFIG.o25Prob.floor, currentBaselines.over25Rate * GREY_RESULT_CONFIG.o25Prob.multiplier),
       o35Prob: Math.max(GREY_RESULT_CONFIG.o35Prob.floor, currentBaselines.over35Rate * GREY_RESULT_CONFIG.o35Prob.multiplier),
       bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
