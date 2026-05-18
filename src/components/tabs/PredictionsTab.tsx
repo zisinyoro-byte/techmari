@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3, TrendingUp } from 'lucide-react'
+import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3, TrendingUp, Shield, Flame } from 'lucide-react'
 import type { PredictionsTabProps } from './types'
 import { COLORS, SEASON_NAMES } from '@/lib/constants'
 import { parseDateSafe } from '@/lib/utils'
@@ -15,6 +15,8 @@ import {
   computeBttsChecklist, computeOver35Checklist,
   computeStrongBet, computeGreyResult, computeGoalFest,
   applyBlowoutQualifier, computeTeamAvgOdds,
+  computeBTTSQualification, computeThirdGoalQualifier,
+  classifyPerTeamRegressionSignal, classifyPerTeamXgSignal, classifyPerTeamZScoreSignal,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
 import {
@@ -438,6 +440,9 @@ export default function PredictionsTab({
                   // Z-Score Signal - computed independently using Z-Score methodology
                   // matching the detailed Z-Score Analysis & Confidence Intervals card
                   let zScoreSignalQuick = 'Neutral';
+                  // Hoisted per-team Z-Scores for BTTS/Third Goal qualifiers
+                  let homeZForQualifier = 0;
+                  let awayZForQualifier = 0;
                   {
                     const zTeamStats = new Map<string, {
                       matches: number;
@@ -477,6 +482,9 @@ export default function PredictionsTab({
                     if (homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3) {
                       const homeZ = homeZStats.stdDev > 0 ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev : 0;
                       const awayZ = awayZStats.stdDev > 0 ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev : 0;
+                      // Hoist for qualifier use
+                      homeZForQualifier = homeZ;
+                      awayZForQualifier = awayZ;
                       const homeCILower = homeZStats.mean - 1.96 * (homeZStats.stdDev / Math.sqrt(homeZStats.matches));
                       const awayCILower = awayZStats.mean - 1.96 * (awayZStats.stdDev / Math.sqrt(awayZStats.matches));
                       const homeBelowCI = homeZStats.last3Avg < homeCILower;
@@ -655,6 +663,88 @@ export default function PredictionsTab({
                   const goalFestData = computeGoalFest(bttsChecklistInput, signalInput, resolved);
                   const isGoalFest = goalFestData.isGoalFest;
 
+                  // ============================================================
+                  // BTTS Dual-Team Qualification + Third Goal Detector
+                  // ============================================================
+                  // Compute per-team signal data for the new dual-team qualifiers
+                  const homeRegDeviation = homeTeamDataQuick && awayTeamDataQuick ? homeDeviation.combinedSignal : 0;
+                  const awayRegDeviation = homeTeamDataQuick && awayTeamDataQuick ? awayDeviation.combinedSignal : 0;
+                  const homeRegSignalPerTeam = classifyPerTeamRegressionSignal(homeRegDeviation);
+                  const awayRegSignalPerTeam = classifyPerTeamRegressionSignal(awayRegDeviation);
+
+                  const homeXgDiffValue = homeXgDataQuick ? (homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches) : 0;
+                  const awayXgDiffValue = awayXgDataQuick ? (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches) : 0;
+                  const homeXgSignalPerTeam = classifyPerTeamXgSignal(homeXgDiffValue);
+                  const awayXgSignalPerTeam = classifyPerTeamXgSignal(awayXgDiffValue);
+
+                  // Compute per-team SOT stats from results
+                  const teamSotStats = new Map<string, { matches: number; shotsOnTarget: number; goalsScored: number }>();
+                  sortedResultsForRegression.forEach(r => {
+                    const hSot = teamSotStats.get(r.homeTeam) || { matches: 0, shotsOnTarget: 0, goalsScored: 0 };
+                    hSot.matches++;
+                    hSot.shotsOnTarget += r.homeShotsOnTarget;
+                    hSot.goalsScored += r.ftHomeGoals;
+                    teamSotStats.set(r.homeTeam, hSot);
+                    const aSot = teamSotStats.get(r.awayTeam) || { matches: 0, shotsOnTarget: 0, goalsScored: 0 };
+                    aSot.matches++;
+                    aSot.shotsOnTarget += r.awayShotsOnTarget;
+                    aSot.goalsScored += r.ftAwayGoals;
+                    teamSotStats.set(r.awayTeam, aSot);
+                  });
+                  const homeSotData = teamSotStats.get(predHomeTeam);
+                  const awaySotData = teamSotStats.get(predAwayTeam);
+
+                  // Per-team SOT conversion
+                  const homeSotConv = homeSotData && homeSotData.shotsOnTarget > 0
+                    ? (homeSotData.goalsScored / homeSotData.shotsOnTarget) * 100
+                    : null;
+                  const awaySotConv = awaySotData && awaySotData.shotsOnTarget > 0
+                    ? (awaySotData.goalsScored / awaySotData.shotsOnTarget) * 100
+                    : null;
+
+                  // Per-team average SOT per game
+                  const homeAvgSot = homeSotData && homeSotData.matches > 0
+                    ? homeSotData.shotsOnTarget / homeSotData.matches
+                    : null;
+                  const awayAvgSot = awaySotData && awaySotData.matches > 0
+                    ? awaySotData.shotsOnTarget / awaySotData.matches
+                    : null;
+
+                  // Favorite odds (minimum of home/away avg odds)
+                  const favoriteOdds = homeAvgOdds && awayAvgOdds ? Math.min(homeAvgOdds, awayAvgOdds) : null;
+
+                  // Combined xG total
+                  const homeXgPerGame = homeXgDataQuick ? homeXgDataQuick.totalXg / homeXgDataQuick.matches : 0;
+                  const awayXgPerGame = awayXgDataQuick ? awayXgDataQuick.totalXg / awayXgDataQuick.matches : 0;
+                  const combinedXgTotal = homeXgPerGame + awayXgPerGame;
+
+                  // BTTS Dual-Team Qualification
+                  const bttsQualification = computeBTTSQualification({
+                    homeRegressionSignal: homeRegSignalPerTeam,
+                    awayRegressionSignal: awayRegSignalPerTeam,
+                    homeXgDiff: homeXgDiffValue,
+                    awayXgDiff: awayXgDiffValue,
+                    homeZScore: homeZForQualifier,
+                    awayZScore: awayZForQualifier,
+                    homeSotConversion: homeSotConv,
+                    awaySotConversion: awaySotConv,
+                    favoriteOdds,
+                  });
+
+                  // Third Goal Qualifier
+                  const thirdGoalResult = computeThirdGoalQualifier({
+                    combinedXgTotal,
+                    homeRegressionSignal: homeRegSignalPerTeam,
+                    awayRegressionSignal: awayRegSignalPerTeam,
+                    homeXgSignal: homeXgSignalPerTeam,
+                    awayXgSignal: awayXgSignalPerTeam,
+                    homeAvgSot,
+                    awayAvgSot,
+                    favoriteOdds,
+                    homeSotConversion: homeSotConv,
+                    awaySotConversion: awaySotConv,
+                  });
+
                   return (
                     <>
                     {/* Signal Momentum Strip — Derivatives & Integration */}
@@ -824,6 +914,155 @@ export default function PredictionsTab({
                               <li>• BTTS Checklist: <strong>5+/7</strong> + BTTS, O2.5, O3.5 probabilities</li>
                               <li>• Updated from 7,230 + 7,110-match backtest across 4 leagues x 5 seasons</li>
                             </ul>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* BTTS Dual-Team Qualification */}
+                    <Card className={`shadow-md border-2 ${
+                      bttsQualification.tier === 'BTTS STRONG' ? 'border-emerald-400 bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20' :
+                      bttsQualification.tier === 'BTTS QUALIFIED' ? 'border-blue-400 bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20' :
+                      bttsQualification.tier === 'BTTS WEAK' ? 'border-amber-400 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20' :
+                      'border-red-300 bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20'
+                    }`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Shield className={`w-5 h-5 ${
+                            bttsQualification.tier === 'BTTS STRONG' ? 'text-emerald-600' :
+                            bttsQualification.tier === 'BTTS QUALIFIED' ? 'text-blue-600' :
+                            bttsQualification.tier === 'BTTS WEAK' ? 'text-amber-600' :
+                            'text-red-400'
+                          }`} />
+                          BTTS Dual-Team Qualification
+                        </CardTitle>
+                        <CardDescription>
+                          Independent per-team signal check — separate from Over goal thesis
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          <div className={`text-center p-4 rounded-lg ${
+                            bttsQualification.tier === 'BTTS STRONG' ? 'bg-emerald-100 dark:bg-emerald-800/30' :
+                            bttsQualification.tier === 'BTTS QUALIFIED' ? 'bg-blue-100 dark:bg-blue-800/30' :
+                            bttsQualification.tier === 'BTTS WEAK' ? 'bg-amber-100 dark:bg-amber-800/30' :
+                            'bg-red-100 dark:bg-red-800/30'
+                          }`}>
+                            <p className={`text-2xl font-bold ${
+                              bttsQualification.tier === 'BTTS STRONG' ? 'text-emerald-600' :
+                              bttsQualification.tier === 'BTTS QUALIFIED' ? 'text-blue-600' :
+                              bttsQualification.tier === 'BTTS WEAK' ? 'text-amber-600' :
+                              'text-red-500'
+                            }`}>
+                              {bttsQualification.tier === 'BTTS STRONG' ? '🟢' : bttsQualification.tier === 'BTTS QUALIFIED' ? '🔵' : bttsQualification.tier === 'BTTS WEAK' ? '🟡' : '🔴'} {bttsQualification.tier}
+                            </p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Score: {bttsQualification.score} | BTTS Cap: {bttsQualification.bttsCap}%
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {bttsQualification.tier === 'BTTS STRONG' ? 'Both teams individually qualify — high BTTS confidence' :
+                               bttsQualification.tier === 'BTTS QUALIFIED' ? 'Mild BTTS confidence — proceed with caution' :
+                               bttsQualification.tier === 'BTTS WEAK' ? 'One-sided regression likely — BTTS risky' :
+                               'Do not bet BTTS on this match'}
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                            <div className="p-2 rounded-lg bg-white/50 dark:bg-gray-800/50 space-y-1">
+                              <p className="font-semibold text-muted-foreground">Home: {predHomeTeam}</p>
+                              <p>Regression: <span className={homeRegSignalPerTeam === 'Under' || homeRegSignalPerTeam === 'Strong Under' ? 'text-green-600 font-medium' : 'text-gray-600'}>{homeRegSignalPerTeam}</span></p>
+                              <p>xG Diff: <span className={homeXgDiffValue <= -0.5 ? 'text-green-600 font-medium' : 'text-gray-600'}>{homeXgDiffValue > 0 ? '+' : ''}{homeXgDiffValue.toFixed(2)}</span></p>
+                              <p>Z-Score: <span className={homeZForQualifier < 1.0 ? 'text-green-600' : 'text-red-600 font-medium'}>{homeZForQualifier.toFixed(2)}</span></p>
+                              <p>SOT Conv: <span className={homeSotConv && homeSotConv < 25 ? 'text-red-600 font-medium' : 'text-gray-600'}>{homeSotConv ? `${homeSotConv.toFixed(0)}%` : 'N/A'}</span></p>
+                            </div>
+                            <div className="p-2 rounded-lg bg-white/50 dark:bg-gray-800/50 space-y-1">
+                              <p className="font-semibold text-muted-foreground">Away: {predAwayTeam}</p>
+                              <p>Regression: <span className={awayRegSignalPerTeam === 'Under' || awayRegSignalPerTeam === 'Strong Under' ? 'text-green-600 font-medium' : 'text-gray-600'}>{awayRegSignalPerTeam}</span></p>
+                              <p>xG Diff: <span className={awayXgDiffValue <= -0.5 ? 'text-green-600 font-medium' : 'text-gray-600'}>{awayXgDiffValue > 0 ? '+' : ''}{awayXgDiffValue.toFixed(2)}</span></p>
+                              <p>Z-Score: <span className={awayZForQualifier < 1.0 ? 'text-green-600' : 'text-red-600 font-medium'}>{awayZForQualifier.toFixed(2)}</span></p>
+                              <p>SOT Conv: <span className={awaySotConv && awaySotConv < 25 ? 'text-red-600 font-medium' : 'text-gray-600'}>{awaySotConv ? `${awaySotConv.toFixed(0)}%` : 'N/A'}</span></p>
+                            </div>
+                          </div>
+
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+                            <p className="font-semibold text-muted-foreground mb-1">BTTS Tier Guide:</p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-xs">
+                              <div className="p-1 rounded bg-emerald-50 dark:bg-emerald-900/20"><strong>STRONG</strong> (5+) Cap 70%</div>
+                              <div className="p-1 rounded bg-blue-50 dark:bg-blue-900/20"><strong>QUALIFIED</strong> (3-4) Cap 55%</div>
+                              <div className="p-1 rounded bg-amber-50 dark:bg-amber-900/20"><strong>WEAK</strong> (1-2) Cap 40%</div>
+                              <div className="p-1 rounded bg-red-50 dark:bg-red-900/20"><strong>AVOID</strong> (≤0) Cap 25%</div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Third Goal (2-Goal Ceiling) Detector */}
+                    <Card className={`shadow-md border-2 ${
+                      thirdGoalResult.tier === 'GOAL RICH' ? 'border-green-400 bg-gradient-to-r from-green-50 to-lime-50 dark:from-green-900/20 dark:to-lime-900/20' :
+                      thirdGoalResult.tier === 'GOAL LIKELY' ? 'border-teal-400 bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20' :
+                      thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'border-orange-400 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20' :
+                      thirdGoalResult.tier === 'GOAL THIN' ? 'border-yellow-400 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20' :
+                      'border-red-300 bg-gradient-to-r from-red-50 to-gray-50 dark:from-red-900/20 dark:to-gray-900/20'
+                    }`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Flame className={`w-5 h-5 ${
+                            thirdGoalResult.tier === 'GOAL RICH' || thirdGoalResult.tier === 'GOAL LIKELY' ? 'text-green-600' :
+                            thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'text-orange-600' :
+                            'text-red-400'
+                          }`} />
+                          Third Goal Detector (2-Goal Ceiling)
+                        </CardTitle>
+                        <CardDescription>
+                          Distinguishes 2-goal games from 3+ goal games within pre-filtered selections
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          <div className={`text-center p-4 rounded-lg ${
+                            thirdGoalResult.tier === 'GOAL RICH' ? 'bg-green-100 dark:bg-green-800/30' :
+                            thirdGoalResult.tier === 'GOAL LIKELY' ? 'bg-teal-100 dark:bg-teal-800/30' :
+                            thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'bg-orange-100 dark:bg-orange-800/30' :
+                            thirdGoalResult.tier === 'GOAL THIN' ? 'bg-yellow-100 dark:bg-yellow-800/30' :
+                            'bg-red-100 dark:bg-red-800/30'
+                          }`}>
+                            <p className={`text-2xl font-bold ${
+                              thirdGoalResult.tier === 'GOAL RICH' ? 'text-green-600' :
+                              thirdGoalResult.tier === 'GOAL LIKELY' ? 'text-teal-600' :
+                              thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'text-orange-600' :
+                              thirdGoalResult.tier === 'GOAL THIN' ? 'text-yellow-600' :
+                              'text-red-500'
+                            }`}>
+                              {thirdGoalResult.tier === 'GOAL RICH' ? '🟢' : thirdGoalResult.tier === 'GOAL LIKELY' ? '🟢' : thirdGoalResult.tier === 'GOAL BORDERLINE' ? '🟠' : thirdGoalResult.tier === 'GOAL THIN' ? '🟡' : '🔴'} {thirdGoalResult.tier}
+                            </p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Score: {thirdGoalResult.score}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1 font-medium">
+                              {thirdGoalResult.recommendation}
+                            </p>
+                          </div>
+
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+                            <p className="font-semibold text-muted-foreground mb-2">Key Factors:</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1 text-xs">
+                              <div>Combined xG: <strong>{combinedXgTotal.toFixed(2)}</strong> {combinedXgTotal > 3.0 ? '(🟢 high)' : combinedXgTotal >= 2.5 ? '(🟡 moderate)' : '(🔴 low)'}</div>
+                              <div>Fav Odds: <strong>{favoriteOdds ? favoriteOdds.toFixed(2) : 'N/A'}</strong> {favoriteOdds && favoriteOdds >= 1.80 && favoriteOdds <= 2.50 ? '(🟢 competitive)' : ''}</div>
+                              <div>Home SOT/G: <strong>{homeAvgSot ? homeAvgSot.toFixed(1) : 'N/A'}</strong> {homeAvgSot && homeAvgSot > 5.5 ? '(🟢)' : ''}</div>
+                              <div>Away SOT/G: <strong>{awayAvgSot ? awayAvgSot.toFixed(1) : 'N/A'}</strong> {awayAvgSot && awayAvgSot > 5.5 ? '(🟢)' : ''}</div>
+                            </div>
+                          </div>
+
+                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+                            <p className="font-semibold text-muted-foreground mb-1">Goal Tier Guide:</p>
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-1 text-xs">
+                              <div className="p-1 rounded bg-green-50 dark:bg-green-900/20"><strong>RICH</strong> (6+)</div>
+                              <div className="p-1 rounded bg-teal-50 dark:bg-teal-900/20"><strong>LIKELY</strong> (4-5)</div>
+                              <div className="p-1 rounded bg-orange-50 dark:bg-orange-900/20"><strong>BORDER</strong> (2-3)</div>
+                              <div className="p-1 rounded bg-yellow-50 dark:bg-yellow-900/20"><strong>THIN</strong> (0-1)</div>
+                              <div className="p-1 rounded bg-red-50 dark:bg-red-900/20"><strong>STALL</strong> (&lt;0)</div>
+                            </div>
                           </div>
                         </div>
                       </CardContent>

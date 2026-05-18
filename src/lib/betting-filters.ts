@@ -1353,3 +1353,377 @@ export function applyBlowoutQualifier(
     reason,
   };
 }
+
+// ============================================================================
+// BTTS Dual-Team Qualification System
+// ============================================================================
+// BTTS requires BOTH teams to score — the match-level signal combo (Regression
+// Under + Z-Score Neutral + xG Over) correctly identifies "goals are coming"
+// but tends to surface ONE-SIDED regressions (one team due for a breakout).
+// This system evaluates each team independently and produces a BTTS-specific
+// conviction tier that is separate from the Over goal thesis.
+// ============================================================================
+
+/** BTTS qualification tiers */
+export type BttsQualificationTier = 'BTTS STRONG' | 'BTTS QUALIFIED' | 'BTTS WEAK' | 'BTTS AVOID';
+
+/** Per-team signal data for BTTS qualification */
+export interface BttsQualificationInput {
+  /** Home team regression signal (Under/Strong Under/Neutral/Over/Strong Over) */
+  homeRegressionSignal: string;
+  /** Away team regression signal */
+  awayRegressionSignal: string;
+  /** Home team xG overperformance diff (positive = overperforming, negative = underperforming) */
+  homeXgDiff: number;
+  /** Away team xG overperformance diff */
+  awayXgDiff: number;
+  /** Home team Z-Score (negative = underperforming, positive = overperforming) */
+  homeZScore: number;
+  /** Away team Z-Score */
+  awayZScore: number;
+  /** Home team SOT conversion rate (%) */
+  homeSotConversion: number | null;
+  /** Away team SOT conversion rate (%) */
+  awaySotConversion: number | null;
+  /** Favorite odds (decimal) — lower = bigger favorite */
+  favoriteOdds: number | null;
+}
+
+/** BTTS qualification result */
+export interface BttsQualificationResult {
+  tier: BttsQualificationTier;
+  score: number;
+  breakdown: { check: string; points: number; passed: boolean }[];
+  bttsCap: number; // Max BTTS probability allowed at this tier
+}
+
+/**
+ * Classify a per-team regression deviation into a signal label.
+ * Uses the same thresholds as REGRESSION_THRESHOLDS.perTeam.
+ */
+export function classifyPerTeamRegressionSignal(combinedSignal: number): string {
+  if (combinedSignal <= -0.8) return 'Strong Over';
+  if (combinedSignal <= -0.3) return 'Over';
+  if (combinedSignal >= 0.8) return 'Strong Under';
+  if (combinedSignal >= 0.3) return 'Under';
+  return 'Neutral';
+}
+
+/**
+ * Classify a per-team xG diff into a signal label.
+ * Uses the same thresholds as XG_THRESHOLDS applied per-team.
+ */
+export function classifyPerTeamXgSignal(xgDiff: number): string {
+  if (xgDiff <= -1.0) return 'Strong Over';
+  if (xgDiff <= -0.5) return 'Over';
+  if (xgDiff >= 1.0) return 'Strong Under';
+  if (xgDiff >= 0.5) return 'Under';
+  return 'Neutral';
+}
+
+/**
+ * Classify a per-team Z-Score into a signal label.
+ * Negative Z = underperforming recently (goals expected to rise).
+ */
+export function classifyPerTeamZScoreSignal(zScore: number): string {
+  if (zScore <= -1.5) return 'Strong Over';
+  if (zScore <= -1.0) return 'Over';
+  if (zScore >= 1.5) return 'Strong Under';
+  if (zScore >= 1.0) return 'Under';
+  return 'Neutral';
+}
+
+/**
+ * Compute BTTS qualification using dual-team signal checks.
+ *
+ * Evaluates each team independently to determine whether BOTH teams are likely
+ * to score. Returns a tier that caps BTTS probability independently from the
+ * Over goal thesis.
+ *
+ * Tier mapping:
+ *   5+ → BTTS STRONG   (cap 70%) — both teams individually qualify
+ *   3–4 → BTTS QUALIFIED (cap 55%) — mild BTTS confidence
+ *   1–2 → BTTS WEAK     (cap 40%) — one-sided regression likely
+ *   ≤0  → BTTS AVOID    (cap 25%) — do not bet BTTS
+ */
+export function computeBTTSQualification(input: BttsQualificationInput): BttsQualificationResult {
+  let score = 0;
+  const checks: { check: string; points: number; passed: boolean }[] = [];
+
+  const isRegressionUnder = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+  const isXgOver = (diff: number) => diff <= -0.5; // underperforming xG = goals due
+  const isZCold = (z: number) => z >= 1.0; // overperforming Z = cold streak coming
+  const isZNeutralOrBetter = (z: number) => z < 1.0; // not overheated
+
+  // Check 1: BOTH teams Regression Under/Strong Under — double regression = both due
+  const bothRegUnder = isRegressionUnder(input.homeRegressionSignal) && isRegressionUnder(input.awayRegressionSignal);
+  const oneRegUnder = isRegressionUnder(input.homeRegressionSignal) || isRegressionUnder(input.awayRegressionSignal);
+  if (bothRegUnder) {
+    score += 3;
+    checks.push({ check: 'Both teams Regression Under/StrongUnder', points: 3, passed: true });
+  } else if (oneRegUnder) {
+    score += 1;
+    checks.push({ check: 'One team Regression Under/StrongUnder', points: 1, passed: true });
+  } else {
+    checks.push({ check: 'Both teams Regression Under/StrongUnder', points: 3, passed: false });
+  }
+
+  // Check 2: BOTH teams xG Over (underperforming xG = creating chances, finishing due)
+  const bothXgOver = isXgOver(input.homeXgDiff) && isXgOver(input.awayXgDiff);
+  if (bothXgOver) {
+    score += 2;
+    checks.push({ check: 'Both teams xG Over (underperforming)', points: 2, passed: true });
+  } else {
+    checks.push({ check: 'Both teams xG Over (underperforming)', points: 2, passed: false });
+  }
+
+  // Check 3: BOTH teams Z-Score not overheated
+  const bothZOk = isZNeutralOrBetter(input.homeZScore) && isZNeutralOrBetter(input.awayZScore);
+  if (bothZOk) {
+    score += 1;
+    checks.push({ check: 'Both teams Z-Score Neutral/better', points: 1, passed: true });
+  } else {
+    checks.push({ check: 'Both teams Z-Score Neutral/better', points: 1, passed: false });
+  }
+
+  // Check 4: Competitive matchup (favorite odds 1.80–2.50)
+  if (input.favoriteOdds && input.favoriteOdds >= 1.80 && input.favoriteOdds <= 2.50) {
+    score += 1;
+    checks.push({ check: 'Competitive matchup (odds 1.80-2.50)', points: 1, passed: true });
+  } else {
+    checks.push({ check: 'Competitive matchup (odds 1.80-2.50)', points: 1, passed: false });
+  }
+
+  // Penalty 5: Massive favorite (≤1.50) — one side dominates, BTTS unlikely
+  if (input.favoriteOdds && input.favoriteOdds <= 1.50) {
+    score -= 2;
+    checks.push({ check: 'Massive favorite (odds ≤1.50)', points: -2, passed: true });
+  } else {
+    checks.push({ check: 'Massive favorite (odds ≤1.50)', points: -2, passed: false });
+  }
+
+  // Penalty 6: Either team can't finish (SOT conversion <25%)
+  const homeCantFinish = input.homeSotConversion !== null && input.homeSotConversion < 25;
+  const awayCantFinish = input.awaySotConversion !== null && input.awaySotConversion < 25;
+  if (homeCantFinish) score -= 1;
+  if (awayCantFinish) score -= 1;
+  checks.push({
+    check: `Home SOT conversion ${homeCantFinish ? '< 25%' : '≥ 25%'}${input.homeSotConversion !== null ? ` (${input.homeSotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+    points: -1,
+    passed: !homeCantFinish,
+  });
+  checks.push({
+    check: `Away SOT conversion ${awayCantFinish ? '< 25%' : '≥ 25%'}${input.awaySotConversion !== null ? ` (${input.awaySotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+    points: -1,
+    passed: !awayCantFinish,
+  });
+
+  // Penalty 7: Either team in a strong cold Z-Score streak
+  const homeCold = isZCold(input.homeZScore);
+  const awayCold = isZCold(input.awayZScore);
+  if (homeCold) score -= 2;
+  if (awayCold) score -= 2;
+  checks.push({
+    check: `Home Z-Score ${homeCold ? 'cold (≥1.0)' : 'ok'}`,
+    points: -2,
+    passed: !homeCold,
+  });
+  checks.push({
+    check: `Away Z-Score ${awayCold ? 'cold (≥1.0)' : 'ok'}`,
+    points: -2,
+    passed: !awayCold,
+  });
+
+  // Determine tier
+  let tier: BttsQualificationTier;
+  let bttsCap: number;
+  if (score >= 5) {
+    tier = 'BTTS STRONG';
+    bttsCap = 70;
+  } else if (score >= 3) {
+    tier = 'BTTS QUALIFIED';
+    bttsCap = 55;
+  } else if (score >= 1) {
+    tier = 'BTTS WEAK';
+    bttsCap = 40;
+  } else {
+    tier = 'BTTS AVOID';
+    bttsCap = 25;
+  }
+
+  return { tier, score, breakdown: checks, bttsCap };
+}
+
+// ============================================================================
+// Third Goal (2-Goal Ceiling) Detector
+// ============================================================================
+// 85.7% Over 1.5 but only 57.1% Over 2.5 — the 28.6pp gap means ~1 in 3
+// qualified picks stall at exactly 2 goals. This qualifier identifies whether
+// there's enough sustained pressure on BOTH sides to break through the 2-goal
+// ceiling and reach 3+ goals.
+// ============================================================================
+
+/** Goal tier classification */
+export type GoalTier = 'GOAL RICH' | 'GOAL LIKELY' | 'GOAL BORDERLINE' | 'GOAL THIN' | 'GOAL STALL';
+
+/** Input for Third Goal qualifier */
+export interface ThirdGoalQualifierInput {
+  /** Combined xG total per game (home xG/game + away xG/game) */
+  combinedXgTotal: number;
+  /** Home team regression signal */
+  homeRegressionSignal: string;
+  /** Away team regression signal */
+  awayRegressionSignal: string;
+  /** Home team xG signal label */
+  homeXgSignal: string;
+  /** Away team xG signal label */
+  awayXgSignal: string;
+  /** Home team average SOT per game */
+  homeAvgSot: number | null;
+  /** Away team average SOT per game */
+  awayAvgSot: number | null;
+  /** Favorite odds (decimal) — lower = bigger favorite */
+  favoriteOdds: number | null;
+  /** Home team SOT conversion rate (%) */
+  homeSotConversion: number | null;
+  /** Away team SOT conversion rate (%) */
+  awaySotConversion: number | null;
+}
+
+/** Third Goal qualifier result */
+export interface ThirdGoalQualifierResult {
+  tier: GoalTier;
+  score: number;
+  breakdown: { check: string; points: number; passed: boolean }[];
+  recommendation: string;
+}
+
+/**
+ * Compute Third Goal qualifier — distinguishes "2-goal games" from "3+ goal games"
+ * within pre-filtered selections.
+ *
+ * Tier mapping:
+ *   6+  → GOAL RICH      — Full confidence on Over 2.5, consider Over 3.5
+ *   4–5 → GOAL LIKELY    — Solid Over 2.5 bet
+ *   2–3 → GOAL BORDERLINE — Over 1.5 strong, Over 2.5 cautious
+ *   0–1 → GOAL THIN      — Over 1.5 only, skip Over 2.5
+ *   <0  → GOAL STALL     — Likely 1-2 goals, avoid Over markets above 1.5
+ */
+export function computeThirdGoalQualifier(input: ThirdGoalQualifierInput): ThirdGoalQualifierResult {
+  let score = 0;
+  const checks: { check: string; points: number; passed: boolean }[] = [];
+
+  const isRegressionUnder = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+  const isXgOver = (sig: string) => sig === 'Over' || sig === 'Strong Over';
+
+  // Check 1: Combined xG > 3.0 (very high chance creation)
+  if (input.combinedXgTotal > 3.0) {
+    score += 3;
+    checks.push({ check: `Combined xG ${input.combinedXgTotal.toFixed(2)} > 3.0`, points: 3, passed: true });
+  } else if (input.combinedXgTotal >= 2.5) {
+    score += 1;
+    checks.push({ check: `Combined xG ${input.combinedXgTotal.toFixed(2)} in 2.5-3.0`, points: 1, passed: true });
+  } else {
+    checks.push({ check: `Combined xG ${input.combinedXgTotal.toFixed(2)} < 2.5`, points: 3, passed: false });
+  }
+
+  // Check 2: BOTH teams Regression Under (double regression)
+  const bothRegUnder = isRegressionUnder(input.homeRegressionSignal) && isRegressionUnder(input.awayRegressionSignal);
+  if (bothRegUnder) {
+    score += 2;
+    checks.push({ check: 'Both teams Regression Under', points: 2, passed: true });
+  } else {
+    checks.push({ check: 'Both teams Regression Under', points: 2, passed: false });
+  }
+
+  // Check 3: BOTH teams xG Over (both creating chances)
+  const bothXgOver = isXgOver(input.homeXgSignal) && isXgOver(input.awayXgSignal);
+  if (bothXgOver) {
+    score += 2;
+    checks.push({ check: 'Both teams xG Over', points: 2, passed: true });
+  } else {
+    checks.push({ check: 'Both teams xG Over', points: 2, passed: false });
+  }
+
+  // Check 4: BOTH teams average SOT > 5.5 (sustained pressure)
+  const homeHighSot = input.homeAvgSot !== null && input.homeAvgSot > 5.5;
+  const awayHighSot = input.awayAvgSot !== null && input.awayAvgSot > 5.5;
+  if (homeHighSot && awayHighSot) {
+    score += 2;
+    checks.push({ check: `Both teams SOT > 5.5 (${input.homeAvgSot?.toFixed(1)} / ${input.awayAvgSot?.toFixed(1)})`, points: 2, passed: true });
+  } else if (homeHighSot || awayHighSot) {
+    checks.push({ check: `One team SOT > 5.5 (${input.homeAvgSot?.toFixed(1) ?? 'N/A'} / ${input.awayAvgSot?.toFixed(1) ?? 'N/A'})`, points: 2, passed: false });
+  } else {
+    checks.push({ check: `Neither team SOT > 5.5 (${input.homeAvgSot?.toFixed(1) ?? 'N/A'} / ${input.awayAvgSot?.toFixed(1) ?? 'N/A'})`, points: 2, passed: false });
+  }
+
+  // Check 5: Balanced xG (within 0.8 of each other) — competitive game
+  // We check if xG signals are similar (not one-sided)
+  const xgBalanced = isXgOver(input.homeXgSignal) === isXgOver(input.awayXgSignal);
+  if (xgBalanced) {
+    score += 1;
+    checks.push({ check: 'xG signals balanced (both teams similar)', points: 1, passed: true });
+  } else {
+    checks.push({ check: 'xG signals lopsided (one-sided)', points: 1, passed: false });
+  }
+
+  // Check 6: Favorite odds 1.80–2.50 (open competitive game)
+  if (input.favoriteOdds && input.favoriteOdds >= 1.80 && input.favoriteOdds <= 2.50) {
+    score += 1;
+    checks.push({ check: 'Competitive matchup (odds 1.80-2.50)', points: 1, passed: true });
+  } else {
+    checks.push({ check: 'Not a competitive matchup', points: 1, passed: false });
+  }
+
+  // Penalty 7: Lopsided xG (one team xG Over, other not)
+  if (!xgBalanced) {
+    score -= 1;
+    // Already counted in check 5 as non-passed, no duplicate
+  }
+
+  // Penalty 8: Massive favorite (≤1.50) — might be controlled 2-0
+  if (input.favoriteOdds && input.favoriteOdds <= 1.50) {
+    score -= 1;
+    checks.push({ check: 'Massive favorite (odds ≤1.50) — controlled game risk', points: -1, passed: true });
+  } else {
+    checks.push({ check: 'Massive favorite risk', points: -1, passed: false });
+  }
+
+  // Penalty 9: Either team can't finish (SOT conversion <25%)
+  const homeCantFinish = input.homeSotConversion !== null && input.homeSotConversion < 25;
+  const awayCantFinish = input.awaySotConversion !== null && input.awaySotConversion < 25;
+  if (homeCantFinish) score -= 1;
+  if (awayCantFinish) score -= 1;
+  checks.push({
+    check: `Home SOT conversion ${homeCantFinish ? '< 25%' : '≥ 25%'}${input.homeSotConversion !== null ? ` (${input.homeSotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+    points: -1,
+    passed: !homeCantFinish,
+  });
+  checks.push({
+    check: `Away SOT conversion ${awayCantFinish ? '< 25%' : '≥ 25%'}${input.awaySotConversion !== null ? ` (${input.awaySotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+    points: -1,
+    passed: !awayCantFinish,
+  });
+
+  // Determine tier
+  let tier: GoalTier;
+  let recommendation: string;
+  if (score >= 6) {
+    tier = 'GOAL RICH';
+    recommendation = 'Full confidence on Over 2.5, consider Over 3.5';
+  } else if (score >= 4) {
+    tier = 'GOAL LIKELY';
+    recommendation = 'Solid Over 2.5 bet';
+  } else if (score >= 2) {
+    tier = 'GOAL BORDERLINE';
+    recommendation = 'Over 1.5 strong, Over 2.5 cautious';
+  } else if (score >= 0) {
+    tier = 'GOAL THIN';
+    recommendation = 'Over 1.5 only, skip Over 2.5';
+  } else {
+    tier = 'GOAL STALL';
+    recommendation = 'Likely 1-2 goals, avoid Over markets above 1.5';
+  }
+
+  return { tier, score, breakdown: checks, recommendation };
+}

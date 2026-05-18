@@ -15,6 +15,8 @@ import {
   computeBttsChecklistLabels, computeOver35ChecklistLabels,
   computeStrongBet, computeGreyResult, computeGoalFest,
   applyBlowoutQualifier, computeTeamAvgOdds,
+  computeBTTSQualification, computeThirdGoalQualifier,
+  classifyPerTeamRegressionSignal, classifyPerTeamXgSignal, classifyPerTeamZScoreSignal,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
 
@@ -748,6 +750,65 @@ export default function ModelsTab({
                             const goalFestData = computeGoalFest(checklistInput, signalInput, resolved);
                             const goalFestIndicator = goalFestData.isGoalFest ? 'GOAL FEST' : `${goalFestData.score}/${goalFestData.totalChecks} checks`;
 
+                            // ---- BTTS Dual-Team Qualification + Third Goal Detector ----
+                            const csvHomeRegDeviation = homeReg.combinedSignal || 0;
+                            const csvAwayRegDeviation = awayReg.combinedSignal || 0;
+                            const csvHomeRegSignal = classifyPerTeamRegressionSignal(csvHomeRegDeviation);
+                            const csvAwayRegSignal = classifyPerTeamRegressionSignal(csvAwayRegDeviation);
+
+                            const csvHomeXgDiff = homeXgData && awayXgData
+                              ? (homeXgData.actualGoals / homeXgData.matches) - (homeXgData.totalXg / homeXgData.matches)
+                              : 0;
+                            const csvAwayXgDiff = homeXgData && awayXgData
+                              ? (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches)
+                              : 0;
+                            const csvHomeXgSignal = classifyPerTeamXgSignal(csvHomeXgDiff);
+                            const csvAwayXgSignal = classifyPerTeamXgSignal(csvAwayXgDiff);
+
+                            // Extract per-team Z-Scores (already computed above)
+                            const csvHomeZ = homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3 && homeZStats.stdDev > 0
+                              ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev : 0;
+                            const csvAwayZ = homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3 && awayZStats.stdDev > 0
+                              ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev : 0;
+
+                            const csvHomeSotConv = homeXgData && homeXgData.shotsOnTarget > 0
+                              ? (homeXgData.actualGoals / homeXgData.shotsOnTarget) * 100 : null;
+                            const csvAwaySotConv = awayXgData && awayXgData.shotsOnTarget > 0
+                              ? (awayXgData.actualGoals / awayXgData.shotsOnTarget) * 100 : null;
+                            const csvHomeAvgSot = homeXgData && homeXgData.matches > 0
+                              ? homeXgData.shotsOnTarget / homeXgData.matches : null;
+                            const csvAwayAvgSot = awayXgData && awayXgData.matches > 0
+                              ? awayXgData.shotsOnTarget / awayXgData.matches : null;
+
+                            const csvFavoriteOdds = csvHomeAvgOdds && csvAwayAvgOdds ? Math.min(csvHomeAvgOdds, csvAwayAvgOdds) : null;
+                            const csvCombinedXg = homeXgData && awayXgData
+                              ? (homeXgData.totalXg / homeXgData.matches) + (awayXgData.totalXg / awayXgData.matches) : 0;
+
+                            const csvBttsQual = computeBTTSQualification({
+                              homeRegressionSignal: csvHomeRegSignal,
+                              awayRegressionSignal: csvAwayRegSignal,
+                              homeXgDiff: csvHomeXgDiff,
+                              awayXgDiff: csvAwayXgDiff,
+                              homeZScore: csvHomeZ,
+                              awayZScore: csvAwayZ,
+                              homeSotConversion: csvHomeSotConv,
+                              awaySotConversion: csvAwaySotConv,
+                              favoriteOdds: csvFavoriteOdds,
+                            });
+
+                            const csvThirdGoal = computeThirdGoalQualifier({
+                              combinedXgTotal: csvCombinedXg,
+                              homeRegressionSignal: csvHomeRegSignal,
+                              awayRegressionSignal: csvAwayRegSignal,
+                              homeXgSignal: csvHomeXgSignal,
+                              awayXgSignal: csvAwayXgSignal,
+                              homeAvgSot: csvHomeAvgSot,
+                              awayAvgSot: csvAwayAvgSot,
+                              favoriteOdds: csvFavoriteOdds,
+                              homeSotConversion: csvHomeSotConv,
+                              awaySotConversion: csvAwaySotConv,
+                            });
+
                             // Build CSV row with exact headers
                             const headers = [
                               'League',
@@ -772,7 +833,11 @@ export default function ModelsTab({
                               'Avg SOT Conversion %',
                               'Strong Bet',
                               'Grey Result Predictor',
-                              'Goal Fest'
+                              'Goal Fest',
+                              'BTTS Qualification Tier',
+                              'BTTS Qual Score',
+                              'Third Goal Tier',
+                              'Third Goal Score'
                             ]
 
                             // Format check lists for export - matching display exactly
@@ -802,7 +867,11 @@ export default function ModelsTab({
                               `${homeTeamData && homeTeamData.shotsOnTarget > 0 && awayTeamData && awayTeamData.shotsOnTarget > 0 ? (((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) + (awayTeamData.goalsScored / awayTeamData.shotsOnTarget)) / 2 * 100).toFixed(1) : 'N/A'}%`,
                               strongBetIndicator,
                               greyResultIndicator,
-                              goalFestIndicator
+                              goalFestIndicator,
+                              csvBttsQual.tier,
+                              `${csvBttsQual.score}`,
+                              csvThirdGoal.tier,
+                              `${csvThirdGoal.score}`
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')
