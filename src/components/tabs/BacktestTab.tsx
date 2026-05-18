@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Target, Goal, TrendingUp, RefreshCw, DollarSign, FlaskConical } from 'lucide-react'
 import type { BacktestTabProps } from './types'
-import { COLORS, SEASON_NAMES } from '@/lib/constants'
+import { COLORS, SEASON_NAMES, EUROPEAN_SEASONS } from '@/lib/constants'
 import { registerBacktestThresholds } from '@/lib/betting-filters'
 
 export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues }: BacktestTabProps) {
@@ -115,15 +115,21 @@ export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues
     }
   } | null>(null)
 
+  // Derive training seasons dynamically from the shared EUROPEAN_SEASONS list,
+  // using all seasons that come before the selected test season.
+  const getTrainingSeasons = (testSeason: string): string => {
+    const priorSeasons = EUROPEAN_SEASONS.filter(s => s < testSeason)
+    const count = backtestTraining === 'all' ? priorSeasons.length
+               : backtestTraining === '5' ? 5
+               : 3
+    return priorSeasons.slice(-count).join(',')
+  }
+
   const runBacktest = async () => {
     setBacktestLoading(true)
     setBacktestResult(null)
     try {
-      const trainingSeasons = backtestTraining === 'all'
-        ? '1516,1617,1718,1819,1920,2021,2122,2223'
-        : backtestTraining === '5'
-          ? '1819,1920,2021,2122,2223'
-          : '2021,2122,2223'
+      const trainingSeasons = getTrainingSeasons(backtestTestSeason)
 
       const res = await fetch(`/api/soccer/backtest?league=${selectedLeague}&testSeason=${backtestTestSeason}&trainingSeasons=${trainingSeasons}`)
       if (!res.ok) throw new Error('Backtest failed')
@@ -175,11 +181,9 @@ export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues
                   <SelectValue placeholder="Select season" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="2324">2023-24</SelectItem>
-                  <SelectItem value="2223">2022-23</SelectItem>
-                  <SelectItem value="2122">2021-22</SelectItem>
-                  <SelectItem value="2021">2020-21</SelectItem>
-                  <SelectItem value="1920">2019-20</SelectItem>
+                  {EUROPEAN_SEASONS.map(code => (
+                    <SelectItem key={code} value={code}>{SEASON_NAMES[code]}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
