@@ -679,6 +679,90 @@ export default function PredictionsTab({
                     && isTightH2H;
 
                   // ============================================================
+                  // FP1-Style Parallel Signal — Scored-Only Regression + Z-Score
+                  // ============================================================
+                  // Mirrors Techmari Pro FP1 logic: measures offensive output only
+                  // (not blended offense+defense), uses simple per-team direction
+                  // and simple majority Z-Score combination.
+                  // Runs as a PARALLEL path — does NOT affect existing signals.
+
+                  // --- FP1 Scored-Only Regression (per team) ---
+                  const buildFP1ScoredStats = (teamName: string) => {
+                    const matches = sortedResultsForRegression.filter(r =>
+                      r.homeTeam === teamName || r.awayTeam === teamName
+                    );
+                    if (matches.length === 0) return null;
+                    const goalsPerMatch = matches.map(m =>
+                      m.homeTeam === teamName ? m.ftHomeGoals : m.ftAwayGoals
+                    );
+                    const mean = goalsPerMatch.reduce((a, b) => a + b, 0) / goalsPerMatch.length;
+                    const last3 = goalsPerMatch.slice(-3);
+                    const last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+                    const deviation = mean > 0 ? ((last3Avg - mean) / mean) * 100 : 0;
+                    // FP1 thresholds: < -15% = regression UP, > +15% = regression DOWN
+                    const direction = deviation < -15 ? 'up' : deviation > 15 ? 'down' : 'neutral';
+                    return { mean, last3Avg, deviation, direction, matches: matches.length };
+                  };
+
+                  const homeFP1Reg = buildFP1ScoredStats(predHomeTeam);
+                  const awayFP1Reg = buildFP1ScoredStats(predAwayTeam);
+
+                  // FP1 Combined Regression with Mixed states
+                  let fp1RegressionLabel = 'Neutral';
+                  if (homeFP1Reg && awayFP1Reg) {
+                    if (homeFP1Reg.direction === 'up' && awayFP1Reg.direction === 'up') {
+                      fp1RegressionLabel = 'Strong Over';
+                    } else if (homeFP1Reg.direction === 'down' && awayFP1Reg.direction === 'down') {
+                      fp1RegressionLabel = 'Strong Under';
+                    } else if (homeFP1Reg.direction === 'up' || awayFP1Reg.direction === 'up') {
+                      fp1RegressionLabel = 'Mixed (Over Lean)';
+                    } else if (homeFP1Reg.direction === 'down' || awayFP1Reg.direction === 'down') {
+                      fp1RegressionLabel = 'Mixed (Under Lean)';
+                    }
+                  }
+
+                  // --- FP1 Scored-Only Z-Score (per team) ---
+                  const buildFP1ZScore = (teamName: string) => {
+                    const matches = sortedResultsForRegression.filter(r =>
+                      r.homeTeam === teamName || r.awayTeam === teamName
+                    );
+                    if (matches.length < 3) return null;
+                    const goalsPerMatch = matches.map(m =>
+                      m.homeTeam === teamName ? m.ftHomeGoals : m.ftAwayGoals
+                    );
+                    const mean = goalsPerMatch.reduce((a, b) => a + b, 0) / matches.length;
+                    const stdDev = Math.sqrt(
+                      goalsPerMatch.map(g => Math.pow(g - mean, 2)).reduce((a, b) => a + b, 0) / matches.length
+                    );
+                    const last3 = goalsPerMatch.slice(-3);
+                    const last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+                    const zScore = stdDev > 0 ? (last3Avg - mean) / stdDev : 0;
+                    // FP1 thresholds: < -1.0 = up (underperforming), > +1.0 = down (overperforming)
+                    const direction = zScore < -1.0 ? 'up' : zScore > 1.0 ? 'down' : 'neutral';
+                    return { zScore, mean, stdDev, direction, last3Avg, matches: matches.length };
+                  };
+
+                  const homeFP1Z = buildFP1ZScore(predHomeTeam);
+                  const awayFP1Z = buildFP1ZScore(predAwayTeam);
+
+                  // FP1 Combined Z-Score — simple majority
+                  let fp1ZScoreLabel = 'Neutral';
+                  if (homeFP1Z && awayFP1Z) {
+                    if (homeFP1Z.direction === 'up' && awayFP1Z.direction === 'up') {
+                      fp1ZScoreLabel = 'Strong Over';
+                    } else if (homeFP1Z.direction === 'down' && awayFP1Z.direction === 'down') {
+                      fp1ZScoreLabel = 'Strong Under';
+                    } else if (homeFP1Z.direction === 'up' || awayFP1Z.direction === 'up') {
+                      fp1ZScoreLabel = 'Mixed (Over Lean)';
+                    } else if (homeFP1Z.direction === 'down' || awayFP1Z.direction === 'down') {
+                      fp1ZScoreLabel = 'Mixed (Under Lean)';
+                    }
+                  }
+
+                  // FP1 SIGNAL: Mixed (Over Lean) Regression + Z-Score Neutral
+                  const isFP1Signal = fp1RegressionLabel === 'Mixed (Over Lean)' && fp1ZScoreLabel === 'Neutral';
+
+                  // ============================================================
                   // Dominant Team Detector — One-Sided Demolition Flag
                   // ============================================================
                   const favoriteOddsValue = homeAvgOdds && awayAvgOdds ? Math.min(homeAvgOdds, awayAvgOdds) : null;
@@ -855,6 +939,33 @@ export default function PredictionsTab({
                             <p className="text-xs text-teal-600 dark:text-teal-400 mt-1">
                               Strong Over trend (Reg + xG), Z-Score Neutral, tight last H2H ({lastH2HScoreline})
                             </p>
+                          </div>
+                        )}
+                        {/* FP1-Style Parallel Signal Badge */}
+                        {isFP1Signal && (
+                          <div className="mt-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700">
+                            <p className="text-sm font-bold text-green-700 dark:text-green-300">
+                              FP1 Signal: {fp1RegressionLabel} + {fp1ZScoreLabel}
+                            </p>
+                            <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                              Scored-only regression: one team due to bounce back, no statistical counter-force from Z-Score. FP1 O2.5 sweet spot.
+                            </p>
+                            <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                              <div className="bg-white/60 dark:bg-gray-800/40 rounded p-1.5">
+                                <span className="text-muted-foreground">FP1 Regression:</span>{' '}
+                                <span className="font-semibold text-green-700">{fp1RegressionLabel}</span>
+                              </div>
+                              <div className="bg-white/60 dark:bg-gray-800/40 rounded p-1.5">
+                                <span className="text-muted-foreground">FP1 Z-Score:</span>{' '}
+                                <span className="font-semibold text-green-700">{fp1ZScoreLabel}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {/* FP1 Reference (shown when FP1 signals are active but not the exact combo) */}
+                        {fp1RegressionLabel && fp1RegressionLabel !== 'Neutral' && !isFP1Signal && (
+                          <div className="mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 text-xs text-muted-foreground">
+                            <span className="font-medium">FP1 Reference:</span> Regression={fp1RegressionLabel}, Z-Score={fp1ZScoreLabel}
                           </div>
                         )}
                         <p className="text-xs text-muted-foreground text-center mt-2">
