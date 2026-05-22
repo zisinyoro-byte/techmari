@@ -49,6 +49,7 @@ export default function PredictionsTab({
   selectedSeason,
   isAllSeasons,
   teamForm,
+  onComboReady,
 }: PredictionsTabProps) {
   // Synced team selection handlers
   const handlePredHomeTeamChange = (team: string) => {
@@ -897,6 +898,39 @@ export default function PredictionsTab({
                     homeSotConversion: homeSotConv,
                     awaySotConversion: awaySotConv,
                   });
+
+                  // ============================================================
+                  // Build 7-signal combo string for Match Backtest tab
+                  // Format: SB:Y | GR:Y | GF:N | BTTS:Strong | GOAL:Rich | MOM:OVER | FP1:N
+                  // ============================================================
+                  if (onComboReady) {
+                    const bttsTierMap: Record<string, string> = {
+                      'BTTS STRONG': 'Strong',
+                      'BTTS QUALIFIED': 'Qualified',
+                      'BTTS WEAK': 'Weak',
+                      'BTTS AVOID': 'Avoid',
+                    };
+                    const bttsTierLabel = bttsTierMap[bttsQualification.tier] || 'Avoid';
+
+                    const goalTierLabel = combinedXgTotal > 3 ? 'Rich'
+                      : combinedXgTotal > 2.5 ? 'Likely'
+                      : combinedXgTotal > 2 ? 'Borderline'
+                      : combinedXgTotal > 1.5 ? 'Thin' : 'Stall';
+
+                    const momLabel = (momentumResult.matchSignal || 'NEUTRAL')
+                      .replace('MOMENTUM ', '');
+
+                    const comboString = [
+                      'SB:' + (isStrongBet ? 'Y' : 'N'),
+                      'GR:' + (isGreyResult ? 'Y' : 'N'),
+                      'GF:' + (isGoalFest ? 'Y' : 'N'),
+                      'BTTS:' + bttsTierLabel,
+                      'GOAL:' + goalTierLabel,
+                      'MOM:' + momLabel,
+                      'FP1:' + (isFP1Signal ? 'Y' : 'N'),
+                    ].join(' | ');
+                    onComboReady(comboString);
+                  }
 
                   return (
                     <>

@@ -60,6 +60,10 @@ export default function Home() {
   // H2H Tracker filter
   const [h2hTrackerSearch, setH2hTrackerSearch] = useState('')
 
+  // Match Backtest combo string (computed by PredictionsTab from real signals)
+  const [comboString, setComboString] = useState<string | null>(null)
+  const handleComboReady = (combo: string) => setComboString(combo)
+
   // Fetch leagues on mount
   useEffect(() => {
     fetch('/api/soccer/leagues')
@@ -146,6 +150,7 @@ export default function Home() {
     setPredLoading(true)
     setPredError(null)
     setPrediction(null) // Clear previous prediction
+    setComboString(null) // Clear previous combo
     try {
       const res = await fetch(`/api/soccer/predict?league=${selectedLeague}&season=${selectedSeason}&homeTeam=${encodeURIComponent(predHomeTeam)}&awayTeam=${encodeURIComponent(predAwayTeam)}`)
       if (!res.ok) {
@@ -360,7 +365,7 @@ export default function Home() {
 
           <TabsContent value="predict" className="space-y-6">
             <ErrorBoundary>
-              <PredictionsTab results={results} analytics={analytics} teams={teams} teamsPerSeason={teamsPerSeason} predHomeTeam={predHomeTeam} predAwayTeam={predAwayTeam} setPredHomeTeam={setPredHomeTeam} setPredAwayTeam={setPredAwayTeam} setTeam1={setTeam1} setTeam2={setTeam2} prediction={prediction} predLoading={predLoading} predError={predError} bookmakerOdds15={bookmakerOdds15} setBookmakerOdds15={setBookmakerOdds15} bookmakerOddsBtts={bookmakerOddsBtts} setBookmakerOddsBtts={setBookmakerOddsBtts} fetchPrediction={fetchPrediction} selectedLeague={selectedLeague} selectedSeason={selectedSeason} isAllSeasons={isAllSeasons} teamForm={teamForm} />
+              <PredictionsTab results={results} analytics={analytics} teams={teams} teamsPerSeason={teamsPerSeason} predHomeTeam={predHomeTeam} predAwayTeam={predAwayTeam} setPredHomeTeam={setPredHomeTeam} setPredAwayTeam={setPredAwayTeam} setTeam1={setTeam1} setTeam2={setTeam2} prediction={prediction} predLoading={predLoading} predError={predError} bookmakerOdds15={bookmakerOdds15} setBookmakerOdds15={setBookmakerOdds15} bookmakerOddsBtts={bookmakerOddsBtts} setBookmakerOddsBtts={setBookmakerOddsBtts} fetchPrediction={fetchPrediction} selectedLeague={selectedLeague} selectedSeason={selectedSeason} isAllSeasons={isAllSeasons} teamForm={teamForm} onComboReady={handleComboReady} />
             </ErrorBoundary>
           </TabsContent>
 
@@ -381,7 +386,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="summary" className="space-y-6">
-            <SummaryTab prediction={prediction} selectedLeagueName={selectedLeagueName} selectedSeasonName={selectedSeasonName} />
+            <SummaryTab prediction={prediction} selectedLeagueName={selectedLeagueName} selectedSeasonName={selectedSeasonName} comboString={comboString} />
           </TabsContent>
         </Tabs>
 

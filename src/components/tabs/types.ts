@@ -118,6 +118,7 @@ export interface PredictionsTabProps {
   selectedSeason: string
   isAllSeasons: boolean
   teamForm: Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>
+  onComboReady?: (combo: string) => void
 }
 
 // Props for ModelsTab

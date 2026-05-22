@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FlaskConical, Target, TrendingUp, AlertTriangle, BarChart3, ChevronRight, Search } from 'lucide-react'
+import type { PredictionResponse } from '@/lib/types'
 
 interface BacktestResult {
   combo: string
@@ -34,96 +35,15 @@ interface BacktestResult {
 }
 
 interface SummaryTabProps {
-  prediction: {
-    prediction?: {
-      homeWin: number
-      draw: number
-      awayWin: number
-      homeXg: number
-      awayXg: number
-      over25: number
-      over35: number
-      over15: number
-      btts: number
-      likelyScore: string
-    } | null
-    homeTeamStats?: Record<string, unknown> | null
-    awayTeamStats?: Record<string, unknown> | null
-  } | null
+  prediction: PredictionResponse | null
   comboString: string | null
   selectedLeagueName?: string
   selectedSeasonName?: string
 }
 
-// Compute a signal combo string from the prediction data
-function computeCombo(pred: NonNullable<SummaryTabProps['prediction']>): string {
-  const p = pred.prediction
-  if (!p) return ''
-  const o25 = p.over25 || 0
-  const o35 = p.over35 || 0
-  const btts = p.btts || 0
-  const homeXg = p.homeXg || 1.3
-  const awayXg = p.awayXg || 1.0
-  const combXg = homeXg + awayXg
-
-  // Strong Bet signal (simplified threshold)
-  let sbPts = 0
-  if (o25 >= 65) sbPts += 2
-  if (o35 >= 42) sbPts += 1
-  if (btts >= 55) sbPts += 1
-  if (combXg >= 2.0) sbPts += 2
-  if (o25 >= 55 && btts >= 50) sbPts += 2
-  sbPts += 1 // neutral z-score baseline
-  if (combXg >= 2.0 && o25 >= 55 && btts >= 50) sbPts += 1
-  const isSB = sbPts >= 7
-
-  // Grey Result signal
-  let grChecks = 0
-  if (o25 >= 55 || true) grChecks++
-  if (true) grChecks++ // z-score neutral
-  if (combXg >= 2.0) grChecks++
-  if (btts >= 45) grChecks++
-  if (btts >= 55) grChecks++
-  if (o25 >= 65) grChecks++
-  if (o35 >= 40) grChecks++
-  if (o35 >= 40) grChecks++
-  const isGR = grChecks >= 7
-
-  // Goal Fest signal
-  let gfChecks = 0
-  if (combXg >= 2.0) gfChecks++
-  if (o25 >= 55 && btts >= 50) gfChecks++
-  if (true) gfChecks++
-  if (o25 >= 55) gfChecks++
-  if (btts >= 55) gfChecks++
-  if (o35 >= 35) gfChecks++
-  const isGF = gfChecks >= 5
-
-  // BTTS tier
-  const bttsTier = btts >= 62 ? 'Strong' : btts >= 55 ? 'Qualified' : btts >= 45 ? 'Weak' : 'Avoid'
-
-  // Goal Detector tier
-  const goalTier = combXg > 3 ? 'Rich' : combXg > 2.5 ? 'Likely' : combXg > 2 ? 'Borderline' : combXg > 1.5 ? 'Thin' : 'Stall'
-
-  // Momentum: always NEUTRAL (form data not available in prediction response)
-  const momTier = 'NEUTRAL'
-
-  // FP1: default false
-  const isFP1 = false
-
-  return [
-    'SB:' + (isSB ? 'Y' : 'N'),
-    'GR:' + (isGR ? 'Y' : 'N'),
-    'GF:' + (isGF ? 'Y' : 'N'),
-    'BTTS:' + bttsTier,
-    'GOAL:' + goalTier,
-    'MOM:' + momTier,
-    'FP1:' + (isFP1 ? 'Y' : 'N'),
-  ].join(' | ')
-}
-
 export default function SummaryTab({
   prediction,
+  comboString,
   selectedLeagueName,
   selectedSeasonName,
 }: SummaryTabProps) {
@@ -133,24 +53,14 @@ export default function SummaryTab({
   const [activeFilter, setActiveFilter] = useState<'all' | 'exact' | 'o25' | 'btts'>('all')
   const fetchRef = useRef<string | null>(null)
 
-  // Derive combo from prediction data directly
-  const combo = useMemo(() => {
-    if (!prediction?.prediction) return null
-    try {
-      return computeCombo(prediction)
-    } catch {
-      return null
-    }
-  }, [prediction])
-
-  // Fetch backtest data when combo changes
+  // Fetch backtest data when comboString changes
   useEffect(() => {
-    if (combo && combo !== fetchRef.current) {
-      fetchRef.current = combo
+    if (comboString && comboString !== fetchRef.current) {
+      fetchRef.current = comboString
       setLoading(true)
       setError(null)
       setBacktestData(null)
-      fetch('/api/soccer/backtest-single?combo=' + encodeURIComponent(combo))
+      fetch('/api/soccer/backtest-single?combo=' + encodeURIComponent(comboString))
         .then(function(res) {
           if (!res.ok) throw new Error('Failed to fetch backtest data')
           return res.json()
@@ -158,12 +68,12 @@ export default function SummaryTab({
         .then(function(data) { setBacktestData(data) })
         .catch(function(err) { setError(err instanceof Error ? err.message : 'Failed to load backtest data') })
         .finally(function() { setLoading(false) })
-    } else if (!combo) {
+    } else if (!comboString) {
       fetchRef.current = null
       setBacktestData(null)
       setError(null)
     }
-  }, [combo])
+  }, [comboString])
 
   const filteredMatches = backtestData ? backtestData.matches.filter(function(m) {
     if (activeFilter === 'exact') return m.predicted === m.score
@@ -180,8 +90,8 @@ export default function SummaryTab({
     return true
   }) : []
 
-  // No prediction yet
-  if (!prediction?.prediction || !combo) {
+  // No combo yet (prediction not run)
+  if (!comboString) {
     return (
       <div className="space-y-6">
         <Card className="border-2 border-dashed border-gray-300 bg-gray-50/50 dark:bg-gray-800/30">
