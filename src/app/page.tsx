@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Trophy, Goal, TrendingUp, RefreshCw, Users, Target, Zap, Dice5, Sparkles, FlaskConical } from 'lucide-react'
+import { Trophy, Goal, TrendingUp, RefreshCw, Users, Target, Zap, Dice5, Sparkles, FlaskConical, History } from 'lucide-react'
 
 // Error boundary for graceful crash handling
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -53,6 +53,9 @@ export default function Home() {
   const [predError, setPredError] = useState<string | null>(null)
   const [bookmakerOdds15, setBookmakerOdds15] = useState<string>('')
   const [bookmakerOddsBtts, setBookmakerOddsBtts] = useState<string>('')
+
+  // Match Backtest combo state
+  const [comboString, setComboString] = useState<string | null>(null)
 
   // Display limit for results table
   const [displayLimit, setDisplayLimit] = useState(100)
@@ -111,6 +114,7 @@ export default function Home() {
         if (predHomeTeam && !newTeams.includes(predHomeTeam)) setPredHomeTeam('')
         if (predAwayTeam && !newTeams.includes(predAwayTeam)) setPredAwayTeam('')
         setPrediction(null)
+        setComboString(null)
       }
     } catch (err) {
       console.error('Failed to fetch teams:', err)
@@ -146,6 +150,7 @@ export default function Home() {
     setPredLoading(true)
     setPredError(null)
     setPrediction(null) // Clear previous prediction
+    setComboString(null)
     try {
       const res = await fetch(`/api/soccer/predict?league=${selectedLeague}&season=${selectedSeason}&homeTeam=${encodeURIComponent(predHomeTeam)}&awayTeam=${encodeURIComponent(predAwayTeam)}`)
       if (!res.ok) {
@@ -158,6 +163,13 @@ export default function Home() {
         throw new Error('Invalid prediction response from server')
       }
       setPrediction(data)
+      // Compute combo string from prediction for Match Backtest tab
+      try {
+        const combo = computeComboFromPrediction(data, results, analytics)
+        if (combo) setComboString(combo)
+      } catch (e) {
+        console.error('Failed to compute combo:', e)
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate prediction'
       setPredError(errorMessage)
@@ -283,6 +295,95 @@ export default function Home() {
     return formMap
   }, [results])
 
+  // Compute signal combo from prediction data (for Match Backtest tab)
+  const computeComboFromPrediction = (pred: PredictionResponse, res: MatchResult[], ana: Analytics | null): string | null => {
+    if (!pred?.prediction || !res.length || !ana) return null
+    const p = pred.prediction
+    // Use the model's probabilities and signals to derive the combo
+    // We approximate the combo using the prediction output values
+    const o25Prob = p.over25 || 0
+    const o35Prob = p.over35 || 0
+    const bttsProb = p.btts || 0
+    // xG signal: based on homeXg and awayXg deviation
+    const homeXg = p.homeXg || 1.3
+    const awayXg = p.awayXg || 1.0
+    // Regression: approximate from team stats
+    const hStats = pred.homeTeamStats
+    const aStats = pred.awayTeamStats
+    // Z-Score: neutral by default when no clear signal
+    // For the backtest lookup, use simplified logic matching the pre-computed data
+    // Strong Bet (7+ points needed)
+    let sbPts = 0
+    if (o25Prob >= 65) sbPts += 2
+    if (o35Prob >= 42) sbPts += 1
+    if (bttsProb >= 55) sbPts += 1
+    // BTTS checklist: estimate from available data
+    const bttsCL = Math.min(7, Math.max(0, Math.round(
+      (ana.avgGoalsPerGame >= 2.7 ? 1 : 0) + (o25Prob >= 55 ? 1 : 0) +
+      (bttsProb >= 55 ? 1 : 0) + (ana.avgHomeGoals >= 1.3 ? 1 : 0) +
+      (ana.avgAwayGoals >= 1.1 ? 1 : 0) + (o25Prob >= 62 ? 1 : 0) +
+      (ana.overallShotConversion >= 11 ? 1 : 0)
+    )))
+    if (bttsCL >= 6) sbPts += 2
+    // For regression and xG signals, check the home/away team stats
+    // These are approximations based on prediction outputs
+    const xgMild = true // default mild state
+    if (xgMild) sbPts += 2
+    // Regression Under: common for strong bets
+    const regUnder = (o25Prob > 55 && bttsProb > 50)
+    if (regUnder) sbPts += 2
+    // Z-Score Neutral
+    const zsNeutral = true // default neutral
+    if (zsNeutral) sbPts += 1
+    // Signal Divergence
+    if (xgMild && regUnder) sbPts += 1
+    const isSB = sbPts >= 7
+    // Grey Result (7/8 checks)
+    let grChecks = 0
+    if (regUnder || true) grChecks++ // Regression Neutral/Under
+    if (zsNeutral) grChecks++ // Z-Score Neutral
+    if (xgMild) grChecks++ // xG Over/Under
+    if (bttsCL >= 5) grChecks++
+    if (bttsProb >= 55) grChecks++
+    if (o25Prob >= 65) grChecks++
+    const o35CL = Math.min(7, Math.max(0, Math.round(
+      (ana.avgGoalsPerGame >= 2.8 ? 1 : 0) + (o35Prob >= 40 ? 1 : 0) +
+      (bttsProb >= 52 ? 1 : 0) + (o25Prob >= 52 ? 1 : 0) +
+      (ana.avgHomeGoals >= 1.4 ? 1 : 0) + (ana.avgAwayGoals >= 1.2 ? 1 : 0) +
+      (ana.overallShotConversion >= 12 ? 1 : 0)
+    )))
+    if (o35CL >= 3) grChecks++
+    if (o35Prob >= 40) grChecks++
+    const isGR = grChecks >= 7
+    // Goal Fest (5/6 checks)
+    let gfChecks = 0
+    if (xgMild) gfChecks++ // xG mild
+    if (regUnder) gfChecks++ // Reg bearish
+    if (zsNeutral) gfChecks++ // Z-Score neutral
+    if (o25Prob >= 55) gfChecks++
+    if (bttsProb >= 55) gfChecks++
+    if (o35Prob >= 35) gfChecks++
+    const isGF = gfChecks >= 5
+    // BTTS Tier: estimate
+    const bttsTier = bttsProb >= 62 ? 'Strong' : bttsProb >= 55 ? 'Qualified' : bttsProb >= 45 ? 'Weak' : 'Avoid'
+    // Goal Detector: estimate from xG
+    const combXg = homeXg + awayXg
+    const goalTier = combXg > 3 ? 'Rich' : combXg > 2.5 ? 'Likely' : combXg > 2 ? 'Borderline' : combXg > 1.5 ? 'Thin' : 'Stall'
+    // Momentum: neutral by default (needs form data not in prediction)
+    const momS = 'NEUTRAL'
+    // FP1: Mixed regression + neutral Z-score
+    const isFP1 = false // default false
+    return [
+      'SB:' + (isSB ? 'Y' : 'N'),
+      'GR:' + (isGR ? 'Y' : 'N'),
+      'GF:' + (isGF ? 'Y' : 'N'),
+      'BTTS:' + bttsTier,
+      'GOAL:' + goalTier,
+      'MOM:' + momS,
+      'FP1:' + (isFP1 ? 'Y' : 'N'),
+    ].join(' | ')
+  }
+
   const selectedLeagueName = leagues.find(l => l.code === selectedLeague)?.name || 'Premier League'
   const selectedSeasonName = selectedSeason === 'all' ? 'All Seasons' : (seasons.find(s => s.code === selectedSeason)?.name || '2025-26')
   const isAllSeasons = selectedSeason === 'all'
@@ -347,7 +448,7 @@ export default function Home() {
             <TabsTrigger value="backtest" className="flex items-center gap-2"><FlaskConical className="w-4 h-4" />Backtest</TabsTrigger>
             <TabsTrigger value="btts-checklist" className="flex items-center gap-2"><Target className="w-4 h-4" />BTTS Check</TabsTrigger>
             <TabsTrigger value="over35-checklist" className="flex items-center gap-2"><Goal className="w-4 h-4" />Over 3.5</TabsTrigger>
-            <TabsTrigger value="summary" className="flex items-center gap-2"><Zap className="w-4 h-4" />Summary</TabsTrigger>
+            <TabsTrigger value="summary" className="flex items-center gap-2"><History className="w-4 h-4" />Match Backtest</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -381,7 +482,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="summary" className="space-y-6">
-            <SummaryTab results={results} analytics={analytics} prediction={prediction} selectedLeague={selectedLeague} selectedSeason={selectedSeason} loading={loading} selectedLeagueName={selectedLeagueName} selectedSeasonName={selectedSeasonName} />
+            <SummaryTab results={results} analytics={analytics} prediction={prediction} selectedLeague={selectedLeague} selectedSeason={selectedSeason} loading={loading} selectedLeagueName={selectedLeagueName} selectedSeasonName={selectedSeasonName} comboString={comboString} />
           </TabsContent>
         </Tabs>
 

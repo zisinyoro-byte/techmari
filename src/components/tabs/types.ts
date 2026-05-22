@@ -29,7 +29,7 @@ export interface Over35TabProps {
   selectedLeagueName: string
 }
 
-// Props for SummaryTab
+// Props for SummaryTab (now Match Backtest)
 export interface SummaryTabProps {
   results: MatchResult[]
   analytics: Analytics | null
@@ -39,6 +39,8 @@ export interface SummaryTabProps {
   loading: boolean
   selectedLeagueName: string
   selectedSeasonName: string
+  comboString: string | null
+  onComboReady?: (combo: string) => void
 }
 
 // Props for OverviewTab
