@@ -392,7 +392,7 @@ export default function Home() {
 
         <footer className="mt-8 text-center text-muted-foreground text-sm">
           <p>Data sourced from <a href="https://www.football-data.co.uk" target="_blank" rel="noopener noreferrer" className="text-green-600 hover:underline">football-data.co.uk</a></p>
-          <p className="mt-1">Historical data includes major European leagues from 2018-2026</p>
+          <p className="mt-1">Historical data includes major European leagues from 2018-2027</p>
         </footer>
       </main>
     </div>

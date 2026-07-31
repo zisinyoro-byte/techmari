@@ -5,9 +5,9 @@
 
 // Season dropdown options for the UI
 export const seasons = [
-  { code: 'all', name: '📋 All Seasons (2015-2026)' },
-  { code: '2526', name: '2025-26 (Current)' },
-  { code: '2425', name: '2024-25' },
+  { code: 'all', name: '📋 All Seasons (2015-2027)' },
+  { code: '2627', name: '2026-27 (Current)' },
+  { code: '2526', name: '2025-26' },
   { code: '2324', name: '2023-24' },
   { code: '2223', name: '2022-23' },
   { code: '2122', name: '2021-22' },
@@ -21,6 +21,7 @@ export const seasons = [
 
 // Season code to display name mapping
 export const SEASON_NAMES: Record<string, string> = {
+  '2627': '2026-27',
   '2526': '2025-26',
   '2425': '2024-25',
   '2324': '2023-24',
@@ -35,8 +36,8 @@ export const SEASON_NAMES: Record<string, string> = {
 }
 
 // European football seasons (Aug-May, cross-year format)
-// 11 seasons from 2015-16 to 2025-26
-export const EUROPEAN_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
+// 12 seasons from 2015-16 to 2026-27
+export const EUROPEAN_SEASONS = ['2627', '2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
 
 // Alias used in predict/route.ts
 export const ALL_SEASONS = EUROPEAN_SEASONS;
