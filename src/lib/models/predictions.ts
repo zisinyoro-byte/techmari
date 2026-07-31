@@ -338,10 +338,15 @@ export function generateBacktestPredictions(
   const over25Prob = 1 - p0 - p1 - p2;
 
   // BTTS — probability both teams score at least 1
-  // P(team scores >= 1) = 1 - P(team scores 0)
-  const homeScoresProb = 1 - goalProb(homeXg, 0, dispersion);
-  const awayScoresProb = 1 - goalProb(awayXg, 0, dispersion);
-  const bttsProb = homeScoresProb * awayScoresProb;
+  // Compute from the joint scoreline matrix (0-7 x 0-7) instead of assuming independence.
+  // P(BTTS) = sum of P(h,i) * P(a,j) for all h>=1, j>=1
+  let bttsProbCalc = 0;
+  for (let i = 1; i <= 7; i++) {
+    for (let j = 1; j <= 7; j++) {
+      bttsProbCalc += goalProb(homeXg, i, dispersion) * goalProb(awayXg, j, dispersion);
+    }
+  }
+  const bttsProb = bttsProbCalc;
 
   return {
     homeWin: Math.round(finalHomeWin * 100),

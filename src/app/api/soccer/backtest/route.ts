@@ -92,8 +92,8 @@ function findLastH2H(
 }
 
 // Calculate accuracy metrics and per-market calibration ratios
-function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccuracy; calibrationRatios: { over25: number; over15: number; bttsYes: number; homeWin: number; draw: number; awayWin: number } } {
-  const emptyRatios = { over25: 1, over15: 1, bttsYes: 1, homeWin: 1, draw: 1, awayWin: 1 };
+function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccuracy; calibrationRatios: { over25: number; over15: number; over35: number; bttsYes: number; homeWin: number; draw: number; awayWin: number } } {
+  const emptyRatios = { over25: 1, over15: 1, over35: 1, bttsYes: 1, homeWin: 1, draw: 1, awayWin: 1 };
 
   if (predictions.length === 0) {
     return {
@@ -118,7 +118,7 @@ function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccu
   let valueBetsFound = 0, valueBetsWon = 0;
 
   // Accumulators for per-market calibration ratio calculation
-  let sumPredictedO25 = 0, sumPredictedO15 = 0, sumPredictedBtts = 0;
+  let sumPredictedO25 = 0, sumPredictedO15 = 0, sumPredictedO35 = 0, sumPredictedBtts = 0;
   let sumPredictedHomeWin = 0, sumPredictedDraw = 0, sumPredictedAwayWin = 0;
 
   for (const pred of predictions) {
@@ -164,6 +164,17 @@ function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccu
     sumPredictedHomeWin += pred.predicted.homeWin;
     sumPredictedDraw += pred.predicted.draw;
     sumPredictedAwayWin += pred.predicted.awayWin;
+
+    // O3.5 predicted: compute from totalXg using Poisson CDF complement
+    // P(total > 3) = 1 - P(0) - P(1) - P(2) - P(3)
+    const txg = pred.predicted.totalXg;
+    if (txg > 0) {
+      const p0 = Math.exp(-txg);
+      const p1 = txg * Math.exp(-txg);
+      const p2 = (txg * txg / 2) * Math.exp(-txg);
+      const p3 = (txg * txg * txg / 6) * Math.exp(-txg);
+      sumPredictedO35 += (1 - p0 - p1 - p2 - p3) * 100;
+    }
   }
 
   const n = predictions.length;
@@ -183,14 +194,18 @@ function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccu
   // Ratio > 1 means model underestimates, < 1 means overestimates
   const avgPredO25 = sumPredictedO25 / n;
   const avgPredO15 = sumPredictedO15 / n;
+  const avgPredO35 = sumPredictedO35 / n;
   const avgPredBtts = sumPredictedBtts / n;
   const avgPredHomeWin = sumPredictedHomeWin / n;
   const avgPredDraw = sumPredictedDraw / n;
   const avgPredAwayWin = sumPredictedAwayWin / n;
 
+  const over35ActualRate = (predictions.filter(p => p.actual.homeGoals + p.actual.awayGoals > 3.5).length / n * 100);
+
   const calibrationRatios = {
     over25: avgPredO25 > 0 ? Math.round((avgActualRateO25 / avgPredO25) * 1000) / 1000 : 1,
     over15: avgPredO15 > 0 ? Math.round(((predictions.filter(p => p.actual.over15).length / n * 100) / avgPredO15) * 1000) / 1000 : 1,
+    over35: avgPredO35 > 0 ? Math.round((over35ActualRate / avgPredO35) * 1000) / 1000 : 1,
     bttsYes: avgPredBtts > 0 ? Math.round(((bttsYesTotal / n * 100) / avgPredBtts) * 1000) / 1000 : 1,
     homeWin: avgPredHomeWin > 0 ? Math.round(((homeWinTotal / n * 100) / avgPredHomeWin) * 1000) / 1000 : 1,
     draw: avgPredDraw > 0 ? Math.round(((drawTotal / n * 100) / avgPredDraw) * 1000) / 1000 : 1,

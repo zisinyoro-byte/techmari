@@ -16,6 +16,7 @@ export interface CalibrationRatios {
   // Per-market calibration ratios derived from backtest
   over25: number;
   over15: number;
+  over35: number;
   bttsYes: number;
   // 1X2 calibration
   homeWin: number;

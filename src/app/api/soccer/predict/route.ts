@@ -254,6 +254,8 @@ export async function GET(request: NextRequest) {
     // by minimizing negative log-likelihood. Uses Adam optimizer with momentum.
     let optimizedHomeAdv: number | null = null;
     let optimizedRho: number | null = null;
+    let optimizedAttack: Map<string, number> | null = null;
+    let optimizedDefense: Map<string, number> | null = null;
     const DC_MIN_MATCHES = 100; // need at least 100 matches for meaningful optimization
     if (allMatches.length >= DC_MIN_MATCHES) {
       try {
@@ -271,6 +273,8 @@ export async function GET(request: NextRequest) {
         if (dcParams.converged) {
           optimizedHomeAdv = dcParams.homeAdvantage;
           optimizedRho = dcParams.rho;
+          optimizedAttack = dcParams.attack;
+          optimizedDefense = dcParams.defense;
           console.log(`[Predict] Dixon-Coles optimized: homeAdv=${optimizedHomeAdv.toFixed(4)}, rho=${optimizedRho.toFixed(4)}, NLL=${dcParams.nll.toFixed(2)}, iterations=${dcParams.iterations}`);
         }
       } catch (dcError) {
@@ -293,9 +297,22 @@ export async function GET(request: NextRequest) {
 
     // Phase 2a: Context-specific lambda calculation using decomposed ratios
     // λ_home = home team's home attack × away team's away defense × league avg
-    // Phase 2g: Use optimized home advantage from gradient descent when available
-    const lambdaHome = homeStats.homeAttack * awayStats.awayDefense * leagueHomeAvg * effectiveHomeAdv;
-    const lambdaAway = awayStats.awayAttack * homeStats.homeDefense * leagueAwayAvg * ha.defensiveAdvantage;
+    // Phase 2g: When Dixon-Coles converged, use optimized attack/defense parameters
+    //   instead of ratio-based stats for the main lambda calculation
+    let lambdaHome: number;
+    let lambdaAway: number;
+    if (optimizedAttack && optimizedDefense) {
+      const dcHomeAttack = optimizedAttack.get(homeTeam) ?? homeStats.homeAttack;
+      const dcAwayDefense = optimizedDefense.get(awayTeam) ?? awayStats.awayDefense;
+      const dcAwayAttack = optimizedAttack.get(awayTeam) ?? awayStats.awayAttack;
+      const dcHomeDefense = optimizedDefense.get(homeTeam) ?? homeStats.homeDefense;
+      lambdaHome = dcHomeAttack * dcAwayDefense * leagueHomeAvg * effectiveHomeAdv;
+      lambdaAway = dcAwayAttack * dcHomeDefense * leagueAwayAvg;
+      console.log(`[Predict] Using DC-optimized params: homeAttack=${dcHomeAttack.toFixed(3)}, awayDefense=${dcAwayDefense.toFixed(3)}, awayAttack=${dcAwayAttack.toFixed(3)}, homeDefense=${dcHomeDefense.toFixed(3)}`);
+    } else {
+      lambdaHome = homeStats.homeAttack * awayStats.awayDefense * leagueHomeAvg * effectiveHomeAdv;
+      lambdaAway = awayStats.awayAttack * homeStats.homeDefense * leagueAwayAvg * ha.defensiveAdvantage;
+    }
 
     let adjustedLambdaHome = lambdaHome;
     let adjustedLambdaAway = lambdaAway;
@@ -385,7 +402,7 @@ export async function GET(request: NextRequest) {
         over25: applyCalibration(prediction.over25, calData.over25),
         over15: applyCalibration(prediction.over15, calData.over15),
         btts: applyCalibration(prediction.btts, calData.bttsYes),
-        over35: applyCalibration(prediction.over35, calData.over25), // use O2.5 ratio as proxy
+        over35: applyCalibration(prediction.over35, calData.over35),
       };
       prediction.calibrationSource = {
         testSeason: calData.testSeason,
