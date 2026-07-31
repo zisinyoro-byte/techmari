@@ -159,7 +159,6 @@ export function runMonteCarlo(
     adjustedScoreMatrix = applyDixonColesCorrection(sortedScores, lambdaHome, lambdaAway, rho);
     // Recalculate 1X2 from corrected scoreline matrix
     let adjHome = 0, adjDraw = 0, adjAway = 0;
-    let adjBttsCount = 0;
     let adjMaxCount = 0;
     let adjTopScore = '0-0';
     for (const entry of adjustedScoreMatrix) {
@@ -167,7 +166,6 @@ export function runMonteCarlo(
       if (h > a) adjHome += entry.prob;
       else if (a > h) adjAway += entry.prob;
       else adjDraw += entry.prob;
-      if (h > 0 && a > 0) adjBttsCount += entry.prob;
       if (entry.prob > adjMaxCount) {
         adjMaxCount = entry.prob;
         adjTopScore = entry.score;
@@ -176,9 +174,35 @@ export function runMonteCarlo(
     adjustedHomeWin = adjHome;
     adjustedDraw = adjDraw;
     adjustedAwayWin = adjAway;
-    adjustedBtts = adjBttsCount;
     adjustedLikelyScore = adjTopScore;
     adjustedLikelyScoreProb = adjMaxCount;
+
+    // BTTS correction: use the full 100K-simulation BTTS (not the top-10
+    // scoreline matrix) and apply Dixon-Coles analytically.
+    // The DC tau adjustment reduces P(0-0), which increases BTTS.
+    // P(BTTS) = 1 - P(home=0) - P(away=0) + P(0-0)
+    // ΔP(0-0) = -P(0-0) × λH × λA × ρ  (P(0-0) decreases when ρ > 0)
+    // ΔP(1-1) = -P(1-1) × ρ  (P(1-1) also decreases when ρ > 0)
+    // Net BTTS change = ΔP(0-0) + ΔP(1-1) = -ρ × [P(0-0)×λH×λA + P(1-1)]
+    // However, P(0-1) and P(1-0) also change but they DON'T affect BTTS.
+    // In practice, for small ρ, the dominant BTTS effect is the P(0-0) reduction.
+    // We approximate: BTTS_corrected ≈ BTTS_raw + ρ × P(home=0) × P(away=0) × λH × λA
+    const pHome0 = Math.exp(-lambdaHome);
+    const pAway0 = Math.exp(-lambdaAway);
+    const p00 = pHome0 * pAway0;
+    const bttsCorrection = rho * p00 * lambdaHome * lambdaAway;
+    adjustedBtts = bttsProb + bttsCorrection * 100; // bttsProb is in percentage
+  }
+
+  // Jensen-gap correction for BTTS (applies to both rho=0 and rho>0 paths)
+  // See predictions.ts for full explanation. The MC simulation uses the same
+  // high-variance lambdas, so it suffers the same concavity artifact.
+  if (!useNB) { // Only for Poisson; NB has different distribution properties
+    const balancedLambda = (lambdaHome + lambdaAway) / 2;
+    const bttsBalanced = (1 - Math.exp(-balancedLambda)) * (1 - Math.exp(-balancedLambda));
+    const lambdaImbalance = Math.abs(lambdaHome - lambdaAway) / (lambdaHome + lambdaAway + 0.001);
+    const correctionFraction = 0.55 * lambdaImbalance;
+    adjustedBtts = adjustedBtts + (bttsBalanced * 100 - adjustedBtts) * correctionFraction;
   }
 
   // Calculate confidence

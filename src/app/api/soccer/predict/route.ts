@@ -358,33 +358,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Phase 2i: SOT Conversion BTTS modifier
-    // When either team has low shot-on-target conversion (<30%), cap BTTS probability.
-    // Low SOT conversion means the team is generating chances but not finishing them,
-    // which historically leads to more BTTS=No outcomes than the model predicts.
-    const SOT_BTTS_CAP = 45;
-    const SOT_LOW_THRESHOLD = 30;
-    {
-      const computeTeamSOT = (team: string) => {
-        const teamMatches = allMatches.filter(m => m.homeTeam === team || m.awayTeam === team);
-        let sots = 0, goals = 0;
-        for (const m of teamMatches) {
-          if (m.homeTeam === team) { sots += m.homeShotsOnTarget; goals += m.ftHomeGoals; }
-          else { sots += m.awayShotsOnTarget; goals += m.ftAwayGoals; }
-        }
-        return sots > 0 ? (goals / sots) * 100 : null;
-      };
-      const homeSOT = computeTeamSOT(homeTeam);
-      const awaySOT = computeTeamSOT(awayTeam);
-      if ((homeSOT !== null && homeSOT < SOT_LOW_THRESHOLD) ||
-          (awaySOT !== null && awaySOT < SOT_LOW_THRESHOLD)) {
-        const lowTeam = (homeSOT !== null && homeSOT < SOT_LOW_THRESHOLD) ? homeTeam : awayTeam;
-        const lowSOT = (homeSOT !== null && homeSOT < SOT_LOW_THRESHOLD) ? homeSOT : awaySOT;
-        if (prediction.btts > SOT_BTTS_CAP) {
-          console.log(`[Predict] Low SOT conversion for ${lowTeam} (${lowSOT.toFixed(1)}% < ${SOT_LOW_THRESHOLD}%): capping BTTS at ${SOT_BTTS_CAP}%`);
-          prediction.btts = SOT_BTTS_CAP;
-        }
-      }
-    }
+    // REMOVED: The hard cap at 45% was a one-way downward adjustment with no
+    // empirical validation. It was contributing to systematic BTTS underestimation.
+    // Low SOT conversion is already reflected in the team's goal-scoring stats
+    // which feed into the xG lambda, so the model naturally produces lower BTTS
+    // for poor-finishing teams without an additional cap.
 
     // Apply calibration correction if backtest data is available for this league
     const calData = getCalibration(league);
