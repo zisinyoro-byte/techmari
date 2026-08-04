@@ -1,0 +1,452 @@
+   500→                              awayStats.last10Matches.push({ totalGoals })
+   501→                              awayStats.last3Matches.push({ totalGoals })
+   502→                              awayStats.shots += r.awayShots
+   503→                              awayStats.shotsOnTarget += r.awayShotsOnTarget
+   504→                              teamGoalStats.set(r.awayTeam, awayStats)
+   505→                            })
+   506→
+   507→                            const homeTeamData = teamGoalStats.get(predHomeTeam)
+   508→                            const awayTeamData = teamGoalStats.get(predAwayTeam)
+   509→
+   510→                            // Calculate regression signals using the SAME weighted formula as the detailed card:
+   511→                            // combinedSignal = (seasonDeviation × 0.4) + (last10Deviation × 0.3) + (h2hDeviation × 0.3)
+   512→                            const calcRegressionSignal = (teamData: typeof homeTeamData, teamName: string) => {
+   513→                              if (!teamData || teamData.last3Matches.length < 3) return { signal: 'Neutral', combinedSignal: 0 }
+   514→                              const seasonAvg = teamData.matchesThisSeason > 0
+   515→                                ? (teamData.scoredThisSeason + teamData.concededThisSeason) / teamData.matchesThisSeason
+   516→                                : 0
+   517→                              const last10 = teamData.last10Matches.slice(0, 10)
+   518→                              const last10Avg = last10.length > 0
+   519→                                ? last10.reduce((sum, m) => sum + m.totalGoals, 0) / last10.length
+   520→                                : 0
+   521→                              const last3 = teamData.last3Matches.slice(0, 3)
+   522→                              const last3Avg = last3.length > 0
+   523→                                ? last3.reduce((sum, m) => sum + m.totalGoals, 0) / last3.length
+   524→                                : 0
+   525→
+   526→                              // H2H deviation
+   527→                              const teamH2H = h2hData.filter(m => m.homeTeam === teamName || m.awayTeam === teamName)
+   528→                              const teamH2HAvg = teamH2H.length > 0
+   529→                                ? teamH2H.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / teamH2H.length
+   530→                                : null
+   531→                              const lastH2HGoals = lastH2H ? lastH2H.ftHomeGoals + lastH2H.ftAwayGoals : null
+   532→                              const h2hDeviation = teamH2HAvg !== null && lastH2HGoals !== null
+   533→                                ? lastH2HGoals - teamH2HAvg
+   534→                                : 0
+   535→
+   536→                              const deviationFromSeason = last3Avg - seasonAvg
+   537→                              const deviationFromLast10 = last3Avg - last10Avg
+   538→                              const combinedSignal = (deviationFromSeason * 0.4) + (deviationFromLast10 * 0.3) + (h2hDeviation * 0.3)
+   539→
+   540→                              let signal: 'Strong Over' | 'Over' | 'Neutral' | 'Under' | 'Strong Under' = 'Neutral'
+   541→                              if (combinedSignal <= -0.8) signal = 'Strong Over'
+   542→                              else if (combinedSignal <= -0.3) signal = 'Over'
+   543→                              else if (combinedSignal >= 0.8) signal = 'Strong Under'
+   544→                              else if (combinedSignal >= 0.3) signal = 'Under'
+   545→                              return { signal, combinedSignal, last3Avg, seasonAvg }
+   546→                            }
+   547→
+   548→                            const homeReg = calcRegressionSignal(homeTeamData, predHomeTeam)
+   549→                            const awayReg = calcRegressionSignal(awayTeamData, predAwayTeam)
+   550→                            const totalSignal = (homeReg.combinedSignal || 0) + (awayReg.combinedSignal || 0)
+   551→
+   552→                            let regressionOverallSignal = 'Neutral'
+   553→                            if (totalSignal <= -1.2) regressionOverallSignal = 'Strong Over'
+   554→                            else if (totalSignal <= -0.5) regressionOverallSignal = 'Over'
+   555→                            else if (totalSignal >= 1.2) regressionOverallSignal = 'Strong Under'
+   556→                            else if (totalSignal >= 0.5) regressionOverallSignal = 'Under'
+   557→
+   558→                            // Calculate BTTS confidence (use calibrated when available)
+   559→                            const bttsProb = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts
+   560→                            let bttsConfidence = 'Low'
+   561→                            if (bttsProb >= 60) bttsConfidence = 'High'
+   562→                            else if (bttsProb >= 50) bttsConfidence = 'Medium'
+   563→
+   564→                            // Calculate O1.5 confidence (use calibrated when available)
+   565→                            const o15Prob = prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15
+   566→                            let o15Confidence = 'Low'
+   567→                            if (o15Prob >= 75) o15Confidence = 'High'
+   568→                            else if (o15Prob >= 60) o15Confidence = 'Medium'
+   569→
+   570→                            // Calculate BTTS strength (different from confidence)
+   571→                            let bttsStrength = 'Weak'
+   572→                            if (bttsProb >= 60) bttsStrength = 'Strong'
+   573→                            else if (bttsProb >= 50) bttsStrength = 'Medium'
+   574→
+   575→                            // Compute league-adapted baselines and resolve all thresholds
+   576→                            // (backtest-derived when available, hybrid fallback otherwise)
+   577→                            const baselines = computeLeagueBaselines(results, analytics);
+   578→                            const resolved = resolveAllThresholds(selectedLeague, baselines);
+   579→
+   580→                            // Use calibrated probabilities when available (more accurate from backtest), fall back to raw
+   581→                            const calBtts = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts;
+   582→                            const calO25 = prediction.prediction.calibrated?.over25 ?? prediction.prediction.over25;
+   583→                            const calO35 = prediction.prediction.calibrated?.over35 ?? prediction.prediction.over35;
+   584→
+   585→                            // Calculate checklists using shared utility
+   586→                            const checklistInput: ChecklistInput = {
+   587→                              avgGoalsPerGame: analytics.avgGoalsPerGame,
+   588→                              over25Percent: analytics.over25Percent,
+   589→                              bttsProb: calBtts,
+   590→                              avgHomeGoals: analytics.avgHomeGoals,
+   591→                              avgAwayGoals: analytics.avgAwayGoals,
+   592→                              o25Prob: calO25,
+   593→                              o35Prob: calO35,
+   594→                              overallShotConversion: parseFloat(analytics.overallShotConversion),
+   595→                            };
+   596→                            const over35Checks = computeOver35ChecklistLabels(checklistInput, resolved);
+   597→                            const over35Checklist = `${over35Checks.length} of 7`
+   598→
+   599→                            // BTTS Check items (7 criteria) using shared utility
+   600→                            const bttsChecks = computeBttsChecklistLabels(checklistInput, resolved);
+   601→                            const bttsChecklist = `${bttsChecks.length} of 7`
+   602→
+   603→                            // Z-Score Analysis Overall Signal - computed independently using Z-Score methodology
+   604→                            // matching the detailed Z-Score Analysis & Confidence Intervals card
+   605→                            const zScoreTeamStats = new Map<string, {
+   606→                              matches: number;
+   607→                              goals: number[];
+   608→                              totalGoals: number;
+   609→                              mean: number;
+   610→                              stdDev: number;
+   611→                              last3Avg: number;
+   612→                            }>();
+   613→
+   614→                            sortedResults.forEach(r => {
+   615→                              const totalGoals = r.ftHomeGoals + r.ftAwayGoals;
+   616→                              const homeStats = zScoreTeamStats.get(r.homeTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   617→                              homeStats.matches++;
+   618→                              homeStats.goals.push(totalGoals);
+   619→                              homeStats.totalGoals += totalGoals;
+   620→                              zScoreTeamStats.set(r.homeTeam, homeStats);
+   621→
+   622→                              const awayStats = zScoreTeamStats.get(r.awayTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   623→                              awayStats.matches++;
+   624→                              awayStats.goals.push(totalGoals);
+   625→                              awayStats.totalGoals += totalGoals;
+   626→                              zScoreTeamStats.set(r.awayTeam, awayStats);
+   627→                            });
+   628→
+   629→                            // Calculate stats for each team
+   630→                            zScoreTeamStats.forEach((stats) => {
+   631→                              stats.mean = stats.totalGoals / stats.matches;
+   632→                              const last3 = stats.goals.slice(0, 3);
+   633→                              stats.last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+   634→                              const squaredDiffs = stats.goals.map(g => Math.pow(g - stats.mean, 2));
+   635→                              stats.stdDev = Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / stats.matches);
+   636→                            });
+   637→
+   638→                            const homeZStats = zScoreTeamStats.get(predHomeTeam);
+   639→                            const awayZStats = zScoreTeamStats.get(predAwayTeam);
+   640→
+   641→                            let zScoreOverallSignal = 'Neutral';
+   642→                            if (homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3) {
+   643→                              const homeZScore = homeZStats.stdDev > 0
+   644→                                ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev
+   645→                                : 0;
+   646→                              const awayZScore = awayZStats.stdDev > 0
+   647→                                ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev
+   648→                                : 0;
+   649→
+   650→                              // 95% CI: mean ± 1.96 * (stdDev / sqrt(n))
+   651→                              const homeCILower = homeZStats.mean - 1.96 * (homeZStats.stdDev / Math.sqrt(homeZStats.matches));
+   652→                              const awayCILower = awayZStats.mean - 1.96 * (awayZStats.stdDev / Math.sqrt(awayZStats.matches));
+   653→                              const homeBelowCI = homeZStats.last3Avg < homeCILower;
+   654→                              const awayBelowCI = awayZStats.last3Avg < awayCILower;
+   655→
+   656→                              // CV (consistency measure)
+   657→                              const homeCV = homeZStats.mean > 0 ? (homeZStats.stdDev / homeZStats.mean) * 100 : 0;
+   658→                              const awayCV = awayZStats.mean > 0 ? (awayZStats.stdDev / awayZStats.mean) * 100 : 0;
+   659→
+   660→                              // Score-based signal matching the detailed Z-Score card's getCombinedOverSignal()
+   661→                              let score = 0;
+   662→                              if (homeZScore <= -1.5) score += 2;
+   663→                              else if (homeZScore <= -1.0) score += 1;
+   664→                              if (awayZScore <= -1.5) score += 2;
+   665→                              else if (awayZScore <= -1.0) score += 1;
+   666→                              if (homeBelowCI) score += 1;
+   667→                              if (awayBelowCI) score += 1;
+   668→                              if (homeCV < 35 && homeZScore < -1) score += 0.5;
+   669→                              if (awayCV < 35 && awayZScore < -1) score += 0.5;
+   670→
+   671→                              // Also handle Under signals
+   672→                              if (homeZScore >= 1.5) score -= 2;
+   673→                              else if (homeZScore >= 1.0) score -= 1;
+   674→                              if (awayZScore >= 1.5) score -= 2;
+   675→                              else if (awayZScore >= 1.0) score -= 1;
+   676→
+   677→                              if (score >= 4) zScoreOverallSignal = 'Strong Over';
+   678→                              else if (score >= 2.5) zScoreOverallSignal = 'Over';
+   679→                              else if (score <= -3) zScoreOverallSignal = 'Strong Under';
+   680→                              else if (score <= -1.5) zScoreOverallSignal = 'Under';
+   681→                            }
+   682→
+   683→                            // Calculate xG Overperformance/Underperformance Signal
+   684→                            const teamXgStats = new Map<string, {
+   685→                              matches: number;
+   686→                              totalXg: number;
+   687→                              actualGoals: number;
+   688→                              shotsOnTarget: number;
+   689→                            }>();
+   690→
+   691→                            results.forEach(r => {
+   692→                              const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+   693→                              const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+   694→                              const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+   695→                              const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+   696→
+   697→                              const homeStats = teamXgStats.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
+   698→                              homeStats.matches++;
+   699→                              homeStats.totalXg += homeXg;
+   700→                              homeStats.actualGoals += r.ftHomeGoals;
+   701→                              homeStats.shotsOnTarget += r.homeShotsOnTarget;
+   702→                              teamXgStats.set(r.homeTeam, homeStats);
+   703→
+   704→                              const awayStats = teamXgStats.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
+   705→                              awayStats.matches++;
+   706→                              awayStats.totalXg += awayXg;
+   707→                              awayStats.actualGoals += r.ftAwayGoals;
+   708→                              awayStats.shotsOnTarget += r.awayShotsOnTarget;
+   709→                              teamXgStats.set(r.awayTeam, awayStats);
+   710→                            });
+   711→
+   712→                            const homeXgData = teamXgStats.get(predHomeTeam);
+   713→                            const awayXgData = teamXgStats.get(predAwayTeam);
+   714→
+   715→                            let xgOverallSignal = 'Neutral';
+   716→                            if (homeXgData && awayXgData) {
+   717→                              const homeXgDiff = (homeXgData.actualGoals / homeXgData.matches) - (homeXgData.totalXg / homeXgData.matches);
+   718→                              const awayXgDiff = (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches);
+   719→                              const totalXgDiff = homeXgDiff + awayXgDiff;
+   720→
+   721→                              // Tightened thresholds: matching PredictionsTab (was ±0.3/±0.7, fired 89% = no discrimination)
+   722→                              // Now ±0.5/±1.0 — only fires when there's meaningful xG deviation
+   723→                              if (totalXgDiff <= -1.0) xgOverallSignal = 'Strong Over';
+   724→                              else if (totalXgDiff <= -0.5) xgOverallSignal = 'Over';
+   725→                              else if (totalXgDiff >= 1.0) xgOverallSignal = 'Strong Under';
+   726→                              else if (totalXgDiff >= 0.5) xgOverallSignal = 'Under';
+   727→                            }
+   728→
+   729→                            // Apply Blowout Risk Qualifier (matching PredictionsTab)
+   730→                            // When either team is a massive favorite (avg odds <= 1.50),
+   731→                            // override Regression "Under" to "Neutral" before Strong Bet/Grey/GoalFest
+   732→                            const csvHomeAvgOdds = computeTeamAvgOdds(results, predHomeTeam);
+   733→                            const csvAwayAvgOdds = computeTeamAvgOdds(results, predAwayTeam);
+   734→
+   735→                            // ---- XG Diff / SOT / Favorite Odds (needed for momentum + BTTS qual) ----
+   736→                            const csvHomeXgDiff = homeXgData && awayXgData
+   737→                              ? (homeXgData.actualGoals / homeXgData.matches) - (homeXgData.totalXg / homeXgData.matches)
+   738→                              : 0;
+   739→                            const csvAwayXgDiff = homeXgData && awayXgData
+   740→                              ? (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches)
+   741→                              : 0;
+   742→
+   743→                            const csvHomeSotConv = homeXgData && homeXgData.shotsOnTarget > 0
+   744→                              ? (homeXgData.actualGoals / homeXgData.shotsOnTarget) * 100 : null;
+   745→                            const csvAwaySotConv = awayXgData && awayXgData.shotsOnTarget > 0
+   746→                              ? (awayXgData.actualGoals / awayXgData.shotsOnTarget) * 100 : null;
+   747→                            const csvHomeAvgSot = homeXgData && homeXgData.matches > 0
+   748→                              ? homeXgData.shotsOnTarget / homeXgData.matches : null;
+   749→                            const csvAwayAvgSot = awayXgData && awayXgData.matches > 0
+   750→                              ? awayXgData.shotsOnTarget / awayXgData.matches : null;
+   751→
+   752→                            const csvFavoriteOdds = csvHomeAvgOdds && csvAwayAvgOdds ? Math.min(csvHomeAvgOdds, csvAwayAvgOdds) : null;
+   753→                            const csvCombinedXg = homeXgData && awayXgData
+   754→                              ? (homeXgData.totalXg / homeXgData.matches) + (awayXgData.totalXg / awayXgData.matches) : 0;
+   755→
+   756→                            // ---- Momentum Signal (Form Continuation Track) ----
+   757→                            const csvHomeLast5Goals = homeTeamData?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   758→                            const csvAwayLast5Goals = awayTeamData?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   759→                            const csvHomeSeasonAvg = homeTeamData?.matchesThisSeason > 0 ? (homeTeamData.scoredThisSeason + homeTeamData.concededThisSeason) / homeTeamData.matchesThisSeason : 0;
+   760→                            const csvAwaySeasonAvg = awayTeamData?.matchesThisSeason > 0 ? (awayTeamData.scoredThisSeason + awayTeamData.concededThisSeason) / awayTeamData.matchesThisSeason : 0;
+   761→                            const csvHomeMomInput: MomentumTeamInput = { last5Goals: csvHomeLast5Goals, seasonAvg: csvHomeSeasonAvg, xgDiff: csvHomeXgDiff, sotPerGame: csvHomeAvgSot };
+   762→                            const csvAwayMomInput: MomentumTeamInput = { last5Goals: csvAwayLast5Goals, seasonAvg: csvAwaySeasonAvg, xgDiff: csvAwayXgDiff, sotPerGame: csvAwayAvgSot };
+   763→                            const csvMomentumResult = computeMomentumSignal(csvHomeMomInput, csvAwayMomInput);
+   764→
+   765→                            // ---- Dominant Team Detector ----
+   766→                            const csvFavOdds = csvFavoriteOdds ?? 2.0;
+   767→                            const csvIsHomeFav = csvHomeAvgOdds && csvAwayAvgOdds ? csvHomeAvgOdds <= csvAwayAvgOdds : false;
+   768→                            const csvFavTeam = csvIsHomeFav ? homeTeamData : awayTeamData;
+   769→                            const csvUndTeam = csvIsHomeFav ? awayTeamData : homeTeamData;
+   770→                            const csvFavXg = csvIsHomeFav ? homeXgData : awayXgData;
+   771→                            const csvUndXg = csvIsHomeFav ? awayXgData : homeXgData;
+   772→                            const csvFavLast5Avg = (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).length > 0
+   773→                              ? (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).reduce((s, g) => s + g, 0) / (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).length : 0;
+   774→                            const csvFavLast3 = (csvIsHomeFav ? homeTeamData?.last3Matches : awayTeamData?.last3Matches)?.slice(0, 3).map(m => m.totalGoals) ?? [];
+   775→                            const csvFavLast3AllLow = csvFavLast3.length >= 3 && csvFavLast3.every(g => g < 1.5);
+   776→
+   777→                            const csvDominantResult = computeDominantTeamQualifier({
+   778→                              favoriteOdds: csvFavOdds,
+   779→                              favoriteAvgGoalsPerGame: csvFavTeam?.matchesThisSeason > 0 ? (csvFavTeam.scoredThisSeason + csvFavTeam.concededThisSeason) / csvFavTeam.matchesThisSeason : 0,
+   780→                              underdogAvgConcededPerGame: csvUndTeam?.matchesThisSeason > 0 ? csvUndTeam.concededThisSeason / csvUndTeam.matchesThisSeason : 0,
+   781→                              favoriteXgPerGame: csvFavXg?.matches > 0 ? csvFavXg.totalXg / csvFavXg.matches : 0,
+   782→                              underdogXgPerGame: csvUndXg?.matches > 0 ? csvUndXg.totalXg / csvUndXg.matches : 0,
+   783→                              favoriteLast5Avg: csvFavLast5Avg,
+   784→                              favoriteSotPerGame: csvFavXg?.matches > 0 ? csvFavXg.shotsOnTarget / csvFavXg.matches : null,
+   785→                              leagueAvgGoalsPerGame: baselines.avgGoalsPerGame,
+   786→                              underdogAwayBttsRate: null,
+   787→                              favoriteLast3AllLow: csvFavLast3AllLow,
+   788→                            });
+   789→
+   790→                            const rawSignalInput: SignalInput = {
+   791→                              xgSignal: xgOverallSignal,
+   792→                              regressionSignal: regressionOverallSignal,
+   793→                              zScoreSignal: zScoreOverallSignal,
+   794→                            };
+   795→                            const blowoutResult = applyBlowoutQualifier(rawSignalInput, csvHomeAvgOdds, csvAwayAvgOdds, baselines.avgGoalsPerGame);
+   796→                            const signalInput: SignalInput = blowoutResult.signals;
+   797→
+   798→                            // Updated Strong Bet — Points-based system using shared utility
+   799→                            const strongBetResult = computeStrongBet(checklistInput, signalInput, resolved, {
+   800→                              momentumSignal: csvMomentumResult.matchSignal,
+   801→                              leagueBttsRate: baselines.bttsRate,
+   802→                            });
+   803→                            const isStrongBet = strongBetResult.isStrongBet;
+   804→                            const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetResult.points}/${strongBetResult.maxPoints} pts`;
+   805→
+   806→                            // Grey Result — Tightened criteria using shared utility
+   807→                            const greyResultData = computeGreyResult(checklistInput, signalInput, resolved);
+   808→                            const greyResultIndicator = greyResultData.isGreyResult ? 'GREY RESULT' : `${greyResultData.score}/${greyResultData.totalChecks} checks`;
+   809→
+   810→                            // GOAL FEST — Backtest-optimized combo detector
+   811→                            const goalFestData = computeGoalFest(checklistInput, signalInput, resolved);
+   812→                            const goalFestIndicator = goalFestData.isGoalFest ? 'GOAL FEST' : `${goalFestData.score}/${goalFestData.totalChecks} checks`;
+   813→
+   814→                            // ---- BTTS Dual-Team Qualification + Third Goal Detector ----
+   815→                            const csvHomeRegDeviation = homeReg.combinedSignal || 0;
+   816→                            const csvAwayRegDeviation = awayReg.combinedSignal || 0;
+   817→                            const csvHomeRegSignal = classifyPerTeamRegressionSignal(csvHomeRegDeviation);
+   818→                            const csvAwayRegSignal = classifyPerTeamRegressionSignal(csvAwayRegDeviation);
+   819→
+   820→                            const csvHomeXgSignal = classifyPerTeamXgSignal(csvHomeXgDiff);
+   821→                            const csvAwayXgSignal = classifyPerTeamXgSignal(csvAwayXgDiff);
+   822→
+   823→                            // Extract per-team Z-Scores (already computed above)
+   824→                            const csvHomeZ = homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3 && homeZStats.stdDev > 0
+   825→                              ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev : 0;
+   826→                            const csvAwayZ = homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3 && awayZStats.stdDev > 0
+   827→                              ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev : 0;
+   828→
+   829→                            const csvBttsQual = computeBTTSQualification({
+   830→                              homeRegressionSignal: csvHomeRegSignal,
+   831→                              awayRegressionSignal: csvAwayRegSignal,
+   832→                              homeXgDiff: csvHomeXgDiff,
+   833→                              awayXgDiff: csvAwayXgDiff,
+   834→                              homeZScore: csvHomeZ,
+   835→                              awayZScore: csvAwayZ,
+   836→                              homeSotConversion: csvHomeSotConv,
+   837→                              awaySotConversion: csvAwaySotConv,
+   838→                              favoriteOdds: csvFavoriteOdds,
+   839→                              homeMomentumSignal: csvMomentumResult.homeSignal,
+   840→                              awayMomentumSignal: csvMomentumResult.awaySignal,
+   841→                            });
+   842→
+   843→                            const csvThirdGoal = computeThirdGoalQualifier({
+   844→                              combinedXgTotal: csvCombinedXg,
+   845→                              homeRegressionSignal: csvHomeRegSignal,
+   846→                              awayRegressionSignal: csvAwayRegSignal,
+   847→                              homeXgSignal: csvHomeXgSignal,
+   848→                              awayXgSignal: csvAwayXgSignal,
+   849→                              homeAvgSot: csvHomeAvgSot,
+   850→                              awayAvgSot: csvAwayAvgSot,
+   851→                              favoriteOdds: csvFavoriteOdds,
+   852→                              homeSotConversion: csvHomeSotConv,
+   853→                              awaySotConversion: csvAwaySotConv,
+   854→                            });
+   855→
+   856→                            // Build CSV row with exact headers
+   857→                            const headers = [
+   858→                              'League',
+   859→                              'Team A',
+   860→                              'Team B',
+   861→                              'Last H2H',
+   862→                              'Predicted Score',
+   863→                              'Model 0.5 Odds',
+   864→                              'Model BTTS Odds',
+   865→                              'O2.5 Prob',
+   866→                              'O3.5 Prob',
+   867→                              'BTTS Confidence',
+   868→                              'O1.5 Confidence',
+   869→                              'BTTS Prob',
+   870→                              'Regression Overall Signal',
+   871→                              'Z-Score Analysis & Confidence Intervals Overall Signal',
+   872→                              'xG Overperformance Signal',
+   873→                              'BTTS Check list',
+   874→                              'Over 3.5 Check list',
+   875→                              'Home Team SOT Conversion %',
+   876→                              'Away Team SOT Conversion %',
+   877→                              'Avg SOT Conversion %',
+   878→                              'Strong Bet',
+   879→                              'Grey Result Predictor',
+   880→                              'Goal Fest',
+   881→                              'BTTS Qualification Tier',
+   882→                              'BTTS Qual Score',
+   883→                              'Third Goal Tier',
+   884→                              'Third Goal Score',
+   885→                              'Momentum Match Signal',
+   886→                              'Home Momentum',
+   887→                              'Away Momentum',
+   888→                              'Dominant Team Tier',
+   889→                              'Dominant Team Score',
+   890→                              'Dominant Over 2.5 Rec',
+   891→                              'Dominant BTTS Rec',
+   892→                            ]
+   893→
+   894→                            // Format check lists for export - matching display exactly
+   895→                            const bttsChecklistExport = `${bttsChecks.length} of 7`;
+   896→                            const over35ChecklistExport = `${over35Checks.length} of 7`;
+   897→                            
+   898→                            const row = [
+   899→                              `"${selectedLeague}"`,
+   900→                              `"${predHomeTeam}"`,
+   901→                              `"${predAwayTeam}"`,
+   902→                              lastH2H ? `"'${lastH2H.ftHomeGoals}-${lastH2H.ftAwayGoals}"` : 'N/A',
+   903→                              prediction.prediction.likelyScore ? `"'${prediction.prediction.likelyScore}"` : 'N/A',
+   904→                              prediction.prediction.impliedOdds.over15,
+   905→                              prediction.prediction.impliedOdds.bttsYes,
+   906→                              `${calO25.toFixed(2)}`,
+   907→                              `${calO35.toFixed(2)}`,
+   908→                              bttsConfidence,
+   909→                              o15Confidence,
+   910→                              `${calBtts.toFixed(2)}`,
+   911→                              regressionOverallSignal,
+   912→                              zScoreOverallSignal,
+   913→                              xgOverallSignal,
+   914→                              bttsChecklistExport,
+   915→                              over35ChecklistExport,
+   916→                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 ? ((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
+   917→                              `${awayTeamData && awayTeamData.shotsOnTarget > 0 ? ((awayTeamData.goalsScored / awayTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
+   918→                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 && awayTeamData && awayTeamData.shotsOnTarget > 0 ? (((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) + (awayTeamData.goalsScored / awayTeamData.shotsOnTarget)) / 2 * 100).toFixed(1) : 'N/A'}%`,
+   919→                              strongBetIndicator,
+   920→                              greyResultIndicator,
+   921→                              goalFestIndicator,
+   922→                              csvBttsQual.tier,
+   923→                              `${csvBttsQual.score}`,
+   924→                              csvThirdGoal.tier,
+   925→                              `${csvThirdGoal.score}`,
+   926→                              `"${csvMomentumResult.matchSignal}"`,
+   927→                              `"${csvMomentumResult.homeSignal}"`,
+   928→                              `"${csvMomentumResult.awaySignal}"`,
+   929→                              `"${csvDominantResult.tier}"`,
+   930→                              `${csvDominantResult.score}`,
+   931→                              `"${csvDominantResult.over25Rec}"`,
+   932→                              `"${csvDominantResult.bttsRec}"`,
+   933→                            ]
+   934→
+   935→                            const csv = [headers.join(','), row.join(',')].join('\n')
+   936→                            const blob = new Blob([csv], { type: 'text/csv' })
+   937→                            const url = URL.createObjectURL(blob)
+   938→                            const a = document.createElement('a')
+   939→                            a.href = url
+   940→                            a.download = `${selectedLeague}_${predHomeTeam}_vs_${predAwayTeam}_analysis.csv`
+   941→                            a.click()
+   942→                          }}
+   943→                          variant="outline"
+   944→                          className="w-full"
+   945→                          disabled={!prediction}
+   946→                        >
+   947→                          🎯 Analysis Export
+   948→                        </Button>
+   949→                        <Button 
+
+[showing lines 500-949 of 1658; use offset=950 with limit to continue reading]
