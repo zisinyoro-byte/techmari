@@ -18,3 +18,22 @@ Stage Summary:
 - Model barely distinguishes these: only +2.2pp O2.5, +1.2pp BTTS vs normal games
 - Massive xG underestimation: predicted 3.00, actual 5.52
 - Away team actual goals (2.71) vastly exceed predicted away xG (1.04)
+
+---
+Task ID: 2
+Agent: main
+Task: EPL BTTS-BH app-specific signal analysis
+
+Work Log:
+- Created /home/z/my-project/scripts/epl-btts-both-halves-app-signals.ts
+- Extracted team BTTS rates, O2.5 rates, form, scoring/conceding, model probs for 113 BH + 296 non-BH games
+- Tested 33 filter combos, ranked by lift
+
+Stage Summary:
+- Team BTTS rates: 0.2pp difference (no signal)
+- Team O2.5 rates: 0.2pp difference (no signal)
+- Model O2.5%, BTTS%, xG all LOWER for BH games than non-BH (model is blind to these)
+- Best single app signal: "Both teams BTTS rate >= 50%" with 1.20x lift
+- Best combo: "Both BTTS rate >= 50% + O2.5 >= 55%" = 6.1x enrichment (32.4% hit rate vs 5.3% base)
+- Draw >= 25% kills everything because model caps draw at 25% max
+- Conclusion: app signals have very weak discriminative power for BTTS-BH

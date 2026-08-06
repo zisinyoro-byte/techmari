@@ -1,0 +1,843 @@
+     1→/**
+     2→ * EPL BTTS Both Halves Pattern Analysis
+     3→ * 
+     4→ * Finds all EPL games where both teams scored in both halves,
+     5→ * runs the prediction model on them, and analyzes what patterns emerge.
+     6→ * 
+     7→ * BTTS Both Halves = HT: home scored AND away scored, AND SH: home scored AND away scored
+     8→ */
+     9→
+    10→// ============================================================================
+    11→// Minimal re-implementation of needed model functions (standalone, no imports)
+    12→// ============================================================================
+    13→
+    14→interface MatchResult {
+    15→  date: string;
+    16→  time: string;
+    17→  homeTeam: string;
+    18→  awayTeam: string;
+    19→  ftHomeGoals: number;
+    20→  ftAwayGoals: number;
+    21→  ftResult: 'H' | 'D' | 'A';
+    22→  htHomeGoals: number;
+    23→  htAwayGoals: number;
+    24→  htResult: 'H' | 'D' | 'A';
+    25→  homeShots: number;
+    26→  awayShots: number;
+    27→  homeShotsOnTarget: number;
+    28→  awayShotsOnTarget: number;
+    29→  oddsAvgHome: number | null;
+    30→  oddsAvgDraw: number | null;
+    31→  oddsAvgAway: number | null;
+    32→  oddsB365Home: number | null;
+    33→  oddsB365Draw: number | null;
+    34→  oddsB365Away: number | null;
+    35→  oddsOver25: number | null;
+    36→  oddsUnder25: number | null;
+    37→  oddsAvgOver25: number | null;
+    38→  season: string;
+    39→}
+    40→
+    41→// ---- Poisson / Negative Binomial ----
+    42→function lnFactorial(n: number): number {
+    43→  if (n <= 1) return 0;
+    44→  let s = 0;
+    45→  for (let i = 2; i <= n; i++) s += Math.log(i);
+    46→  return s;
+    47→}
+    48→
+    49→function poissonPMF(lambda: number, k: number): number {
+    50→  if (lambda <= 0) return k === 0 ? 1 : 0;
+    51→  return Math.exp(k * Math.log(lambda) - lambda - lnFactorial(k));
+    52→}
+    53→
+    54→function negativeBinomialPMF(r: number, p: number, k: number): number {
+    55→  if (r <= 0 || p <= 0 || p >= 1) return poissonPMF(r * (1 - p) / p, k);
+    56→  const coeff = lnFactorial(k + r - 1) - lnFactorial(k) - lnFactorial(r - 1);
+    57→  return Math.exp(coeff + r * Math.log(p) + k * Math.log(1 - p));
+    58→}
+    59→
+    60→function estimateDispersion(goals: number[]): number {
+    61→  const n = goals.length;
+    62→  if (n < 10) return Infinity;
+    63→  const mean = goals.reduce((s, g) => s + g, 0) / n;
+    64→  if (mean === 0) return Infinity;
+    65→  const variance = goals.reduce((s, g) => s + (g - mean) ** 2, 0) / (n - 1);
+    66→  if (variance <= mean) return Infinity;
+    67→  const r = (mean ** 2) / (variance - mean);
+    68→  const p = mean / variance;
+    69→  if (r <= 0 || p <= 0 || p >= 1) return Infinity;
+    70→  return r;
+    71→}
+    72→
+    73→function goalProb(lambda: number, k: number, dispersion?: number): number {
+    74→  if (dispersion && isFinite(dispersion) && dispersion <= 100) {
+    75→    const mean = lambda;
+    76→    if (mean <= 0) return k === 0 ? 1 : 0;
+    77→    const p = mean / (mean + dispersion);
+    78→    return negativeBinomialPMF(dispersion, p, k);
+    79→  }
+    80→  return poissonPMF(lambda, k);
+    81→}
+    82→
+    83→// ---- Home Advantage ----
+    84→function calculateBidirectionalHomeAdvantage(
+    85→  homeScored: number, homeConceded: number,
+    86→  awayScored: number, awayConceded: number,
+    87→  leagueHomeAvg: number, leagueAwayAvg: number
+    88→) {
+    89→  const homeScoringAdv = leagueHomeAvg > 0 ? homeScored / leagueHomeAvg : 1;
+    90→  const homeDefensiveAdv = leagueHomeAvg > 0 ? homeConceded / leagueHomeAvg : 1;
+    91→  const awayScoringAdv = leagueAwayAvg > 0 ? awayScored / leagueAwayAvg : 1;
+    92→  const awayDefensiveAdv = leagueAwayAvg > 0 ? awayConceded / leagueAwayAvg : 1;
+    93→  const avgScoringAdv = (homeScoringAdv + awayScoringAdv) / 2;
+    94→  const avgDefensiveAdv = (homeDefensiveAdv + awayDefensiveAdv) / 2;
+    95→  return {
+    96→    scoringAdvantage: Math.max(0.8, Math.min(1.3, avgScoringAdv)),
+    97→    defensiveAdvantage: Math.max(0.8, Math.min(1.3, avgDefensiveAdv)),
+    98→  };
+    99→}
+   100→
+   101→// ---- Season Weighting ----
+   102→const DECAY_FACTOR = 0.65;
+   103→function calculateSeasonWeights(seasons: string[]): Map<string, number> {
+   104→  const weights = new Map<string, number>();
+   105→  if (seasons.length === 0) return weights;
+   106→  const sorted = [...seasons].sort();
+   107→  let weight = 1.0;
+   108→  let totalWeight = 0;
+   109→  for (const season of sorted) {
+   110→    weights.set(season, weight);
+   111→    totalWeight += weight;
+   112→    weight *= DECAY_FACTOR;
+   113→  }
+   114→  for (const [season, w] of weights) weights.set(season, w / totalWeight);
+   115→  return weights;
+   116→}
+   117→
+   118→// ---- Team Stats ----
+   119→function calculateBacktestTeamStats(
+   120→  results: MatchResult[], team: string, seasonWeights?: Map<string, number>
+   121→) {
+   122→  let weightedResults = results;
+   123→  if (seasonWeights && seasonWeights.size > 0) {
+   124→    weightedResults = [];
+   125→    for (const match of results) {
+   126→      const weight = seasonWeights.get(match.season) ?? 1;
+   127→      const copies = Math.max(1, Math.round(weight * 10));
+   128→      for (let i = 0; i < copies; i++) weightedResults.push(match);
+   129→    }
+   130→  }
+   131→
+   132→  const homeGames = weightedResults.filter(m => m.homeTeam === team);
+   133→  const awayGames = weightedResults.filter(m => m.awayTeam === team);
+   134→  const homeScored = homeGames.reduce((sum, m) => sum + m.ftHomeGoals, 0);
+   135→  const homeConceded = homeGames.reduce((sum, m) => sum + m.ftAwayGoals, 0);
+   136→  const awayScored = awayGames.reduce((sum, m) => sum + m.ftAwayGoals, 0);
+   137→  const awayConceded = awayGames.reduce((sum, m) => sum + m.ftHomeGoals, 0);
+   138→  const homeWins = homeGames.filter(m => m.ftResult === 'H').length;
+   139→  const awayWins = awayGames.filter(m => m.ftResult === 'A').length;
+   140→  const draws = homeGames.filter(m => m.ftResult === 'D').length + awayGames.filter(m => m.ftResult === 'D').length;
+   141→  const totalGames = homeGames.length + awayGames.length;
+   142→
+   143→  return {
+   144→    homeGames: homeGames.length,
+   145→    awayGames: awayGames.length,
+   146→    totalGames,
+   147→    avgHomeScored: homeGames.length > 0 ? homeScored / homeGames.length : 0,
+   148→    avgHomeConceded: homeGames.length > 0 ? homeConceded / homeGames.length : 0,
+   149→    avgAwayScored: awayGames.length > 0 ? awayScored / awayGames.length : 0,
+   150→    avgAwayConceded: awayGames.length > 0 ? awayConceded / awayGames.length : 0,
+   151→    form: totalGames > 0 ? (homeWins + awayWins + 0.5 * draws) / totalGames : 0.5,
+   152→  };
+   153→}
+   154→
+   155→// ---- League Averages ----
+   156→interface LeagueAverages {
+   157→  avgHomeGoals: number; avgAwayGoals: number; avgTotalGoals: number;
+   158→  homeWinRate: number; drawRate: number; awayWinRate: number;
+   159→}
+   160→
+   161→function calculateLeagueAverages(results: MatchResult[]): LeagueAverages {
+   162→  if (results.length === 0) return { avgHomeGoals: 1.5, avgAwayGoals: 1.2, avgTotalGoals: 2.7, homeWinRate: 0.45, drawRate: 0.25, awayWinRate: 0.30 };
+   163→  const totalHomeGoals = results.reduce((sum, m) => sum + m.ftHomeGoals, 0);
+   164→  const totalAwayGoals = results.reduce((sum, m) => sum + m.ftAwayGoals, 0);
+   165→  return {
+   166→    avgHomeGoals: totalHomeGoals / results.length,
+   167→    avgAwayGoals: totalAwayGoals / results.length,
+   168→    avgTotalGoals: (totalHomeGoals + totalAwayGoals) / results.length,
+   169→    homeWinRate: results.filter(m => m.ftResult === 'H').length / results.length,
+   170→    drawRate: results.filter(m => m.ftResult === 'D').length / results.length,
+   171→    awayWinRate: results.filter(m => m.ftResult === 'A').length / results.length,
+   172→  };
+   173→}
+   174→
+   175→// ---- Generate Predictions ----
+   176→function generatePrediction(
+   177→  trainingData: MatchResult[], homeTeam: string, awayTeam: string,
+   178→  leagueAvgs: LeagueAverages, seasonWeights?: Map<string, number>
+   179→) {
+   180→  const homeStats = calculateBacktestTeamStats(trainingData, homeTeam, seasonWeights);
+   181→  const awayStats = calculateBacktestTeamStats(trainingData, awayTeam, seasonWeights);
+   182→
+   183→  const ha = calculateBidirectionalHomeAdvantage(
+   184→    homeStats.homeGames > 0 ? homeStats.avgHomeScored : leagueAvgs.avgHomeGoals,
+   185→    homeStats.homeGames > 0 ? homeStats.avgHomeConceded : leagueAvgs.avgAwayGoals,
+   186→    homeStats.awayGames > 0 ? homeStats.avgAwayScored : leagueAvgs.avgAwayGoals,
+   187→    homeStats.awayGames > 0 ? homeStats.avgAwayConceded : leagueAvgs.avgHomeGoals,
+   188→    leagueAvgs.avgHomeGoals, leagueAvgs.avgAwayGoals
+   189→  );
+   190→
+   191→  const homeAttackRatio = leagueAvgs.avgTotalGoals > 0
+   192→    ? (homeStats.homeGames > 0 ? homeStats.avgHomeScored : leagueAvgs.avgHomeGoals) / (leagueAvgs.avgTotalGoals / 2) : 1;
+   193→  const awayDefenseRatio = leagueAvgs.avgTotalGoals > 0
+   194→    ? (awayStats.awayGames > 0 ? awayStats.avgAwayConceded : leagueAvgs.avgHomeGoals) / (leagueAvgs.avgTotalGoals / 2) : 1;
+   195→  const awayAttackRatio = leagueAvgs.avgTotalGoals > 0
+   196→    ? (awayStats.awayGames > 0 ? awayStats.avgAwayScored : leagueAvgs.avgAwayGoals) / (leagueAvgs.avgTotalGoals / 2) : 1;
+   197→  const homeDefenseRatio = leagueAvgs.avgTotalGoals > 0
+   198→    ? (homeStats.homeGames > 0 ? homeStats.avgHomeConceded : leagueAvgs.avgAwayGoals) / (leagueAvgs.avgTotalGoals / 2) : 1;
+   199→
+   200→  const homeXg = homeAttackRatio * awayDefenseRatio * leagueAvgs.avgHomeGoals * ha.scoringAdvantage;
+   201→  const awayXg = awayAttackRatio * homeDefenseRatio * leagueAvgs.avgAwayGoals * ha.defensiveAdvantage;
+   202→  const totalXg = homeXg + awayXg;
+   203→
+   204→  const allGoals = trainingData.map(m => m.ftHomeGoals + m.ftAwayGoals);
+   205→  const dispersion = estimateDispersion(allGoals);
+   206→  const useNB = isFinite(dispersion) && dispersion <= 100;
+   207→
+   208→  // 1X2 probs
+   209→  let homeWinProb = 0, awayWinProb = 0, drawProbCalc = 0;
+   210→  for (let i = 0; i <= 7; i++) {
+   211→    for (let j = 0; j <= 7; j++) {
+   212→      const p = goalProb(homeXg, i, dispersion) * goalProb(awayXg, j, dispersion);
+   213→      if (i > j) homeWinProb += p;
+   214→      else if (j > i) awayWinProb += p;
+   215→      else drawProbCalc += p;
+   216→    }
+   217→  }
+   218→
+   219→  let drawProb = 1 - homeWinProb - awayWinProb;
+   220→  const formAdjustment = (homeStats.form - awayStats.form) * 0.1;
+   221→  const adjustedHomeWin = Math.max(0.1, Math.min(0.8, homeWinProb + formAdjustment));
+   222→  const adjustedAwayWin = Math.max(0.1, Math.min(0.8, awayWinProb - formAdjustment));
+   223→  drawProb = Math.max(0.15, Math.min(0.4, 1 - adjustedHomeWin - adjustedAwayWin));
+   224→  const total = adjustedHomeWin + drawProb + adjustedAwayWin;
+   225→  const finalHomeWin = adjustedHomeWin / total;
+   226→  const finalDraw = drawProb / total;
+   227→  const finalAwayWin = adjustedAwayWin / total;
+   228→
+   229→  // Goals markets
+   230→  const p0 = goalProb(totalXg, 0, dispersion);
+   231→  const p1 = goalProb(totalXg, 1, dispersion);
+   232→  const p2 = goalProb(totalXg, 2, dispersion);
+   233→  const over15Prob = 1 - p0 - p1;
+   234→  const over25Prob = 1 - p0 - p1 - p2;
+   235→
+   236→  // BTTS
+   237→  let bttsProbCalc = 0;
+   238→  for (let i = 1; i <= 7; i++) {
+   239→    for (let j = 1; j <= 7; j++) {
+   240→      bttsProbCalc += goalProb(homeXg, i, dispersion) * goalProb(awayXg, j, dispersion);
+   241→    }
+   242→  }
+   243→  let bttsProb = bttsProbCalc;
+   244→  const balancedLambda = totalXg / 2;
+   245→  const bttsBalanced = (1 - Math.exp(-balancedLambda)) * (1 - Math.exp(-balancedLambda));
+   246→  const lambdaImbalance = Math.abs(homeXg - awayXg) / (homeXg + awayXg + 0.001);
+   247→  const correctionFraction = 0.55 * lambdaImbalance;
+   248→  bttsProb = bttsProb + (bttsBalanced - bttsProb) * correctionFraction;
+   249→
+   250→  // Most likely scoreline
+   251→  let bestScore = '0-0', bestProb = 0;
+   252→  for (let i = 0; i <= 5; i++) {
+   253→    for (let j = 0; j <= 5; j++) {
+   254→      const p = goalProb(homeXg, i, dispersion) * goalProb(awayXg, j, dispersion);
+   255→      if (p > bestProb) { bestProb = p; bestScore = `${i}-${j}`; }
+   256→    }
+   257→  }
+   258→
+   259→  return {
+   260→    homeWin: Math.round(finalHomeWin * 100),
+   261→    draw: Math.round(finalDraw * 100),
+   262→    awayWin: Math.round(finalAwayWin * 100),
+   263→    over15: Math.round(Math.min(95, Math.max(40, over15Prob * 100))),
+   264→    over25: Math.round(Math.min(85, Math.max(35, over25Prob * 100))),
+   265→    btts: Math.round(bttsProb * 100),
+   266→    totalXg: Math.round(totalXg * 100) / 100,
+   267→    homeXg: Math.round(homeXg * 100) / 100,
+   268→    awayXg: Math.round(awayXg * 100) / 100,
+   269→    likelyScore: bestScore,
+   270→    likelyScoreProb: Math.round(bestProb * 1000) / 10,
+   271→    dispersion: useNB ? Math.round(dispersion * 100) / 100 : null,
+   272→  };
+   273→}
+   274→
+   275→// ============================================================================
+   276→// CSV Parser
+   277→// ============================================================================
+   278→function parseNumber(val: string | undefined): number | null {
+   279→  if (!val || val.trim() === '') return null;
+   280→  const n = parseFloat(val);
+   281→  return isNaN(n) ? null : n;
+   282→}
+   283→
+   284→function parseCSV(csvText: string, season: string): MatchResult[] {
+   285→  const lines = csvText.trim().split('\n');
+   286→  if (lines.length < 2) return [];
+   287→  const headerLine = lines[0].replace(/^\uFEFF/, '');
+   288→  const header = headerLine.split(',');
+   289→  const colIndex: Record<string, number> = {};
+   290→  header.forEach((col, idx) => { colIndex[col.trim()] = idx; });
+   291→
+   292→  const results: MatchResult[] = [];
+   293→  for (let i = 1; i < lines.length; i++) {
+   294→    const line = lines[i];
+   295→    if (!line.trim()) continue;
+   296→    const values: string[] = [];
+   297→    let currentValue = '';
+   298→    let inQuotes = false;
+   299→    for (const char of line) {
+   300→      if (char === '"') inQuotes = !inQuotes;
+   301→      else if (char === ',' && !inQuotes) { values.push(currentValue.trim()); currentValue = ''; }
+   302→      else currentValue += char;
+   303→    }
+   304→    values.push(currentValue.trim());
+   305→
+   306→    const homeTeam = values[colIndex['HomeTeam']] || '';
+   307→    const awayTeam = values[colIndex['AwayTeam']] || '';
+   308→    if (!homeTeam || !awayTeam) continue;
+   309→
+   310→    results.push({
+   311→      date: values[colIndex['Date']] || '',
+   312→      time: values[colIndex['Time']] || '',
+   313→      homeTeam, awayTeam,
+   314→      ftHomeGoals: parseInt(values[colIndex['FTHG']] || '0', 10) || 0,
+   315→      ftAwayGoals: parseInt(values[colIndex['FTAG']] || '0', 10) || 0,
+   316→      ftResult: (values[colIndex['FTR']] || 'D') as 'H' | 'D' | 'A',
+   317→      htHomeGoals: parseInt(values[colIndex['HTHG']] || '0', 10) || 0,
+   318→      htAwayGoals: parseInt(values[colIndex['HTAG']] || '0', 10) || 0,
+   319→      htResult: (values[colIndex['HTR']] || 'D') as 'H' | 'D' | 'A',
+   320→      homeShots: parseInt(values[colIndex['HS']] || '0', 10) || 0,
+   321→      awayShots: parseInt(values[colIndex['AS']] || '0', 10) || 0,
+   322→      homeShotsOnTarget: parseInt(values[colIndex['HST']] || '0', 10) || 0,
+   323→      awayShotsOnTarget: parseInt(values[colIndex['AST']] || '0', 10) || 0,
+   324→      oddsAvgHome: parseNumber(values[colIndex['AvgH']]),
+   325→      oddsAvgDraw: parseNumber(values[colIndex['AvgD']]),
+   326→      oddsAvgAway: parseNumber(values[colIndex['AvgA']]),
+   327→      oddsB365Home: parseNumber(values[colIndex['B365H']]),
+   328→      oddsB365Draw: parseNumber(values[colIndex['B365D']]),
+   329→      oddsB365Away: parseNumber(values[colIndex['B365A']]),
+   330→      oddsOver25: parseNumber(values[colIndex['B365>2.5']]),
+   331→      oddsUnder25: parseNumber(values[colIndex['B365<2.5']]),
+   332→      oddsAvgOver25: parseNumber(values[colIndex['Avg>2.5']]),
+   333→      season,
+   334→    });
+   335→  }
+   336→  return results;
+   337→}
+   338→
+   339→// ============================================================================
+   340→// Fetch with retry
+   341→// ============================================================================
+   342→const fetchedUrls = new Set<string>();
+   343→async function fetchSeason(league: string, season: string): Promise<MatchResult[]> {
+   344→  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
+   345→  console.log(`Fetching ${league} ${season}...`);
+   346→  const response = await fetch(url, {
+   347→    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Accept: 'text/csv' },
+   348→  });
+   349→  if (!response.ok) { console.warn(`Failed: ${url} (${response.status})`); return []; }
+   350→  const text = await response.text();
+   351→  return parseCSV(text, season);
+   352→}
+   353→
+   354→// ============================================================================
+   355→// MAIN
+   356→// ============================================================================
+   357→async function main() {
+   358→  const LEAGUE = 'E0';
+   359→  const ALL_SEASONS = ['2627', '2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
+   360→
+   361→  // Fetch all EPL data
+   362→  console.log('\n=== Fetching EPL data for all seasons ===\n');
+   363→  const allData: MatchResult[] = [];
+   364→  for (const s of ALL_SEASONS) {
+   365→    const data = await fetchSeason(LEAGUE, s);
+   366→    allData.push(...data);
+   367→    await new Promise(r => setTimeout(r, 600)); // rate limit
+   368→  }
+   369→  console.log(`\nTotal EPL matches fetched: ${allData.length}`);
+   370→
+   371→  // Find all BTTS Both Halves games
+   372→  const bttsBH: (MatchResult & {
+   373→    shHomeGoals: number; shAwayGoals: number;
+   374→    htTotal: number; shTotal: number; ftTotal: number;
+   375→  })[] = [];
+   376→
+   377→  for (const m of allData) {
+   378→    const shHome = m.ftHomeGoals - m.htHomeGoals;
+   379→    const shAway = m.ftAwayGoals - m.htAwayGoals;
+   380→    const bttsHT = m.htHomeGoals > 0 && m.htAwayGoals > 0;
+   381→    const bttsSH = shHome > 0 && shAway > 0;
+   382→    if (bttsHT && bttsSH) {
+   383→      bttsBH.push({
+   384→        ...m,
+   385→        shHomeGoals: shHome,
+   386→        shAwayGoals: shAway,
+   387→        htTotal: m.htHomeGoals + m.htAwayGoals,
+   388→        shTotal: shHome + shAway,
+   389→        ftTotal: m.ftHomeGoals + m.ftAwayGoals,
+   390→      });
+   391→    }
+   392→  }
+   393→
+   394→  console.log(`\nBTTS Both Halves games found: ${bttsBH.length} out of ${allData.length} total (${(bttsBH.length / allData.length * 100).toFixed(1)}%)`);
+   395→
+   396→  // ------------------------------------------------------------------------
+   397→  // SECTION 1: Basic Scoreline Distribution of BTTS-BH games
+   398→  // ------------------------------------------------------------------------
+   399→  console.log('\n' + '='.repeat(80));
+   400→  console.log('SECTION 1: SCORELINE PATTERNS IN BTTS BOTH HALVES GAMES');
+   401→  console.log('='.repeat(80));
+   402→
+   403→  // HT scoreline distribution
+   404→  const htScoreCounts = new Map<string, number>();
+   405→  const shScoreCounts = new Map<string, number>();
+   406→  const ftScoreCounts = new Map<string, number>();
+   407→  const htTotalDist = new Map<number, number>();
+   408→  const shTotalDist = new Map<number, number>();
+   409→  const ftTotalDist = new Map<number, number>();
+   410→
+   411→  for (const m of bttsBH) {
+   412→    // HT scorelines (both teams scored, so min 1-1)
+   413→    const htScore = `${m.htHomeGoals}-${m.htAwayGoals}`;
+   414→    htScoreCounts.set(htScore, (htScoreCounts.get(htScore) || 0) + 1);
+   415→    htTotalDist.set(m.htTotal, (htTotalDist.get(m.htTotal) || 0) + 1);
+   416→
+   417→    // SH scorelines
+   418→    const shScore = `${m.shHomeGoals}-${m.shAwayGoals}`;
+   419→    shScoreCounts.set(shScore, (shScoreCounts.get(shScore) || 0) + 1);
+   420→    shTotalDist.set(m.shTotal, (shTotalDist.get(m.shTotal) || 0) + 1);
+   421→
+   422→    // FT scorelines
+   423→    const ftScore = `${m.ftHomeGoals}-${m.ftAwayGoals}`;
+   424→    ftScoreCounts.set(ftScore, (ftScoreCounts.get(ftScore) || 0) + 1);
+   425→    ftTotalDist.set(m.ftTotal, (ftTotalDist.get(m.ftTotal) || 0) + 1);
+   426→  }
+   427→
+   428→  const sortByCountDesc = (a: [string, number], b: [string, number]) => b[1] - a[1];
+   429→
+   430→  console.log('\n--- Half-Time Scorelines (Top 15) ---');
+   431→  console.log('HT Score | Count | Pct');
+   432→  console.log('-'.repeat(35));
+   433→  for (const [score, count] of [...htScoreCounts.entries()].sort(sortByCountDesc).slice(0, 15)) {
+   434→    console.log(`  ${score.padStart(5)} | ${String(count).padStart(4)} | ${(count / bttsBH.length * 100).toFixed(1)}%`);
+   435→  }
+   436→
+   437→  console.log('\n--- Second-Half Scorelines (Top 15) ---');
+   438→  console.log('SH Score | Count | Pct');
+   439→  console.log('-'.repeat(35));
+   440→  for (const [score, count] of [...shScoreCounts.entries()].sort(sortByCountDesc).slice(0, 15)) {
+   441→    console.log(`  ${score.padStart(5)} | ${String(count).padStart(4)} | ${(count / bttsBH.length * 100).toFixed(1)}%`);
+   442→  }
+   443→
+   444→  console.log('\n--- Full-Time Scorelines (Top 20) ---');
+   445→  console.log('FT Score | Count | Pct');
+   446→  console.log('-'.repeat(35));
+   447→  for (const [score, count] of [...ftScoreCounts.entries()].sort(sortByCountDesc).slice(0, 20)) {
+   448→    console.log(`  ${score.padStart(5)} | ${String(count).padStart(4)} | ${(count / bttsBH.length * 100).toFixed(1)}%`);
+   449→  }
+   450→
+   451→  console.log('\n--- Goals Per Half Distribution ---');
+   452→  console.log('Goals | HT Count | HT Pct | SH Count | SH Pct | FT Count | FT Pct');
+   453→  console.log('-'.repeat(70));
+   454→  for (let g = 2; g <= 10; g++) {
+   455→    const htC = htTotalDist.get(g) || 0;
+   456→    const shC = shTotalDist.get(g) || 0;
+   457→    const ftC = ftTotalDist.get(g) || 0;
+   458→    if (htC + shC + ftC > 0) {
+   459→      console.log(`  ${String(g).padStart(2)}    | ${String(htC).padStart(7)} | ${(htC / bttsBH.length * 100).toFixed(1)}%  | ${String(shC).padStart(7)} | ${(shC / bttsBH.length * 100).toFixed(1)}%  | ${String(ftC).padStart(7)} | ${(ftC / bttsBH.length * 100).toFixed(1)}%`);
+   460→    }
+   461→  }
+   462→
+   463→  // Averages
+   464→  const avgHtTotal = bttsBH.reduce((s, m) => s + m.htTotal, 0) / bttsBH.length;
+   465→  const avgShTotal = bttsBH.reduce((s, m) => s + m.shTotal, 0) / bttsBH.length;
+   466→  const avgFtTotal = bttsBH.reduce((s, m) => s + m.ftTotal, 0) / bttsBH.length;
+   467→  console.log(`\n  Average HT goals: ${avgHtTotal.toFixed(2)}`);
+   468→  console.log(`  Average SH goals: ${avgShTotal.toFixed(2)}`);
+   469→  console.log(`  Average FT goals: ${avgFtTotal.toFixed(2)}`);
+   470→
+   471→  // ------------------------------------------------------------------------
+   472→  // SECTION 2: FT Result Distribution
+   473→  // ------------------------------------------------------------------------
+   474→  console.log('\n' + '='.repeat(80));
+   475→  console.log('SECTION 2: RESULT DISTRIBUTION');
+   476→  console.log('='.repeat(80));
+   477→
+   478→  const homeWins = bttsBH.filter(m => m.ftResult === 'H').length;
+   479→  const draws = bttsBH.filter(m => m.ftResult === 'D').length;
+   480→  const awayWins = bttsBH.filter(m => m.ftResult === 'A').length;
+   481→  console.log(`\n  Home Win: ${homeWins} (${(homeWins / bttsBH.length * 100).toFixed(1)}%)`);
+   482→  console.log(`  Draw:     ${draws} (${(draws / bttsBH.length * 100).toFixed(1)}%)`);
+   483→  console.log(`  Away Win: ${awayWins} (${(awayWins / bttsBH.length * 100).toFixed(1)}%)`);
+   484→
+   485→  // Compare to overall EPL
+   486→  const allHomeWins = allData.filter(m => m.ftResult === 'H').length;
+   487→  const allDraws = allData.filter(m => m.ftResult === 'D').length;
+   488→  const allAwayWins = allData.filter(m => m.ftResult === 'A').length;
+   489→  console.log(`\n  Overall EPL: Home ${(allHomeWins / allData.length * 100).toFixed(1)}% | Draw ${(allDraws / allData.length * 100).toFixed(1)}% | Away ${(allAwayWins / allData.length * 100).toFixed(1)}%`);
+   490→
+   491→  // HT result distribution
+   492→  const htHomeWins = bttsBH.filter(m => m.htResult === 'H').length;
+   493→  const htDraws = bttsBH.filter(m => m.htResult === 'D').length;
+   494→  const htAwayWins = bttsBH.filter(m => m.htResult === 'A').length;
+   495→  console.log(`\n  HT Result: Home ${htHomeWins} (${(htHomeWins / bttsBH.length * 100).toFixed(1)}%) | Draw ${htDraws} (${(htDraws / bttsBH.length * 100).toFixed(1)}%) | Away ${htAwayWins} (${(htAwayWins / bttsBH.length * 100).toFixed(1)}%)`);
+   496→
+   497→  // HT/FT transition matrix
+   498→  console.log('\n--- HT -> FT Transition Matrix ---');
+   499→  console.log('             FT Home  FT Draw  FT Away');
+   500→  for (const ht of ['H', 'D', 'A'] as const) {
+   501→    const htLabel = ht === 'H' ? 'HT Home' : ht === 'D' ? 'HT Draw' : 'HT Away';
+   502→    const row = bttsBH.filter(m => m.htResult === ht);
+   503→    const toH = row.filter(m => m.ftResult === 'H').length;
+   504→    const toD = row.filter(m => m.ftResult === 'D').length;
+   505→    const toA = row.filter(m => m.ftResult === 'A').length;
+   506→    console.log(`  ${htLabel} | ${(toH / row.length * 100).toFixed(1).padStart(6)}% | ${(toD / row.length * 100).toFixed(1).padStart(6)}% | ${(toA / row.length * 100).toFixed(1).padStart(6)}%  (n=${row.length})`);
+   507→  }
+   508→
+   509→  // Comebacks
+   510→  const comebacks = bttsBH.filter(m =>
+   511→    (m.htResult === 'H' && m.ftResult === 'A') || (m.htResult === 'A' && m.ftResult === 'H')
+   512→  ).length;
+   513→  console.log(`\n  Full comebacks (HT leader loses): ${comebacks} (${(comebacks / bttsBH.length * 100).toFixed(1)}%)`);
+   514→
+   515→  // ------------------------------------------------------------------------
+   516→  // SECTION 3: Odds Analysis
+   517→  // ------------------------------------------------------------------------
+   518→  console.log('\n' + '='.repeat(80));
+   519→  console.log('SECTION 3: PRE-MATCH ODDS ANALYSIS');
+   520→  console.log('='.repeat(80));
+   521→
+   522→  const withOdds = bttsBH.filter(m => m.oddsAvgHome && m.oddsAvgDraw && m.oddsAvgAway);
+   523→  console.log(`\n  Games with avg odds available: ${withOdds.length} / ${bttsBH.length}`);
+   524→
+   525→  if (withOdds.length > 0) {
+   526→    const avgHomeOdds = withOdds.reduce((s, m) => s + m.oddsAvgHome!, 0) / withOdds.length;
+   527→    const avgDrawOdds = withOdds.reduce((s, m) => s + m.oddsAvgDraw!, 0) / withOdds.length;
+   528→    const avgAwayOdds = withOdds.reduce((s, m) => s + m.oddsAvgAway!, 0) / withOdds.length;
+   529→    console.log(`\n  Average odds: Home ${avgHomeOdds.toFixed(2)} | Draw ${avgDrawOdds.toFixed(2)} | Away ${avgAwayOdds.toFixed(2)}`);
+   530→
+   531→    // Implied probabilities (from odds, removing overround)
+   532→    const avgImpliedHome = withOdds.reduce((s, m) => s + 1 / m.oddsAvgHome!, 0) / withOdds.length;
+   533→    const avgImpliedDraw = withOdds.reduce((s, m) => s + 1 / m.oddsAvgDraw!, 0) / withOdds.length;
+   534→    const avgImpliedAway = withOdds.reduce((s, m) => s + 1 / m.oddsAvgAway!, 0) / withOdds.length;
+   535→    const overround = avgImpliedHome + avgImpliedDraw + avgImpliedAway;
+   536→    console.log(`  Raw implied: Home ${(avgImpliedHome * 100).toFixed(1)}% | Draw ${(avgImpliedDraw * 100).toFixed(1)}% | Away ${(avgImpliedAway * 100).toFixed(1)}% (overround: ${(overround * 100).toFixed(1)}%)`);
+   537→    const normHome = (avgImpliedHome / overround * 100).toFixed(1);
+   538→    const normDraw = (avgImpliedDraw / overround * 100).toFixed(1);
+   539→    const normAway = (avgImpliedAway / overround * 100).toFixed(1);
+   540→    console.log(`  Normalized:  Home ${normHome}% | Draw ${normDraw}% | Away ${normAway}%`);
+   541→
+   542→    // O2.5 odds
+   543→    const withO25Odds = withOdds.filter(m => m.oddsAvgOver25);
+   544→    if (withO25Odds.length > 0) {
+   545→      const avgO25Odds = withO25Odds.reduce((s, m) => s + m.oddsAvgOver25!, 0) / withO25Odds.length;
+   546→      const impliedO25 = 1 / avgO25Odds;
+   547→      console.log(`\n  O2.5 avg odds: ${avgO25Odds.toFixed(2)} (implied prob: ${(impliedO25 * 100).toFixed(1)}%)`);
+   548→      // How many had O2.5 odds < 2.0 (heavy favorite for over)?
+   549→      const strongO25 = withO25Odds.filter(m => m.oddsAvgOver25! < 2.0).length;
+   550→      const midO25 = withO25Odds.filter(m => m.oddsAvgOver25! >= 2.0 && m.oddsAvgOver25! < 2.5).length;
+   551→      const weakO25 = withO25Odds.filter(m => m.oddsAvgOver25! >= 2.5).length;
+   552→      console.log(`  O2.5 odds < 2.0: ${strongO25} (${(strongO25 / withO25Odds.length * 100).toFixed(1)}%)`);
+   553→      console.log(`  O2.5 odds 2.0-2.5: ${midO25} (${(midO25 / withO25Odds.length * 100).toFixed(1)}%)`);
+   554→      console.log(`  O2.5 odds >= 2.5: ${weakO25} (${(weakO25 / withO25Odds.length * 100).toFixed(1)}%)`);
+   555→    }
+   556→
+   557→    // Favorite odds range
+   558→    const favOddsRanges = [
+   559→      { label: '< 1.50', min: 0, max: 1.5 },
+   560→      { label: '1.50-1.80', min: 1.5, max: 1.8 },
+   561→      { label: '1.80-2.10', min: 1.8, max: 2.1 },
+   562→      { label: '2.10-2.50', min: 2.1, max: 2.5 },
+   563→      { label: '2.50-3.00', min: 2.5, max: 3.0 },
+   564→      { label: '> 3.00', min: 3.0, max: 99 },
+   565→    ];
+   566→    console.log('\n  Favorite (lowest odds) distribution:');
+   567→    for (const range of favOddsRanges) {
+   568→      const count = withOdds.filter(m => {
+   569→        const favOdds = Math.min(m.oddsAvgHome!, m.oddsAvgDraw!, m.oddsAvgAway!);
+   570→        return favOdds >= range.min && favOdds < range.max;
+   571→      }).length;
+   572→      if (count > 0) console.log(`    ${range.label.padEnd(12)}: ${count} (${(count / withOdds.length * 100).toFixed(1)}%)`);
+   573→    }
+   574→
+   575→    // Underdog won?
+   576→    console.log('\n  Underdog outcomes (favorite = lowest odds):');
+   577→    let favWon = 0, drawResult = 0, dogWon = 0;
+   578→    for (const m of withOdds) {
+   579→      const odds = [m.oddsAvgHome!, m.oddsAvgDraw!, m.oddsAvgAway!];
+   580→      const results = [m.ftResult === 'H', m.ftResult === 'D', m.ftResult === 'A'];
+   581→      const minIdx = odds.indexOf(Math.min(...odds));
+   582→      if (results[minIdx]) favWon++;
+   583→      else if (m.ftResult === 'D') drawResult++;
+   584→      else dogWon++;
+   585→    }
+   586→    console.log(`    Favorite won: ${favWon} (${(favWon / withOdds.length * 100).toFixed(1)}%)`);
+   587→    console.log(`    Draw:         ${drawResult} (${(drawResult / withOdds.length * 100).toFixed(1)}%)`);
+   588→    console.log(`    Underdog won: ${dogWon} (${(dogWon / withOdds.length * 100).toFixed(1)}%)`);
+   589→  }
+   590→
+   591→  // ------------------------------------------------------------------------
+   592→  // SECTION 4: Season-by-Season Trend
+   593→  // ------------------------------------------------------------------------
+   594→  console.log('\n' + '='.repeat(80));
+   595→  console.log('SECTION 4: SEASON-BY-SEASON TREND');
+   596→  console.log('='.repeat(80));
+   597→
+   598→  console.log('\n  Season  | BTTS-BH Games | Total Games | Rate  | Avg FT Goals');
+   599→  console.log('  ' + '-'.repeat(60));
+   600→  for (const season of ALL_SEASONS) {
+   601→    const seasonGames = allData.filter(m => m.season === season);
+   602→    const seasonBH = bttsBH.filter(m => m.season === season);
+   603→    if (seasonGames.length > 0) {
+   604→      const avgGoals = seasonBH.length > 0 ? seasonBH.reduce((s, m) => s + m.ftTotal, 0) / seasonBH.length : 0;
+   605→      console.log(`  ${season.padEnd(7)} | ${String(seasonBH.length).padStart(13)} | ${String(seasonGames.length).padStart(11)} | ${(seasonBH.length / seasonGames.length * 100).toFixed(1)}% | ${avgGoals.toFixed(1)}`);
+   606→    }
+   607→  }
+   608→
+   609→  // ------------------------------------------------------------------------
+   610→  // SECTION 5: Match Statistics (Shots, Corners, etc.)
+   611→  // ------------------------------------------------------------------------
+   612→  console.log('\n' + '='.repeat(80));
+   613→  console.log('SECTION 5: MATCH STATISTICS (SHOTS, CORNERS, FOULS, CARDS)');
+   614→  console.log('='.repeat(80));
+   615→
+   616→  const avgHomeShots = bttsBH.reduce((s, m) => s + m.homeShots, 0) / bttsBH.length;
+   617→  const avgAwayShots = bttsBH.reduce((s, m) => s + m.awayShots, 0) / bttsBH.length;
+   618→  const avgHomeSOT = bttsBH.reduce((s, m) => s + m.homeShotsOnTarget, 0) / bttsBH.length;
+   619→  const avgAwaySOT = bttsBH.reduce((s, m) => s + m.awayShotsOnTarget, 0) / bttsBH.length;
+   620→  const avgHomeCorners = bttsBH.reduce((s, m) => s + m.homeCorners, 0) / bttsBH.length;
+   621→  const avgAwayCorners = bttsBH.reduce((s, m) => s + m.awayCorners, 0) / bttsBH.length;
+   622→  const avgHomeFouls = bttsBH.reduce((s, m) => s + m.homeFouls, 0) / bttsBH.length;
+   623→  const avgAwayFouls = bttsBH.reduce((s, m) => s + m.awayFouls, 0) / bttsBH.length;
+   624→  const avgHomeYellows = bttsBH.reduce((s, m) => s + m.homeYellowCards, 0) / bttsBH.length;
+   625→  const avgAwayYellows = bttsBH.reduce((s, m) => s + m.awayYellowCards, 0) / bttsBH.length;
+   626→  const avgHomeReds = bttsBH.reduce((s, m) => s + m.homeRedCards, 0) / bttsBH.length;
+   627→  const avgAwayReds = bttsBH.reduce((s, m) => s + m.awayRedCards, 0) / bttsBH.length;
+   628→
+   629→  // Compare to overall averages
+   630→  const allHomeShots = allData.reduce((s, m) => s + m.homeShots, 0) / allData.length;
+   631→  const allAwayShots = allData.reduce((s, m) => s + m.awayShots, 0) / allData.length;
+   632→  const allHomeSOT = allData.reduce((s, m) => s + m.homeShotsOnTarget, 0) / allData.length;
+   633→  const allAwaySOT = allData.reduce((s, m) => s + m.awayShotsOnTarget, 0) / allData.length;
+   634→  const allHomeCorners = allData.reduce((s, m) => s + m.homeCorners, 0) / allData.length;
+   635→  const allAwayCorners = allData.reduce((s, m) => s + m.awayCorners, 0) / allData.length;
+   636→
+   637→  console.log(`\n  Stat          | BTTS-BH (Home) | BTTS-BH (Away) | Overall (Home) | Overall (Away) | Delta (Home) | Delta (Away)`);
+   638→  console.log('  ' + '-'.repeat(110));
+   639→  const statRows = [
+   640→    { label: 'Shots', bh_h: avgHomeShots, bh_a: avgAwayShots, all_h: allHomeShots, all_a: allAwayShots },
+   641→    { label: 'Shots OT', bh_h: avgHomeSOT, bh_a: avgAwaySOT, all_h: allHomeSOT, all_a: allAwaySOT },
+   642→    { label: 'Corners', bh_h: isNaN(avgHomeCorners) ? 0 : avgHomeCorners, bh_a: isNaN(avgAwayCorners) ? 0 : avgAwayCorners, all_h: isNaN(allHomeCorners) ? 0 : allHomeCorners, all_a: isNaN(allAwayCorners) ? 0 : allAwayCorners },
+   643→    { label: 'Fouls', bh_h: isNaN(avgHomeFouls) ? 0 : avgHomeFouls, bh_a: isNaN(avgAwayFouls) ? 0 : avgAwayFouls, all_h: 0, all_a: 0 },
+   644→    { label: 'Yellow Cards', bh_h: isNaN(avgHomeYellows) ? 0 : avgHomeYellows, bh_a: isNaN(avgAwayYellows) ? 0 : avgAwayYellows, all_h: 0, all_a: 0 },
+   645→    { label: 'Red Cards', bh_h: isNaN(avgHomeReds) ? 0 : avgHomeReds, bh_a: isNaN(avgAwayReds) ? 0 : avgAwayReds, all_h: 0, all_a: 0 },
+   646→  ];
+   647→  for (const row of statRows) {
+   648→    const dH = row.all_h > 0 ? (row.bh_h - row.all_h).toFixed(1) : '-';
+   649→    const dA = row.all_a > 0 ? (row.bh_a - row.all_a).toFixed(1) : '-';
+   650→    console.log(`  ${row.label.padEnd(13)} | ${row.bh_h.toFixed(1).padStart(14)} | ${row.bh_a.toFixed(1).padStart(14)} | ${row.all_h > 0 ? row.all_h.toFixed(1).padStart(14) : '             -'} | ${row.all_a > 0 ? row.all_a.toFixed(1).padStart(14) : '             -'} | ${String(dH).padStart(12)} | ${String(dA).padStart(12)}`);
+   651→  }
+   652→
+   653→  // ------------------------------------------------------------------------
+   654→  // SECTION 6: MODEL PREDICTIONS ON BTTS-BH GAMES
+   655→  // ------------------------------------------------------------------------
+   656→  console.log('\n' + '='.repeat(80));
+   657→  console.log('SECTION 6: MODEL PREDICTION ANALYSIS ON BTTS-BH GAMES');
+   658→  console.log('='.repeat(80));
+   659→
+   660→  // For each BTTS-BH game, generate prediction using training data from prior seasons
+   661→  // ALL_SEASONS is newest-first, so we need to reverse for chronological indexing
+   662→  // Oldest-first order: ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425', '2526']
+   663→  const CHRONO_SEASONS = [...ALL_SEASONS].reverse();
+   664→
+   665→  const predictions: {
+   666→    match: typeof bttsBH[0];
+   667→    pred: ReturnType<typeof generatePrediction>;
+   668→  }[] = [];
+   669→
+   670→  // Test seasons: 1920 through 2425 (need at least 5 prior training seasons)
+   671→  const TEST_SEASONS = ['1920', '2021', '2122', '2223', '2324', '2425'];
+   672→
+   673→  for (const testSeason of TEST_SEASONS) {
+   674→    const chronoIdx = CHRONO_SEASONS.indexOf(testSeason);
+   675→    if (chronoIdx < 5) continue; // Need 5 prior training seasons
+   676→
+   677→    // Training = 5 seasons before test season (chronological)
+   678→    const trainingSeasons = CHRONO_SEASONS.slice(chronoIdx - 5, chronoIdx);
+   679→    const trainingData = allData.filter(m => trainingSeasons.includes(m.season));
+   680→    const seasonWeights = calculateSeasonWeights(trainingSeasons);
+   681→    const leagueAvgs = calculateLeagueAverages(trainingData);
+   682→
+   683→    const seasonBH = bttsBH.filter(m => m.season === testSeason);
+   684→    console.log(`\n  Processing ${testSeason}: ${seasonBH.length} BTTS-BH games, training on ${trainingSeasons.join(', ')} (${trainingData.length} matches)`);
+   685→
+   686→    for (const m of seasonBH) {
+   687→      const pred = generatePrediction(trainingData, m.homeTeam, m.awayTeam, leagueAvgs, seasonWeights);
+   688→      predictions.push({ match: m, pred });
+   689→    }
+   690→  }
+   691→
+   692→  console.log(`\n  Total predictions generated: ${predictions.length}`);
+   693→
+   694→  if (predictions.length > 0) {
+   695→    // Average predicted probabilities
+   696→    const avgPredHomeWin = predictions.reduce((s, p) => s + p.pred.homeWin, 0) / predictions.length;
+   697→    const avgPredDraw = predictions.reduce((s, p) => s + p.pred.draw, 0) / predictions.length;
+   698→    const avgPredAwayWin = predictions.reduce((s, p) => s + p.pred.awayWin, 0) / predictions.length;
+   699→    const avgPredO25 = predictions.reduce((s, p) => s + p.pred.over25, 0) / predictions.length;
+   700→    const avgPredBTTS = predictions.reduce((s, p) => s + p.pred.btts, 0) / predictions.length;
+   701→    const avgPredXg = predictions.reduce((s, p) => s + p.pred.totalXg, 0) / predictions.length;
+   702→    const avgHomeXg = predictions.reduce((s, p) => s + p.pred.homeXg, 0) / predictions.length;
+   703→    const avgAwayXg = predictions.reduce((s, p) => s + p.pred.awayXg, 0) / predictions.length;
+   704→
+   705→    console.log('\n--- Average Model Predictions for BTTS-BH Games ---');
+   706→    console.log(`  Avg Predicted Home Win: ${avgPredHomeWin.toFixed(1)}%`);
+   707→    console.log(`  Avg Predicted Draw:     ${avgPredDraw.toFixed(1)}%`);
+   708→    console.log(`  Avg Predicted Away Win: ${avgPredAwayWin.toFixed(1)}%`);
+   709→    console.log(`  Avg Predicted O2.5:     ${avgPredO25.toFixed(1)}%`);
+   710→    console.log(`  Avg Predicted BTTS:     ${avgPredBTTS.toFixed(1)}%`);
+   711→    console.log(`  Avg Predicted Total xG:  ${avgPredXg.toFixed(2)}`);
+   712→    console.log(`  Avg Predicted Home xG:   ${avgHomeXg.toFixed(2)}`);
+   713→    console.log(`  Avg Predicted Away xG:   ${avgAwayXg.toFixed(2)}`);
+   714→
+   715→    // Compare to average predictions for ALL games
+   716→    // Quick sample: run predictions for a sample of non-BTTS-BH games
+   717→    console.log('\n--- Comparing to Non-BTTS-BH Games (sample) ---');
+   718→    const nonBHSample: typeof predictions = [];
+   719→    for (const testSeason of TEST_SEASONS) {
+   720→      const chronoIdx = CHRONO_SEASONS.indexOf(testSeason);
+   721→      if (chronoIdx < 5) continue;
+   722→      const trainingSeasons = CHRONO_SEASONS.slice(chronoIdx - 5, chronoIdx);
+   723→      const trainingData = allData.filter(m => trainingSeasons.includes(m.season));
+   724→      const seasonWeights = calculateSeasonWeights(trainingSeasons);
+   725→      const leagueAvgs = calculateLeagueAverages(trainingData);
+   726→      const bhDates = new Set(bttsBH.filter(m => m.season === testSeason).map(m => `${m.date}|${m.homeTeam}|${m.awayTeam}`));
+   727→      const nonBH = allData.filter(m => m.season === testSeason && !bhDates.has(`${m.date}|${m.homeTeam}|${m.awayTeam}`));
+   728→      // Sample every 3rd non-BH game to keep it manageable
+   729→      for (let i = 0; i < nonBH.length; i += 3) {
+   730→        const pred = generatePrediction(trainingData, nonBH[i].homeTeam, nonBH[i].awayTeam, leagueAvgs, seasonWeights);
+   731→        nonBHSample.push({ match: nonBH[i] as any, pred });
+   732→      }
+   733→    }
+   734→
+   735→    if (nonBHSample.length > 0) {
+   736→      const nonAvgO25 = nonBHSample.reduce((s, p) => s + p.pred.over25, 0) / nonBHSample.length;
+   737→      const nonAvgBTTS = nonBHSample.reduce((s, p) => s + p.pred.btts, 0) / nonBHSample.length;
+   738→      const nonAvgXg = nonBHSample.reduce((s, p) => s + p.pred.totalXg, 0) / nonBHSample.length;
+   739→      const nonAvgHomeXg = nonBHSample.reduce((s, p) => s + p.pred.homeXg, 0) / nonBHSample.length;
+   740→      const nonAvgAwayXg = nonBHSample.reduce((s, p) => s + p.pred.awayXg, 0) / nonBHSample.length;
+   741→
+   742→      console.log(`  Non-BH Avg O2.5:     ${nonAvgO25.toFixed(1)}%  (BH: ${avgPredO25.toFixed(1)}%  delta: +${(avgPredO25 - nonAvgO25).toFixed(1)}pp)`);
+   743→      console.log(`  Non-BH Avg BTTS:     ${nonAvgBTTS.toFixed(1)}%  (BH: ${avgPredBTTS.toFixed(1)}%  delta: +${(avgPredBTTS - nonAvgBTTS).toFixed(1)}pp)`);
+   744→      console.log(`  Non-BH Avg Total xG:  ${nonAvgXg.toFixed(2)}  (BH: ${avgPredXg.toFixed(2)}  delta: +${(avgPredXg - nonAvgXg).toFixed(2)})`);
+   745→      console.log(`  Non-BH Avg Home xG:   ${nonAvgHomeXg.toFixed(2)}  (BH: ${avgHomeXg.toFixed(2)}  delta: +${(avgHomeXg - nonAvgHomeXg).toFixed(2)})`);
+   746→      console.log(`  Non-BH Avg Away xG:   ${nonAvgAwayXg.toFixed(2)}  (BH: ${avgAwayXg.toFixed(2)}  delta: +${(avgAwayXg - nonAvgAwayXg).toFixed(2)})`);
+   747→    }
+   748→
+   749→    // Distribution of predicted O2.5 and BTTS for BH games
+   750→    console.log('\n--- Prediction Distribution for BTTS-BH Games ---');
+   751→    const o25Buckets = [0, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85];
+   752→    const bttsBuckets = [0, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85];
+   753→
+   754→    console.log('\n  O2.5 Probability Distribution:');
+   755→    for (let i = 0; i < o25Buckets.length - 1; i++) {
+   756→      const count = predictions.filter(p => p.pred.over25 >= o25Buckets[i] && p.pred.over25 < o25Buckets[i + 1]).length;
+   757→      if (count > 0) console.log(`    ${o25Buckets[i]}-${o25Buckets[i + 1]}%: ${count} (${(count / predictions.length * 100).toFixed(1)}%)`);
+   758→    }
+   759→
+   760→    console.log('\n  BTTS Probability Distribution:');
+   761→    for (let i = 0; i < bttsBuckets.length - 1; i++) {
+   762→      const count = predictions.filter(p => p.pred.btts >= bttsBuckets[i] && p.pred.btts < bttsBuckets[i + 1]).length;
+   763→      if (count > 0) console.log(`    ${bttsBuckets[i]}-${bttsBuckets[i + 1]}%: ${count} (${(count / predictions.length * 100).toFixed(1)}%)`);
+   764→    }
+   765→
+   766→    // How many BH games had model predicting O2.5 >= 60%?
+   767→    const highO25 = predictions.filter(p => p.pred.over25 >= 60).length;
+   768→    const highBTTS = predictions.filter(p => p.pred.btts >= 55).length;
+   769→    const veryHighO25 = predictions.filter(p => p.pred.over25 >= 65).length;
+   770→    const veryHighBTTS = predictions.filter(p => p.pred.btts >= 60).length;
+   771→    console.log(`\n  Model said O2.5 >= 60%: ${highO25} / ${predictions.length} (${(highO25 / predictions.length * 100).toFixed(1)}%)`);
+   772→    console.log(`  Model said O2.5 >= 65%: ${veryHighO25} / ${predictions.length} (${(veryHighO25 / predictions.length * 100).toFixed(1)}%)`);
+   773→    console.log(`  Model said BTTS >= 55%: ${highBTTS} / ${predictions.length} (${(highBTTS / predictions.length * 100).toFixed(1)}%)`);
+   774→    console.log(`  Model said BTTS >= 60%: ${veryHighBTTS} / ${predictions.length} (${(veryHighBTTS / predictions.length * 100).toFixed(1)}%)`);
+   775→
+   776→    // xG distribution
+   777→    console.log('\n  Total xG Distribution:');
+   778→    const xgBuckets = [0, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 7.0];
+   779→    for (let i = 0; i < xgBuckets.length - 1; i++) {
+   780→      const count = predictions.filter(p => p.pred.totalXg >= xgBuckets[i] && p.pred.totalXg < xgBuckets[i + 1]).length;
+   781→      if (count > 0) console.log(`    ${xgBuckets[i]}-${xgBuckets[i + 1]}: ${count} (${(count / predictions.length * 100).toFixed(1)}%)`);
+   782→    }
+   783→
+   784→    // ------------------------------------------------------------------------
+   785→    // SECTION 7: KEY PATTERN SUMMARY
+   786→    // ------------------------------------------------------------------------
+   787→    console.log('\n' + '='.repeat(80));
+   788→    console.log('SECTION 7: KEY PATTERN SUMMARY - WHAT DO BTTS-BH GAMES HAVE IN COMMON?');
+   789→    console.log('='.repeat(80));
+   790→
+   791→    // Check xG balance (home vs away)
+   792→    const balancedXg = predictions.filter(p => Math.abs(p.pred.homeXg - p.pred.awayXg) < 0.3).length;
+   793→    const moderateImbalance = predictions.filter(p => {
+   794→      const diff = Math.abs(p.pred.homeXg - p.pred.awayXg);
+   795→      return diff >= 0.3 && diff < 0.7;
+   796→    }).length;
+   797→    const highImbalance = predictions.filter(p => Math.abs(p.pred.homeXg - p.pred.awayXg) >= 0.7).length;
+   798→    console.log(`\n  xG Balance (|homeXg - awayXg|):`);
+   799→    console.log(`    Balanced (< 0.3):   ${balancedXg} (${(balancedXg / predictions.length * 100).toFixed(1)}%)`);
+   800→    console.log(`    Moderate (0.3-0.7):  ${moderateImbalance} (${(moderateImbalance / predictions.length * 100).toFixed(1)}%)`);
+   801→    console.log(`    Imbalanced (>= 0.7): ${highImbalance} (${(highImbalance / predictions.length * 100).toFixed(1)}%)`);
+   802→
+   803→    // Both teams have xG >= 1.0?
+   804→    const bothXgGt1 = predictions.filter(p => p.pred.homeXg >= 1.0 && p.pred.awayXg >= 1.0).length;
+   805→    const bothXgGt12 = predictions.filter(p => p.pred.homeXg >= 1.2 && p.pred.awayXg >= 1.2).length;
+   806→    const homeXgGt15 = predictions.filter(p => p.pred.homeXg >= 1.5).length;
+   807→    const awayXgGt15 = predictions.filter(p => p.pred.awayXg >= 1.5).length;
+   808→    console.log(`\n  Both teams xG >= 1.0: ${bothXgGt1} (${(bothXgGt1 / predictions.length * 100).toFixed(1)}%)`);
+   809→    console.log(`  Both teams xG >= 1.2: ${bothXgGt12} (${(bothXgGt12 / predictions.length * 100).toFixed(1)}%)`);
+   810→    console.log(`  Home xG >= 1.5: ${homeXgGt15} (${(homeXgGt15 / predictions.length * 100).toFixed(1)}%)`);
+   811→    console.log(`  Away xG >= 1.5: ${awayXgGt15} (${(awayXgGt15 / predictions.length * 100).toFixed(1)}%)`);
+   812→
+   813→    // Actual goals
+   814→    const avgActualHomeGoals = bttsBH.filter(m => predictions.some(p => p.match.date === m.date && p.match.homeTeam === m.homeTeam && p.match.awayTeam === m.awayTeam)).reduce((s, m) => s + m.ftHomeGoals, 0) / Math.max(1, predictions.length);
+   815→    const avgActualAwayGoals = bttsBH.filter(m => predictions.some(p => p.match.date === m.date && p.match.homeTeam === m.homeTeam && p.match.awayTeam === m.awayTeam)).reduce((s, m) => s + m.ftAwayGoals, 0) / Math.max(1, predictions.length);
+   816→    console.log(`\n  Actual avg home goals (predicted games): ${avgActualHomeGoals.toFixed(2)} (predicted: ${avgHomeXg.toFixed(2)})`);
+   817→    console.log(`  Actual avg away goals (predicted games): ${avgActualAwayGoals.toFixed(2)} (predicted: ${avgAwayXg.toFixed(2)})`);
+   818→
+   819→    // ------------------------------------------------------------------------
+   820→    // SECTION 8: EXAMPLE GAMES
+   821→    // ------------------------------------------------------------------------
+   822→    console.log('\n' + '='.repeat(80));
+   823→    console.log('SECTION 8: EXAMPLE BTTS-BOTH-HALVES GAMES (RECENT SEASONS)');
+   824→    console.log('='.repeat(80));
+   825→
+   826→    const recentBH = bttsBH.filter(m => ['2425', '2324', '2223'].includes(m.season));
+   827→    // Get predictions for these
+   828→    console.log('\n  Date       | Season | Home           | Away             | HT  | SH  | FT  | O2.5% | BTTS% | xG   | Home xG | Away xG');
+   829→    console.log('  ' + '-'.repeat(130));
+   830→    for (const m of recentBH.slice(0, 30)) {
+   831→      const pred = predictions.find(p => p.match.date === m.date && p.match.homeTeam === m.homeTeam && p.match.awayTeam === m.awayTeam);
+   832→      if (!pred) continue;
+   833→      console.log(`  ${m.date.padEnd(10)} | ${m.season}  | ${m.homeTeam.padEnd(14)} | ${m.awayTeam.padEnd(16)} | ${m.htHomeGoals}-${m.htAwayGoals}  | ${m.shHomeGoals}-${m.shAwayGoals}  | ${m.ftHomeGoals}-${m.ftAwayGoals}  | ${String(pred.pred.over25).padStart(4)}% | ${String(pred.pred.btts).padStart(4)}% | ${pred.pred.totalXg.toFixed(2).padStart(4)} | ${pred.pred.homeXg.toFixed(2).padStart(7)} | ${pred.pred.awayXg.toFixed(2)}`);
+   834→    }
+   835→  }
+   836→
+   837→  console.log('\n' + '='.repeat(80));
+   838→  console.log('ANALYSIS COMPLETE');
+   839→  console.log('='.repeat(80));
+   840→}
+   841→
+   842→main().catch(console.error);
+   843→
