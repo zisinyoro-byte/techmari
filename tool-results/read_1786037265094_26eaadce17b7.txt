@@ -1,0 +1,975 @@
+     1→'use client'
+     2→
+     3→import { useMemo } from 'react'
+     4→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+     5→import { Input } from '@/components/ui/input'
+     6→import { Badge } from '@/components/ui/badge'
+     7→import { Button } from '@/components/ui/button'
+     8→import { Skeleton } from '@/components/ui/skeleton'
+     9→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+    10→import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+    11→import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+    12→import { ArrowUpDown, Search, Trophy, Goal, TrendingUp, AlertTriangle, Calendar, BarChart3, DollarSign, Sparkles } from 'lucide-react'
+    13→import type { MatchResult, Analytics as AnalyticsType } from '@/lib/types'
+    14→import { COLORS, PIE_COLORS, SEASON_NAMES, EUROPEAN_SEASONS } from '@/lib/constants'
+    15→import { parseDateSafe } from '@/lib/utils'
+    16→
+    17→interface OverviewTabProps {
+    18→  results: MatchResult[]
+    19→  analytics: AnalyticsType | null
+    20→  searchTerm: string
+    21→  sortConfig: { key: string; direction: 'asc' | 'desc' }
+    22→  loading: boolean
+    23→  error: string | null
+    24→  selectedLeagueName: string
+    25→  selectedSeasonName: string
+    26→  isAllSeasons: boolean
+    27→  setSearchTerm: (term: string) => void
+    28→  handleSort: (key: string) => void
+    29→  displayLimit: number
+    30→  setDisplayLimit: (limit: number | ((prev: number) => number)) => void
+    31→}
+    32→
+    33→export function OverviewTab({
+    34→  results,
+    35→  analytics,
+    36→  searchTerm,
+    37→  sortConfig,
+    38→  loading,
+    39→  error,
+    40→  selectedLeagueName,
+    41→  selectedSeasonName,
+    42→  isAllSeasons,
+    43→  setSearchTerm,
+    44→  handleSort,
+    45→  displayLimit,
+    46→  setDisplayLimit,
+    47→}: OverviewTabProps) {
+    48→  // Filter and sort results
+    49→  const filteredResults = useMemo(() => {
+    50→    let filtered = results
+    51→
+    52→    if (searchTerm) {
+    53→      const term = searchTerm.toLowerCase()
+    54→      filtered = filtered.filter(
+    55→        match =>
+    56→          match.homeTeam.toLowerCase().includes(term) ||
+    57→          match.awayTeam.toLowerCase().includes(term)
+    58→      )
+    59→    }
+    60→
+    61→    return [...filtered].sort((a, b) => {
+    62→      let aVal: string | number = ''
+    63→      let bVal: string | number = ''
+    64→
+    65→      switch (sortConfig.key) {
+    66→        case 'date':
+    67→          aVal = parseDateSafe(a.date).getTime()
+    68→          bVal = parseDateSafe(b.date).getTime()
+    69→          break
+    70→        case 'homeTeam':
+    71→          aVal = a.homeTeam
+    72→          bVal = b.homeTeam
+    73→          break
+    74→        case 'awayTeam':
+    75→          aVal = a.awayTeam
+    76→          bVal = b.awayTeam
+    77→          break
+    78→        case 'ftGoals':
+    79→          aVal = a.ftHomeGoals + a.ftAwayGoals
+    80→          bVal = b.ftHomeGoals + b.ftAwayGoals
+    81→          break
+    82→        default:
+    83→          return 0
+    84→      }
+    85→
+    86→      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
+    87→      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
+    88→      return 0
+    89→    })
+    90→  }, [results, searchTerm, sortConfig])
+    91→
+    92→  // Calculate team form based on last 5 matches
+    93→  const teamForm = useMemo(() => {
+    94→    if (results.length === 0) return new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>()
+    95→
+    96→    const teamMatches = new Map<string, Array<{ date: string; isHome: boolean; goalsFor: number; goalsAgainst: number; result: 'W' | 'D' | 'L' }>>()
+    97→
+    98→    const sortedResults = [...results].sort((a, b) => {
+    99→      return parseDateSafe(b.date).getTime() - parseDateSafe(a.date).getTime()
+   100→    })
+   101→
+   102→    for (const match of sortedResults) {
+   103→      const homeMatches = teamMatches.get(match.homeTeam) || []
+   104→      const homeResult = match.ftResult === 'H' ? 'W' : match.ftResult === 'D' ? 'D' : 'L'
+   105→      homeMatches.push({
+   106→        date: match.date,
+   107→        isHome: true,
+   108→        goalsFor: match.ftHomeGoals,
+   109→        goalsAgainst: match.ftAwayGoals,
+   110→        result: homeResult
+   111→      })
+   112→      teamMatches.set(match.homeTeam, homeMatches)
+   113→
+   114→      const awayMatches = teamMatches.get(match.awayTeam) || []
+   115→      const awayResult = match.ftResult === 'A' ? 'W' : match.ftResult === 'D' ? 'D' : 'L'
+   116→      awayMatches.push({
+   117→        date: match.date,
+   118→        isHome: false,
+   119→        goalsFor: match.ftAwayGoals,
+   120→        goalsAgainst: match.ftHomeGoals,
+   121→        result: awayResult
+   122→      })
+   123→      teamMatches.set(match.awayTeam, awayMatches)
+   124→    }
+   125→
+   126→    const formMap = new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>()
+   127→    teamMatches.forEach((matches, team) => {
+   128→      const last5 = matches.slice(0, 5)
+   129→      const form = last5.map(m => m.result)
+   130→      const points = last5.reduce((acc, m) => acc + (m.result === 'W' ? 3 : m.result === 'D' ? 1 : 0), 0)
+   131→      const inForm = points >= 7
+   132→      formMap.set(team, { form, inForm, points })
+   133→    })
+   134→
+   135→    return formMap
+   136→  }, [results])
+   137→
+   138→  // Calculate last H2H results for each unique team pair
+   139→  const lastH2HResults = useMemo(() => {
+   140→    if (results.length === 0) return { score00: [], score10: [], score20: [] }
+   141→
+   142→    const h2hMap = new Map<string, { homeTeam: string; awayTeam: string; homeGoals: number; awayGoals: number; date: string; season?: string }>()
+   143→
+   144→    const sortedResults = [...results].sort((a, b) => {
+   145→      return parseDateSafe(b.date).getTime() - parseDateSafe(a.date).getTime()
+   146→    })
+   147→
+   148→    for (const match of sortedResults) {
+   149→      const pairKey = [match.homeTeam, match.awayTeam].sort().join(' vs ')
+   150→
+   151→      if (!h2hMap.has(pairKey)) {
+   152→        h2hMap.set(pairKey, {
+   153→          homeTeam: match.homeTeam,
+   154→          awayTeam: match.awayTeam,
+   155→          homeGoals: match.ftHomeGoals,
+   156→          awayGoals: match.ftAwayGoals,
+   157→          date: match.date,
+   158→          season: match.season
+   159→        })
+   160→      }
+   161→    }
+   162→
+   163→    const score00: { teams: string; score: string; date: string; season?: string }[] = []
+   164→    const score10: { teams: string; score: string; date: string; winner: string; season?: string }[] = []
+   165→    const score20: { teams: string; score: string; date: string; winner: string; season?: string }[] = []
+   166→
+   167→    h2hMap.forEach((match, pairKey) => {
+   168→      const { homeTeam, awayTeam, homeGoals, awayGoals, date, season } = match
+   169→      const totalGoals = homeGoals + awayGoals
+   170→
+   171→      if (homeGoals === 0 && awayGoals === 0) {
+   172→        score00.push({ teams: pairKey, score: '0-0', date, season })
+   173→      } else if (totalGoals === 1) {
+   174→        const winner = homeGoals === 1 ? homeTeam : awayTeam
+   175→        score10.push({ teams: pairKey, score: `${homeGoals}-${awayGoals}`, date, winner, season })
+   176→      } else if (totalGoals === 2 && (homeGoals === 0 || awayGoals === 0)) {
+   177→        const winner = homeGoals === 2 ? homeTeam : awayTeam
+   178→        score20.push({ teams: pairKey, score: `${homeGoals}-${awayGoals}`, date, winner, season })
+   179→      }
+   180→    })
+   181→
+   182→    const sortByDate = (a: { date: string }, b: { date: string }) => {
+   183→      return parseDateSafe(b.date).getTime() - parseDateSafe(a.date).getTime()
+   184→    }
+   185→
+   186→    return {
+   187→      score00: score00.sort(sortByDate),
+   188→      score10: score10.sort(sortByDate),
+   189→      score20: score20.sort(sortByDate)
+   190→    }
+   191→  }, [results])
+   192→
+   193→  // Prepare chart data
+   194→  const resultDistributionData = analytics ? [
+   195→    { name: 'Home Wins', value: analytics.resultDistribution.homeWins },
+   196→    { name: 'Draws', value: analytics.resultDistribution.draws },
+   197→    { name: 'Away Wins', value: analytics.resultDistribution.awayWins },
+   198→  ] : []
+   199→
+   200→  const htFtTransitionsData = analytics ? [
+   201→    {
+   202→      name: 'HT Home Lead',
+   203→      'FT Home Win': analytics.htToftTransitions.htHomeLeads.ftHomeWin,
+   204→      'FT Draw': analytics.htToftTransitions.htHomeLeads.ftDraw,
+   205→      'FT Away Win': analytics.htToftTransitions.htHomeLeads.ftAwayWin,
+   206→    },
+   207→    {
+   208→      name: 'HT Draw',
+   209→      'FT Home Win': analytics.htToftTransitions.htDraw.ftHomeWin,
+   210→      'FT Draw': analytics.htToftTransitions.htDraw.ftDraw,
+   211→      'FT Away Win': analytics.htToftTransitions.htDraw.ftAwayWin,
+   212→    },
+   213→    {
+   214→      name: 'HT Away Lead',
+   215→      'FT Home Win': analytics.htToftTransitions.htAwayLeads.ftHomeWin,
+   216→      'FT Draw': analytics.htToftTransitions.htAwayLeads.ftDraw,
+   217→      'FT Away Win': analytics.htToftTransitions.htAwayLeads.ftAwayWin,
+   218→    },
+   219→  ] : []
+   220→
+   221→  const overUnderData = analytics ? [
+   222→    { name: 'Over 2.5', value: analytics.over25Count, fill: COLORS.over },
+   223→    { name: 'Under 2.5', value: analytics.under25Count, fill: COLORS.under },
+   224→  ] : []
+   225→
+   226→  return (
+   227→    <div className="space-y-6">
+   228→      {error && (
+   229→        <Card className="border-red-200 bg-red-50">
+   230→          <CardContent className="py-4 text-red-600">{error}</CardContent>
+   231→        </Card>
+   232→      )}
+   233→
+   234→      {/* Search */}
+   235→      <Card className="shadow-md">
+   236→        <CardContent className="py-4">
+   237→          <div className="relative max-w-md">
+   238→            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   239→            <Input
+   240→              placeholder="Search by team name..."
+   241→              value={searchTerm}
+   242→              onChange={(e) => setSearchTerm(e.target.value)}
+   243→              className="pl-10"
+   244→            />
+   245→          </div>
+   246→        </CardContent>
+   247→      </Card>
+   248→
+   249→      {/* Analytics Cards */}
+   250→      {loading ? (
+   251→        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   252→          {[1, 2, 3, 4].map(i => (
+   253→            <Card key={i}><CardContent className="py-6"><Skeleton className="h-16 w-full" /></CardContent></Card>
+   254→          ))}
+   255→        </div>
+   256→      ) : !analytics ? (
+   257→        <Card className="border-amber-200 bg-amber-50">
+   258→          <CardContent className="py-8 text-center">
+   259→            <AlertTriangle className="w-8 h-8 mx-auto text-amber-500 mb-3" />
+   260→            <p className="text-amber-700 font-medium">No data available for this selection</p>
+   261→            <p className="text-sm text-muted-foreground mt-2">Try selecting a different season or league</p>
+   262→          </CardContent>
+   263→        </Card>
+   264→      ) : analytics.totalMatches === 0 ? (
+   265→        <Card className="border-blue-200 bg-blue-50">
+   266→          <CardContent className="py-8 text-center">
+   267→            <Calendar className="w-8 h-8 mx-auto text-blue-500 mb-3" />
+   268→            <p className="text-blue-700 font-medium">Season hasn't started yet</p>
+   269→            <p className="text-sm text-muted-foreground mt-2">No matches have been played in this season</p>
+   270→          </CardContent>
+   271→        </Card>
+   272→      ) : analytics && (
+   273→        <>
+   274→          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   275→            <Card className="shadow-md hover:shadow-lg transition-shadow">
+   276→              <CardContent className="py-6">
+   277→                <div className="flex items-center gap-2 text-muted-foreground">
+   278→                  <Trophy className="w-4 h-4" />
+   279→                  <span className="text-sm font-medium">Total Matches</span>
+   280→                </div>
+   281→                <p className="text-3xl font-bold mt-2">{analytics.totalMatches}</p>
+   282→                <p className="text-xs text-muted-foreground mt-1">{selectedLeagueName} {selectedSeasonName}{isAllSeasons && analytics.seasonsCount && ` (${analytics.seasonsCount} seasons)`}</p>
+   283→              </CardContent>
+   284→            </Card>
+   285→
+   286→            <Card className="shadow-md hover:shadow-lg transition-shadow">
+   287→              <CardContent className="py-6">
+   288→                <div className="flex items-center gap-2 text-muted-foreground">
+   289→                  <Goal className="w-4 h-4" />
+   290→                  <span className="text-sm font-medium">Avg Goals/Game</span>
+   291→                </div>
+   292→                <p className="text-3xl font-bold mt-2">{analytics.avgGoalsPerGame}</p>
+   293→                <p className="text-xs text-muted-foreground mt-1">Home: {analytics.avgHomeGoals} | Away: {analytics.avgAwayGoals}</p>
+   294→              </CardContent>
+   295→            </Card>
+   296→
+   297→            <Card className="shadow-md hover:shadow-lg transition-shadow">
+   298→              <CardContent className="py-6">
+   299→                <div className="flex items-center gap-2 text-muted-foreground">
+   300→                  <TrendingUp className="w-4 h-4" />
+   301→                  <span className="text-sm font-medium">HT-FT Correlation</span>
+   302→                </div>
+   303→                <p className="text-3xl font-bold mt-2 text-green-600">{analytics.htftCorrelationPercent}%</p>
+   304→                <p className="text-xs text-muted-foreground mt-1">HT result = FT result</p>
+   305→              </CardContent>
+   306→            </Card>
+   307→
+   308→            <Card className="shadow-md hover:shadow-lg transition-shadow">
+   309→              <CardContent className="py-6">
+   310→                <span className="text-sm font-medium text-muted-foreground">Result Distribution</span>
+   311→                <div className="flex gap-2 mt-3 text-sm">
+   312→                  <Badge style={{ backgroundColor: COLORS.homeWin }} className="text-white">H: {analytics.homeWinPercent}%</Badge>
+   313→                  <Badge style={{ backgroundColor: COLORS.draw }} className="text-white">D: {analytics.drawPercent}%</Badge>
+   314→                  <Badge style={{ backgroundColor: COLORS.awayWin }} className="text-white">A: {analytics.awayWinPercent}%</Badge>
+   315→                </div>
+   316→              </CardContent>
+   317→            </Card>
+   318→          </div>
+   319→
+   320→          {/* Over/Under & Odds Analysis Row */}
+   321→          <div className="grid md:grid-cols-2 gap-6">
+   322→            {/* Over/Under 2.5 Analysis */}
+   323→            <Card className="shadow-md border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20">
+   324→              <CardHeader>
+   325→                <CardTitle className="text-lg flex items-center gap-2">
+   326→                  <Goal className="w-5 h-5 text-emerald-600" />
+   327→                  Over/Under 2.5 Goals
+   328→                </CardTitle>
+   329→                <CardDescription>Total goals per match distribution</CardDescription>
+   330→              </CardHeader>
+   331→              <CardContent>
+   332→                <div className="grid grid-cols-2 gap-4">
+   333→                  <div className="text-center p-4 rounded-lg bg-emerald-100/50 dark:bg-emerald-800/30">
+   334→                    <p className="text-sm text-muted-foreground">Over 2.5 Goals</p>
+   335→                    <p className="text-3xl font-bold text-emerald-600">{analytics.over25Percent}%</p>
+   336→                    <p className="text-xs text-muted-foreground">{analytics.over25Count} matches</p>
+   337→                  </div>
+   338→                  <div className="text-center p-4 rounded-lg bg-red-100/50 dark:bg-red-800/30">
+   339→                    <p className="text-sm text-muted-foreground">Under 2.5 Goals</p>
+   340→                    <p className="text-3xl font-bold text-red-600">{analytics.under25Percent}%</p>
+   341→                    <p className="text-xs text-muted-foreground">{analytics.under25Count} matches</p>
+   342→                  </div>
+   343→                </div>
+   344→                <div className="mt-4 h-4 bg-gray-200 rounded-full overflow-hidden">
+   345→                  <div
+   346→                    className="h-full bg-emerald-500 transition-all"
+   347→                    style={{ width: `${analytics.over25Percent}%` }}
+   348→                  />
+   349→                </div>
+   350→              </CardContent>
+   351→            </Card>
+   352→
+   353→            {/* Odds Analysis */}
+   354→            <Card className="shadow-md border-2 border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20">
+   355→              <CardHeader>
+   356→                <CardTitle className="text-lg flex items-center gap-2">
+   357→                  <DollarSign className="w-5 h-5 text-amber-600" />
+   358→                  Odds Analysis
+   359→                </CardTitle>
+   360→                <CardDescription>Value betting insights ({analytics.oddsAnalysis.matchesWithOdds} matches with odds)</CardDescription>
+   361→              </CardHeader>
+   362→              <CardContent>
+   363→                <div className="grid grid-cols-3 gap-3">
+   364→                  <div className="text-center p-3 rounded-lg bg-white/50 dark:bg-gray-800/50">
+   365→                    <p className="text-xs text-muted-foreground">Favorite Wins</p>
+   366→                    <p className="text-2xl font-bold text-amber-600">{analytics.oddsAnalysis.favoriteWinPercent}%</p>
+   367→                  </div>
+   368→                  <div className="text-center p-3 rounded-lg bg-white/50 dark:bg-gray-800/50">
+   369→                    <p className="text-xs text-muted-foreground">Underdog Wins</p>
+   370→                    <p className="text-2xl font-bold text-purple-600">{analytics.oddsAnalysis.underdogWinPercent}%</p>
+   371→                  </div>
+   372→                  <div className="text-center p-3 rounded-lg bg-white/50 dark:bg-gray-800/50">
+   373→                    <p className="text-xs text-muted-foreground">Draws</p>
+   374→                    <p className="text-2xl font-bold text-gray-600">{analytics.oddsAnalysis.drawsPercent}%</p>
+   375→                  </div>
+   376→                </div>
+   377→                <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+   378→                  <div className="text-center">
+   379→                    <p className="text-muted-foreground">Avg Odds</p>
+   380→                    <p className="font-semibold">H: {analytics.oddsAnalysis.avgHomeOdds}</p>
+   381→                  </div>
+   382→                  <div className="text-center">
+   383→                    <p className="text-muted-foreground">Avg Odds</p>
+   384→                    <p className="font-semibold">D: {analytics.oddsAnalysis.avgDrawOdds}</p>
+   385→                  </div>
+   386→                  <div className="text-center">
+   387→                    <p className="text-muted-foreground">Avg Odds</p>
+   388→                    <p className="font-semibold">A: {analytics.oddsAnalysis.avgAwayOdds}</p>
+   389→                  </div>
+   390→                </div>
+   391→              </CardContent>
+   392→            </Card>
+   393→          </div>
+   394→
+   395→          {/* Implied vs Actual Probabilities */}
+   396→          {analytics.oddsAnalysis.matchesWithOdds > 0 && (
+   397→            <Card className="shadow-md">
+   398→              <CardHeader>
+   399→                <CardTitle className="text-lg flex items-center gap-2">
+   400→                  <BarChart3 className="w-5 h-5 text-blue-600" />
+   401→                  Implied vs Actual Probabilities
+   402→                </CardTitle>
+   403→                <CardDescription>Compare bookmaker implied odds with actual outcomes</CardDescription>
+   404→              </CardHeader>
+   405→              <CardContent>
+   406→                <div className="grid grid-cols-3 gap-6">
+   407→                  <div className="space-y-2">
+   408→                    <p className="text-sm font-medium text-center">Home Win</p>
+   409→                    <div className="flex gap-2">
+   410→                      <div className="flex-1 text-center p-3 rounded bg-blue-50 dark:bg-blue-900/30">
+   411→                        <p className="text-xs text-muted-foreground">Implied</p>
+   412→                        <p className="text-xl font-bold text-blue-600">{analytics.oddsAnalysis.homeWinImpliedProb}%</p>
+   413→                      </div>
+   414→                      <div className="flex-1 text-center p-3 rounded bg-green-50 dark:bg-green-900/30">
+   415→                        <p className="text-xs text-muted-foreground">Actual</p>
+   416→                        <p className="text-xl font-bold text-green-600">{analytics.oddsAnalysis.homeWinActualProb}%</p>
+   417→                      </div>
+   418→                    </div>
+   419→                  </div>
+   420→                  <div className="space-y-2">
+   421→                    <p className="text-sm font-medium text-center">Draw</p>
+   422→                    <div className="flex gap-2">
+   423→                      <div className="flex-1 text-center p-3 rounded bg-blue-50 dark:bg-blue-900/30">
+   424→                        <p className="text-xs text-muted-foreground">Implied</p>
+   425→                        <p className="text-xl font-bold text-blue-600">{analytics.oddsAnalysis.drawImpliedProb}%</p>
+   426→                      </div>
+   427→                      <div className="flex-1 text-center p-3 rounded bg-green-50 dark:bg-green-900/30">
+   428→                        <p className="text-xs text-muted-foreground">Actual</p>
+   429→                        <p className="text-xl font-bold text-green-600">{analytics.oddsAnalysis.drawActualProb}%</p>
+   430→                      </div>
+   431→                    </div>
+   432→                  </div>
+   433→                  <div className="space-y-2">
+   434→                    <p className="text-sm font-medium text-center">Away Win</p>
+   435→                    <div className="flex gap-2">
+   436→                      <div className="flex-1 text-center p-3 rounded bg-blue-50 dark:bg-blue-900/30">
+   437→                        <p className="text-xs text-muted-foreground">Implied</p>
+   438→                        <p className="text-xl font-bold text-blue-600">{analytics.oddsAnalysis.awayWinImpliedProb}%</p>
+   439→                      </div>
+   440→                      <div className="flex-1 text-center p-3 rounded bg-green-50 dark:bg-green-900/30">
+   441→                        <p className="text-xs text-muted-foreground">Actual</p>
+   442→                        <p className="text-xl font-bold text-green-600">{analytics.oddsAnalysis.awayWinActualProb}%</p>
+   443→                      </div>
+   444→                    </div>
+   445→                  </div>
+   446→                </div>
+   447→              </CardContent>
+   448→            </Card>
+   449→          )}
+   450→
+   451→          {/* Match Statistics */}
+   452→          <Card className="shadow-md">
+   453→            <CardHeader>
+   454→              <CardTitle className="text-lg flex items-center gap-2">
+   455→                <BarChart3 className="w-5 h-5 text-indigo-600" />
+   456→                Average Match Statistics
+   457→              </CardTitle>
+   458→              <CardDescription>Per-match averages across all games</CardDescription>
+   459→            </CardHeader>
+   460→            <CardContent>
+   461→              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   462→                <div className="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+   463→                  <p className="text-xs text-muted-foreground">Shots</p>
+   464→                  <p className="text-lg font-bold">{analytics.avgHomeShots} - {analytics.avgAwayShots}</p>
+   465→                  <p className="text-xs text-muted-foreground">Home - Away</p>
+   466→                </div>
+   467→                <div className="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+   468→                  <p className="text-xs text-muted-foreground">Shots on Target</p>
+   469→                  <p className="text-lg font-bold">{analytics.avgHomeShotsOnTarget} - {analytics.avgAwayShotsOnTarget}</p>
+   470→                  <p className="text-xs text-muted-foreground">Home - Away</p>
+   471→                </div>
+   472→                <div className="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+   473→                  <p className="text-xs text-muted-foreground">Corners</p>
+   474→                  <p className="text-lg font-bold">{analytics.avgHomeCorners} - {analytics.avgAwayCorners}</p>
+   475→                  <p className="text-xs text-muted-foreground">Home - Away</p>
+   476→                </div>
+   477→                <div className="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+   478→                  <p className="text-xs text-muted-foreground">Fouls</p>
+   479→                  <p className="text-lg font-bold">{analytics.avgHomeFouls} - {analytics.avgAwayFouls}</p>
+   480→                  <p className="text-xs text-muted-foreground">Home - Away</p>
+   481→                </div>
+   482→              </div>
+   483→              <div className="grid grid-cols-2 gap-4 mt-4">
+   484→                <div className="text-center p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30">
+   485→                  <p className="text-xs text-muted-foreground">Yellow Cards (Avg)</p>
+   486→                  <p className="text-lg font-bold">{analytics.avgHomeYellowCards} - {analytics.avgAwayYellowCards}</p>
+   487→                  <p className="text-xs text-muted-foreground">Home - Away</p>
+   488→                </div>
+   489→                <div className="text-center p-4 rounded-lg bg-red-50 dark:bg-red-900/30">
+   490→                  <p className="text-xs text-muted-foreground">Total Red Cards</p>
+   491→                  <p className="text-lg font-bold">{analytics.totalRedCards}</p>
+   492→                  <p className="text-xs text-muted-foreground">In {analytics.totalMatches} matches</p>
+   493→                </div>
+   494→              </div>
+   495→            </CardContent>
+   496→          </Card>
+   497→
+   498→          {/* Shots Conversion */}
+   499→          <Card className="shadow-md border-2 border-purple-200 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
+   500→            <CardHeader>
+   501→              <CardTitle className="text-lg flex items-center gap-2">
+   502→                <Sparkles className="w-5 h-5 text-purple-600" />
+   503→                Shots Conversion Rates
+   504→              </CardTitle>
+   505→              <CardDescription>Goals scored per shots taken (efficiency metrics)</CardDescription>
+   506→            </CardHeader>
+   507→            <CardContent>
+   508→              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+   509→                <div className="text-center p-4 rounded-lg bg-white/50 dark:bg-gray-800/50 border border-purple-200">
+   510→                  <p className="text-xs text-muted-foreground">Home Shot Conversion</p>
+   511→                  <p className="text-2xl font-bold text-purple-600">{analytics.homeShotConversion}%</p>
+   512→                  <p className="text-xs text-muted-foreground">Goals per 100 shots</p>
+   513→                </div>
+   514→                <div className="text-center p-4 rounded-lg bg-white/50 dark:bg-gray-800/50 border border-purple-200">
+   515→                  <p className="text-xs text-muted-foreground">Away Shot Conversion</p>
+   516→                  <p className="text-2xl font-bold text-pink-600">{analytics.awayShotConversion}%</p>
+   517→                  <p className="text-xs text-muted-foreground">Goals per 100 shots</p>
+   518→                </div>
+   519→                <div className="text-center p-4 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-800/30 dark:to-pink-800/30 border border-purple-300">
+   520→                  <p className="text-xs text-muted-foreground">Overall Conversion</p>
+   521→                  <p className="text-2xl font-bold text-purple-700">{analytics.overallShotConversion}%</p>
+   522→                  <p className="text-xs text-muted-foreground">All shots</p>
+   523→                </div>
+   524→              </div>
+   525→              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
+   526→                <div className="text-center p-4 rounded-lg bg-white/50 dark:bg-gray-800/50 border border-green-200">
+   527→                  <p className="text-xs text-muted-foreground">Home SOT Conversion</p>
+   528→                  <p className="text-2xl font-bold text-green-600">{analytics.homeShotOnTargetConversion}%</p>
+   529→                  <p className="text-xs text-muted-foreground">Goals per 100 on target</p>
+   530→                </div>
+   531→                <div className="text-center p-4 rounded-lg bg-white/50 dark:bg-gray-800/50 border border-blue-200">
+   532→                  <p className="text-xs text-muted-foreground">Away SOT Conversion</p>
+   533→                  <p className="text-2xl font-bold text-blue-600">{analytics.awayShotOnTargetConversion}%</p>
+   534→                  <p className="text-xs text-muted-foreground">Goals per 100 on target</p>
+   535→                </div>
+   536→                <div className="text-center p-4 rounded-lg bg-gradient-to-br from-green-100 to-blue-100 dark:from-green-800/30 dark:to-blue-800/30 border border-green-300">
+   537→                  <p className="text-xs text-muted-foreground">Overall SOT Conversion</p>
+   538→                  <p className="text-2xl font-bold text-green-700">{analytics.overallShotOnTargetConversion}%</p>
+   539→                  <p className="text-xs text-muted-foreground">All shots on target</p>
+   540→                </div>
+   541→              </div>
+   542→            </CardContent>
+   543→          </Card>
+   544→
+   545→          {/* Entertaining Teams - Good Attack + Weak Defense */}
+   546→          {(() => {
+   547→            // Only use current season + previous season for entertaining teams
+   548→            const recentSeasons = [EUROPEAN_SEASONS[0], EUROPEAN_SEASONS[1]]
+   549→            const recentResults = results.filter(r => recentSeasons.includes(r.season))
+   550→
+   551→            const teamStats = new Map<string, {
+   552→              scored: number
+   553→              conceded: number
+   554→              matches: number
+   555→              homeScored: number
+   556→              homeConceded: number
+   557→              homeMatches: number
+   558→              awayScored: number
+   559→              awayConceded: number
+   560→              awayMatches: number
+   561→            }>()
+   562→
+   563→            recentResults.forEach(r => {
+   564→              const homeStats = teamStats.get(r.homeTeam) || {
+   565→                scored: 0, conceded: 0, matches: 0,
+   566→                homeScored: 0, homeConceded: 0, homeMatches: 0,
+   567→                awayScored: 0, awayConceded: 0, awayMatches: 0
+   568→              }
+   569→              homeStats.scored += r.ftHomeGoals
+   570→              homeStats.conceded += r.ftAwayGoals
+   571→              homeStats.matches++
+   572→              homeStats.homeScored += r.ftHomeGoals
+   573→              homeStats.homeConceded += r.ftAwayGoals
+   574→              homeStats.homeMatches++
+   575→              teamStats.set(r.homeTeam, homeStats)
+   576→
+   577→              const awayStats = teamStats.get(r.awayTeam) || {
+   578→                scored: 0, conceded: 0, matches: 0,
+   579→                homeScored: 0, homeConceded: 0, homeMatches: 0,
+   580→                awayScored: 0, awayConceded: 0, awayMatches: 0
+   581→              }
+   582→              awayStats.scored += r.ftAwayGoals
+   583→              awayStats.conceded += r.ftHomeGoals
+   584→              awayStats.matches++
+   585→              awayStats.awayScored += r.ftAwayGoals
+   586→              awayStats.awayConceded += r.ftHomeGoals
+   587→              awayStats.awayMatches++
+   588→              teamStats.set(r.awayTeam, awayStats)
+   589→            })
+   590→
+   591→            const teamArray = Array.from(teamStats.entries()).map(([name, stats]) => ({
+   592→              name,
+   593→              avgScored: stats.scored / stats.matches,
+   594→              avgConceded: stats.conceded / stats.matches,
+   595→              avgGoalsPerGame: (stats.scored + stats.conceded) / stats.matches,
+   596→              matches: stats.matches,
+   597→              homeAvgScored: stats.homeMatches > 0 ? stats.homeScored / stats.homeMatches : 0,
+   598→              homeAvgConceded: stats.homeMatches > 0 ? stats.homeConceded / stats.homeMatches : 0,
+   599→              awayAvgScored: stats.awayMatches > 0 ? stats.awayScored / stats.awayMatches : 0,
+   600→              awayAvgConceded: stats.awayMatches > 0 ? stats.awayConceded / stats.awayMatches : 0,
+   601→            }))
+   602→
+   603→            // League averages (computed from recent 2 seasons only)
+   604→            const totalGoalsRecent = recentResults.reduce((sum, r) => sum + r.ftHomeGoals + r.ftAwayGoals, 0)
+   605→            const leagueAvgGoalsPerGame = recentResults.length > 0 ? totalGoalsRecent / recentResults.length : analytics.avgGoalsPerGame
+   606→            const leagueAvgScored = leagueAvgGoalsPerGame / 2
+   607→            const leagueAvgConceded = leagueAvgGoalsPerGame / 2
+   608→
+   609→            const entertainingTeams = teamArray
+   610→              .filter(t => t.matches >= 3)
+   611→              .filter(t => t.avgScored >= leagueAvgScored && t.avgConceded >= leagueAvgConceded)
+   612→              .sort((a, b) => b.avgGoalsPerGame - a.avgGoalsPerGame)
+   613→              .slice(0, 6)
+   614→
+   615→            if (entertainingTeams.length === 0) return null
+   616→
+   617→            return (
+   618→              <Card className="shadow-md border-2 border-pink-300 bg-gradient-to-r from-pink-50 via-rose-50 to-orange-50 dark:from-pink-900/20 dark:via-rose-900/20 dark:to-orange-900/20">
+   619→                <CardHeader>
+   620→                  <CardTitle className="text-lg flex items-center gap-2">
+   621→                    <Sparkles className="w-5 h-5 text-pink-600" />
+   622→                    🎭 Entertaining Teams
+   623→                  </CardTitle>
+   624→                  <CardDescription>
+   625→                    Teams with strong attack AND weak defense - expect high-scoring matches!
+   626→                  </CardDescription>
+   627→                </CardHeader>
+   628→                <CardContent>
+   629→                  <div className="mb-4 p-3 rounded-lg bg-gradient-to-r from-pink-100/50 to-orange-100/50 dark:from-pink-800/20 dark:to-orange-800/20">
+   630→                    <p className="text-sm text-muted-foreground">
+   631→                      These teams score <span className="font-semibold text-green-600">at or above average ({leagueAvgScored.toFixed(2)}+ goals/game)</span> AND concede <span className="font-semibold text-red-600">at or above average ({leagueAvgConceded.toFixed(2)}+ goals/game)</span>. Perfect for BTTS and Over 2.5 bets!
+   632→                    </p>
+   633→                  </div>
+   634→                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+   635→                    {entertainingTeams.map((team, idx) => (
+   636→                      <div
+   637→                        key={team.name}
+   638→                        className={`p-4 rounded-xl border-2 ${
+   639→                          idx === 0
+   640→                            ? 'bg-gradient-to-br from-yellow-100 to-amber-100 border-yellow-400 dark:from-yellow-800/30 dark:to-amber-800/30'
+   641→                            : 'bg-white/50 dark:bg-gray-800/50 border-pink-200 dark:border-pink-700'
+   642→                        }`}
+   643→                      >
+   644→                        <div className="flex items-center gap-2 mb-3">
+   645→                          {idx === 0 && <span className="text-xl">👑</span>}
+   646→                          {idx === 1 && <span className="text-xl">🥈</span>}
+   647→                          {idx === 2 && <span className="text-xl">🥉</span>}
+   648→                          <h4 className="font-bold text-lg truncate">{team.name}</h4>
+   649→                          <Badge variant="outline" className="ml-auto text-xs">{team.matches} games</Badge>
+   650→                        </div>
+   651→                        <div className="grid grid-cols-2 gap-3">
+   652→                          <div className="text-center p-2 rounded-lg bg-green-100/50 dark:bg-green-800/30">
+   653→                            <p className="text-xs text-muted-foreground">⚔️ Attack</p>
+   654→                            <p className="text-xl font-bold text-green-600">{team.avgScored.toFixed(2)}</p>
+   655→                            <p className="text-xs text-muted-foreground">goals/game</p>
+   656→                          </div>
+   657→                          <div className="text-center p-2 rounded-lg bg-red-100/50 dark:bg-red-800/30">
+   658→                            <p className="text-xs text-muted-foreground">🛡️ Defense</p>
+   659→                            <p className="text-xl font-bold text-red-600">{team.avgConceded.toFixed(2)}</p>
+   660→                            <p className="text-xs text-muted-foreground">conceded/game</p>
+   661→                          </div>
+   662→                        </div>
+   663→                        <div className="mt-3 pt-3 border-t border-pink-200 dark:border-pink-700">
+   664→                          <div className="flex justify-between items-center">
+   665→                            <span className="text-sm text-muted-foreground">📊 Avg match goals:</span>
+   666→                            <span className="font-bold text-lg text-pink-600">{team.avgGoalsPerGame.toFixed(2)}</span>
+   667→                          </div>
+   668→                          <div className="flex justify-between items-center mt-1 text-xs">
+   669→                            <span className="text-muted-foreground">Home: {team.homeAvgScored.toFixed(1)} scored / {team.homeAvgConceded.toFixed(1)} conceded</span>
+   670→                          </div>
+   671→                          <div className="flex justify-between items-center text-xs">
+   672→                            <span className="text-muted-foreground">Away: {team.awayAvgScored.toFixed(1)} scored / {team.awayAvgConceded.toFixed(1)} conceded</span>
+   673→                          </div>
+   674→                        </div>
+   675→                      </div>
+   676→                    ))}
+   677→                  </div>
+   678→                  <div className="mt-4 p-3 rounded-lg bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-800/20 dark:to-pink-800/20">
+   679→                    <p className="text-sm text-center">
+   680→                      <span className="font-semibold text-purple-700 dark:text-purple-300">💡 Tip:</span> When these teams play each other or against other high-scoring teams, consider <span className="font-bold">BTTS Yes</span> and <span className="font-bold">Over 2.5 Goals</span>
+   681→                    </p>
+   682→                  </div>
+   683→                </CardContent>
+   684→              </Card>
+   685→            );
+   686→          })()}
+   687→
+   688→          {/* Best O2.5 and BTTS Teams */}
+   689→          {(() => {
+   690→            // Only use current season + previous season
+   691→            const o25BttsSeasons = [EUROPEAN_SEASONS[0], EUROPEAN_SEASONS[1]]
+   692→            const o25BttsRecentResults = results.filter(r => o25BttsSeasons.includes(r.season))
+   693→
+   694→            const teamGoalStats = new Map<string, {
+   695→              matches: number;
+   696→              over25Count: number;
+   697→              bttsCount: number;
+   698→            }>()
+   699→
+   700→            o25BttsRecentResults.forEach(r => {
+   701→              const totalGoals = r.ftHomeGoals + r.ftAwayGoals
+   702→              const isOver25 = totalGoals > 2.5
+   703→              const isBTTS = r.ftHomeGoals > 0 && r.ftAwayGoals > 0
+   704→
+   705→              const homeStats = teamGoalStats.get(r.homeTeam) || { matches: 0, over25Count: 0, bttsCount: 0 }
+   706→              homeStats.matches++
+   707→              if (isOver25) homeStats.over25Count++
+   708→              if (isBTTS) homeStats.bttsCount++
+   709→              teamGoalStats.set(r.homeTeam, homeStats)
+   710→
+   711→              const awayStats = teamGoalStats.get(r.awayTeam) || { matches: 0, over25Count: 0, bttsCount: 0 }
+   712→              awayStats.matches++
+   713→              if (isOver25) awayStats.over25Count++
+   714→              if (isBTTS) awayStats.bttsCount++
+   715→              teamGoalStats.set(r.awayTeam, awayStats)
+   716→            })
+   717→
+   718→            const teamArray = Array.from(teamGoalStats.entries())
+   719→              .filter(([_, stats]) => stats.matches >= 3)
+   720→              .map(([name, stats]) => ({
+   721→                name,
+   722→                matches: stats.matches,
+   723→                over25Rate: (stats.over25Count / stats.matches) * 100,
+   724→                bttsRate: (stats.bttsCount / stats.matches) * 100,
+   725→              }))
+   726→
+   727→            const topOver25Teams = [...teamArray]
+   728→              .sort((a, b) => b.over25Rate - a.over25Rate)
+   729→              .slice(0, 5)
+   730→
+   731→            const topBTTSTeams = [...teamArray]
+   732→              .sort((a, b) => b.bttsRate - a.bttsRate)
+   733→              .slice(0, 5)
+   734→
+   735→            if (topOver25Teams.length === 0 && topBTTSTeams.length === 0) return null
+   736→
+   737→            return (
+   738→              <div className="grid md:grid-cols-2 gap-6">
+   739→                <Card className="shadow-md border-2 border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20">
+   740→                  <CardHeader>
+   741→                    <CardTitle className="text-lg flex items-center gap-2">
+   742→                      <Goal className="w-5 h-5 text-emerald-600" />
+   743→                      🔥 Best O2.5 Teams
+   744→                    </CardTitle>
+   745→                    <CardDescription>
+   746→                      Teams with highest % of matches with 3+ total goals
+   747→                    </CardDescription>
+   748→                  </CardHeader>
+   749→                  <CardContent>
+   750→                    <div className="space-y-2">
+   751→                      {topOver25Teams.map((team, idx) => (
+   752→                        <div
+   753→                          key={team.name}
+   754→                          className={`flex items-center justify-between p-3 rounded-lg ${
+   755→                            idx === 0
+   756→                              ? 'bg-gradient-to-r from-yellow-100 to-amber-100 border border-yellow-300 dark:from-yellow-800/30 dark:to-amber-800/30'
+   757→                              : 'bg-white/50 dark:bg-gray-800/50'
+   758→                          }`}
+   759→                        >
+   760→                          <div className="flex items-center gap-2">
+   761→                            {idx === 0 && <span className="text-lg">🥇</span>}
+   762→                            {idx === 1 && <span className="text-lg">🥈</span>}
+   763→                            {idx === 2 && <span className="text-lg">🥉</span>}
+   764→                            {idx > 2 && <span className="w-6 text-center text-sm text-muted-foreground">{idx + 1}.</span>}
+   765→                            <span className="font-medium truncate max-w-[120px]">{team.name}</span>
+   766→                          </div>
+   767→                          <div className="flex items-center gap-2">
+   768→                            <div className="w-20 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+   769→                              <div
+   770→                                className="h-full bg-emerald-500 rounded-full"
+   771→                                style={{ width: `${team.over25Rate}%` }}
+   772→                              />
+   773→                            </div>
+   774→                            <span className="font-bold text-emerald-600 w-14 text-right">{team.over25Rate.toFixed(0)}%</span>
+   775→                            <span className="text-xs text-muted-foreground w-12 text-right">({team.matches}g)</span>
+   776→                          </div>
+   777→                        </div>
+   778→                      ))}
+   779→                    </div>
+   780→                    <div className="mt-4 p-2 rounded bg-emerald-100/50 dark:bg-emerald-800/20 text-center">
+   781→                      <p className="text-xs text-muted-foreground">
+   782→                        💡 These teams are involved in high-scoring matches
+   783→                      </p>
+   784→                    </div>
+   785→                  </CardContent>
+   786→                </Card>
+   787→
+   788→                <Card className="shadow-md border-2 border-purple-300 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
+   789→                  <CardHeader>
+   790→                    <CardTitle className="text-lg flex items-center gap-2">
+   791→                      <Sparkles className="w-5 h-5 text-purple-600" />
+   792→                      ⚽ Best BTTS Teams
+   793→                    </CardTitle>
+   794→                    <CardDescription>
+   795→                      Teams with highest % of matches where both teams scored
+   796→                    </CardDescription>
+   797→                  </CardHeader>
+   798→                  <CardContent>
+   799→                    <div className="space-y-2">
+   800→                      {topBTTSTeams.map((team, idx) => (
+   801→                        <div
+   802→                          key={team.name}
+   803→                          className={`flex items-center justify-between p-3 rounded-lg ${
+   804→                            idx === 0
+   805→                              ? 'bg-gradient-to-r from-yellow-100 to-amber-100 border border-yellow-300 dark:from-yellow-800/30 dark:to-amber-800/30'
+   806→                              : 'bg-white/50 dark:bg-gray-800/50'
+   807→                          }`}
+   808→                        >
+   809→                          <div className="flex items-center gap-2">
+   810→                            {idx === 0 && <span className="text-lg">🥇</span>}
+   811→                            {idx === 1 && <span className="text-lg">🥈</span>}
+   812→                            {idx === 2 && <span className="text-lg">🥉</span>}
+   813→                            {idx > 2 && <span className="w-6 text-center text-sm text-muted-foreground">{idx + 1}.</span>}
+   814→                            <span className="font-medium truncate max-w-[120px]">{team.name}</span>
+   815→                          </div>
+   816→                          <div className="flex items-center gap-2">
+   817→                            <div className="w-20 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+   818→                              <div
+   819→                                className="h-full bg-purple-500 rounded-full"
+   820→                                style={{ width: `${team.bttsRate}%` }}
+   821→                              />
+   822→                            </div>
+   823→                            <span className="font-bold text-purple-600 w-14 text-right">{team.bttsRate.toFixed(0)}%</span>
+   824→                            <span className="text-xs text-muted-foreground w-12 text-right">({team.matches}g)</span>
+   825→                          </div>
+   826→                        </div>
+   827→                      ))}
+   828→                    </div>
+   829→                    <div className="mt-4 p-2 rounded bg-purple-100/50 dark:bg-purple-800/20 text-center">
+   830→                      <p className="text-xs text-muted-foreground">
+   831→                        💡 Both teams score when these teams play
+   832→                      </p>
+   833→                    </div>
+   834→                  </CardContent>
+   835→                </Card>
+   836→              </div>
+   837→            );
+   838→          })()}
+   839→
+   840→          {/* Charts */}
+   841→          <div className="grid md:grid-cols-2 gap-6">
+   842→            <Card className="shadow-md">
+   843→              <CardHeader>
+   844→                <CardTitle className="text-lg">Result Distribution</CardTitle>
+   845→                <CardDescription>Full-time result breakdown</CardDescription>
+   846→              </CardHeader>
+   847→              <CardContent>
+   848→                <div className="h-[250px]">
+   849→                  <ResponsiveContainer width="100%" height="100%">
+   850→                    <PieChart>
+   851→                      <Pie data={resultDistributionData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+   852→                        {resultDistributionData.map((_, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index]} />)}
+   853→                      </Pie>
+   854→                    </PieChart>
+   855→                  </ResponsiveContainer>
+   856→                </div>
+   857→              </CardContent>
+   858→            </Card>
+   859→
+   860→            <Card className="shadow-md">
+   861→              <CardHeader>
+   862→                <CardTitle className="text-lg">HT to FT Transitions</CardTitle>
+   863→                <CardDescription>How halftime results evolve to fulltime</CardDescription>
+   864→              </CardHeader>
+   865→              <CardContent>
+   866→                <ChartContainer config={{ 'FT Home Win': { label: 'FT Home Win', color: COLORS.homeWin }, 'FT Draw': { label: 'FT Draw', color: COLORS.draw }, 'FT Away Win': { label: 'FT Away Win', color: COLORS.awayWin } }} className="h-[250px]">
+   867→                  <ResponsiveContainer width="100%" height="100%">
+   868→                    <BarChart data={htFtTransitionsData} layout="vertical">
+   869→                      <CartesianGrid strokeDasharray="3 3" />
+   870→                      <XAxis type="number" />
+   871→                      <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
+   872→                      <ChartTooltip content={<ChartTooltipContent />} />
+   873→                      <Bar dataKey="FT Home Win" stackId="a" fill={COLORS.homeWin} />
+   874→                      <Bar dataKey="FT Draw" stackId="a" fill={COLORS.draw} />
+   875→                      <Bar dataKey="FT Away Win" stackId="a" fill={COLORS.awayWin} />
+   876→                    </BarChart>
+   877→                  </ResponsiveContainer>
+   878→                </ChartContainer>
+   879→              </CardContent>
+   880→            </Card>
+   881→          </div>
+   882→        </>
+   883→      )}
+   884→
+   885→      {/* Results Table */}
+   886→      <Card className="shadow-md">
+   887→        <CardHeader>
+   888→          <CardTitle className="text-lg">Match Results</CardTitle>
+   889→          <CardDescription>{filteredResults.length} matches found{searchTerm && ` for "${searchTerm}"`}</CardDescription>
+   890→        </CardHeader>
+   891→        <CardContent>
+   892→          {loading ? (
+   893→            <div className="space-y-2">{[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
+   894→          ) : (
+   895→            <div className="overflow-x-auto">
+   896→              <Table>
+   897→                <TableHeader>
+   898→                  <TableRow>
+   899→                    <TableHead><Button variant="ghost" size="sm" onClick={() => handleSort('date')}>Date <ArrowUpDown className="ml-1 w-3 h-3" /></Button></TableHead>
+   900→                    {isAllSeasons && <TableHead>Season</TableHead>}
+   901→                    <TableHead><Button variant="ghost" size="sm" onClick={() => handleSort('homeTeam')}>Home Team <ArrowUpDown className="ml-1 w-3 h-3" /></Button></TableHead>
+   902→                    <TableHead className="text-center">HT Score</TableHead>
+   903→                    <TableHead className="text-center">FT Score</TableHead>
+   904→                    <TableHead><Button variant="ghost" size="sm" onClick={() => handleSort('awayTeam')}>Away Team <ArrowUpDown className="ml-1 w-3 h-3" /></Button></TableHead>
+   905→                    <TableHead className="text-center">Result</TableHead>
+   906→                    <TableHead className="text-center">Odds H</TableHead>
+   907→                    <TableHead className="text-center">Odds D</TableHead>
+   908→                    <TableHead className="text-center">Odds A</TableHead>
+   909→                  </TableRow>
+   910→                </TableHeader>
+   911→                <TableBody>
+   912→                  {filteredResults.length === 0 ? (
+   913→                    <TableRow><TableCell colSpan={isAllSeasons ? 10 : 9} className="text-center py-8 text-muted-foreground">No matches found. Try adjusting your filters.</TableCell></TableRow>
+   914→                  ) : (
+   915→                    filteredResults.slice(0, displayLimit).map((match, index) => (
+   916→                      <TableRow key={index} className="hover:bg-muted/50">
+   917→                        <TableCell className="font-medium">{match.date || 'N/A'}</TableCell>
+   918→                        {isAllSeasons && <TableCell><Badge variant="outline">{SEASON_NAMES[match.season || ''] || match.season}</Badge></TableCell>}
+   919→                        <TableCell className="font-medium">{match.homeTeam}</TableCell>
+   920→                        <TableCell className="text-center"><Badge variant="outline" className="font-mono">{match.htHomeGoals} - {match.htAwayGoals}</Badge></TableCell>
+   921→                        <TableCell className="text-center"><Badge variant="secondary" className="font-mono text-base">{match.ftHomeGoals} - {match.ftAwayGoals}</Badge></TableCell>
+   922→                        <TableCell className="font-medium">{match.awayTeam}</TableCell>
+   923→                        <TableCell className="text-center">
+   924→                          <Badge style={{ backgroundColor: match.ftResult === 'H' ? COLORS.homeWin : match.ftResult === 'D' ? COLORS.draw : COLORS.awayWin }} className="text-white min-w-[60px]">
+   925→                            {match.ftResult === 'H' ? 'HOME' : match.ftResult === 'D' ? 'DRAW' : 'AWAY'}
+   926→                          </Badge>
+   927→                        </TableCell>
+   928→                        <TableCell className="text-center">
+   929→                          {match.oddsB365Home ? (
+   930→                            <span className={`text-sm font-mono ${match.ftResult === 'H' ? 'text-green-600 font-bold' : 'text-muted-foreground'}`}>
+   931→                              {match.oddsB365Home.toFixed(2)}
+   932→                            </span>
+   933→                          ) : (
+   934→                            <span className="text-xs text-muted-foreground">-</span>
+   935→                          )}
+   936→                        </TableCell>
+   937→                        <TableCell className="text-center">
+   938→                          {match.oddsB365Draw ? (
+   939→                            <span className={`text-sm font-mono ${match.ftResult === 'D' ? 'text-amber-600 font-bold' : 'text-muted-foreground'}`}>
+   940→                              {match.oddsB365Draw.toFixed(2)}
+   941→                            </span>
+   942→                          ) : (
+   943→                            <span className="text-xs text-muted-foreground">-</span>
+   944→                          )}
+   945→                        </TableCell>
+   946→                        <TableCell className="text-center">
+   947→                          {match.oddsB365Away ? (
+   948→                            <span className={`text-sm font-mono ${match.ftResult === 'A' ? 'text-blue-600 font-bold' : 'text-muted-foreground'}`}>
+   949→                              {match.oddsB365Away.toFixed(2)}
+   950→                            </span>
+   951→                          ) : (
+   952→                            <span className="text-xs text-muted-foreground">-</span>
+   953→                          )}
+   954→                        </TableCell>
+   955→                      </TableRow>
+   956→                    ))
+   957→                  )}
+   958→                </TableBody>
+   959→              </Table>
+   960→              {filteredResults.length > displayLimit && (
+   961→                <div className="text-center py-4">
+   962→                  <p className="text-muted-foreground text-sm mb-3">Showing first {displayLimit} of {filteredResults.length} matches</p>
+   963→                  <Button variant="outline" onClick={() => setDisplayLimit(prev => prev + 100)}>
+   964→                    Show 100 More
+   965→                  </Button>
+   966→                </div>
+   967→              )}
+   968→            </div>
+   969→          )}
+   970→        </CardContent>
+   971→      </Card>
+   972→    </div>
+   973→  )
+   974→}
+   975→

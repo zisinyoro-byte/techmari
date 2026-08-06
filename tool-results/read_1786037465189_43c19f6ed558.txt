@@ -1,0 +1,452 @@
+   260→                    };
+   261→                    homeStats.matches++;
+   262→                    homeStats.goalsScored += r.ftHomeGoals;
+   263→                    homeStats.goalsConceded += r.ftAwayGoals;
+   264→                    homeStats.matchesThisSeason++;
+   265→                    homeStats.scoredThisSeason += r.ftHomeGoals;
+   266→                    homeStats.concededThisSeason += r.ftAwayGoals;
+   267→                    homeStats.last10Matches.push({ totalGoals });
+   268→                    homeStats.last3Matches.push({ totalGoals });
+   269→                    teamGoalStatsQuick.set(r.homeTeam, homeStats);
+   270→
+   271→                    const awayStats = teamGoalStatsQuick.get(r.awayTeam) || {
+   272→                      matches: 0, goalsScored: 0, goalsConceded: 0,
+   273→                      matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0,
+   274→                      last10Matches: [], last3Matches: []
+   275→                    };
+   276→                    awayStats.matches++;
+   277→                    awayStats.goalsScored += r.ftAwayGoals;
+   278→                    awayStats.goalsConceded += r.ftHomeGoals;
+   279→                    awayStats.matchesThisSeason++;
+   280→                    awayStats.scoredThisSeason += r.ftAwayGoals;
+   281→                    awayStats.concededThisSeason += r.ftHomeGoals;
+   282→                    awayStats.last10Matches.push({ totalGoals });
+   283→                    awayStats.last3Matches.push({ totalGoals });
+   284→                    teamGoalStatsQuick.set(r.awayTeam, awayStats);
+   285→                  });
+   286→
+   287→                  const homeTeamDataQuick = teamGoalStatsQuick.get(predHomeTeam);
+   288→                  const awayTeamDataQuick = teamGoalStatsQuick.get(predAwayTeam);
+   289→
+   290→                  // Calculate H2H data (matching main Regression to Mean Analysis)
+   291→                  const h2hDataQuick = results.filter(r => 
+   292→                    (r.homeTeam === predHomeTeam && r.awayTeam === predAwayTeam) ||
+   293→                    (r.homeTeam === predAwayTeam && r.awayTeam === predHomeTeam)
+   294→                  ).sort((a, b) => {
+   295→                    const dateA = parseDateSafe(a.date)
+   296→                    const dateB = parseDateSafe(b.date)
+   297→                    return dateB.getTime() - dateA.getTime()
+   298→                  });
+   299→                  
+   300→                  const lastH2HQuick = h2hDataQuick.length > 0 ? h2hDataQuick[0] : null;
+   301→                  const h2hAvgGoalsQuick = h2hDataQuick.length > 0 
+   302→                    ? h2hDataQuick.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / h2hDataQuick.length 
+   303→                    : null;
+   304→
+   305→                  let regressionSignalQuick = 'Neutral';
+   306→                  let homeDeviation: { combinedSignal: number } | undefined;
+   307→                  let awayDeviation: { combinedSignal: number } | undefined;
+   308→                  
+   309→                  if (homeTeamDataQuick && awayTeamDataQuick) {
+   310→                    // Calculate means for each team (matching main analysis)
+   311→                    const calculateTeamMeans = (teamData: typeof homeTeamDataQuick, teamName: string) => {
+   312→                      const seasonAvg = teamData.matchesThisSeason > 0 
+   313→                        ? (teamData.scoredThisSeason + teamData.concededThisSeason) / teamData.matchesThisSeason 
+   314→                        : 0;
+   315→                      
+   316→                      const last10 = teamData.last10Matches.slice(0, 10);
+   317→                      const last10Avg = last10.length > 0 
+   318→                        ? last10.reduce((sum, m) => sum + m.totalGoals, 0) / last10.length 
+   319→                        : 0;
+   320→                      
+   321→                      const last3 = teamData.last3Matches.slice(0, 3);
+   322→                      const last3Avg = last3.length > 0 
+   323→                        ? last3.reduce((sum, m) => sum + m.totalGoals, 0) / last3.length 
+   324→                        : 0;
+   325→
+   326→                      const teamH2H = h2hDataQuick.filter(m => 
+   327→                        m.homeTeam === teamName || m.awayTeam === teamName
+   328→                      );
+   329→                      const teamH2HAvg = teamH2H.length > 0 
+   330→                        ? teamH2H.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / teamH2H.length 
+   331→                        : null;
+   332→
+   333→                      const teamLastH2H = lastH2HQuick;
+   334→                      const lastH2HGoals = teamLastH2H ? teamLastH2H.ftHomeGoals + teamLastH2H.ftAwayGoals : null;
+   335→
+   336→                      return { seasonAvg, last10Avg, last3Avg, h2hAvg: teamH2HAvg, lastH2HGoals };
+   337→                    };
+   338→
+   339→                    const homeMeans = calculateTeamMeans(homeTeamDataQuick, predHomeTeam);
+   340→                    const awayMeans = calculateTeamMeans(awayTeamDataQuick, predAwayTeam);
+   341→
+   342→                    // Calculate deviation for each team (matching main analysis exactly)
+   343→                    const calculateDeviation = (means: typeof homeMeans) => {
+   344→                      const deviationFromSeason = means.last3Avg - means.seasonAvg;
+   345→                      const deviationFromLast10 = means.last3Avg - means.last10Avg;
+   346→                      const h2hDeviation = means.h2hAvg && means.lastH2HGoals !== null
+   347→                        ? means.lastH2HGoals - means.h2hAvg
+   348→                        : 0;
+   349→
+   350→                      // Combined signal with H2H component (0.4 + 0.3 + 0.3 = 1.0)
+   351→                      const combinedSignal = (deviationFromSeason * 0.4) + (deviationFromLast10 * 0.3) + (h2hDeviation * 0.3);
+   352→                      
+   353→                      return { combinedSignal };
+   354→                    };
+   355→
+   356→                    homeDeviation = calculateDeviation(homeMeans);
+   357→                    awayDeviation = calculateDeviation(awayMeans);
+   358→
+   359→                    // Combined match signal (matching main analysis thresholds)
+   360→                    const totalSignal = homeDeviation.combinedSignal + awayDeviation.combinedSignal;
+   361→
+   362→                    if (totalSignal <= -1.2) {
+   363→                      regressionSignalQuick = 'Strong Over';
+   364→                    } else if (totalSignal <= -0.5) {
+   365→                      regressionSignalQuick = 'Over';
+   366→                    } else if (totalSignal >= 1.2) {
+   367→                      regressionSignalQuick = 'Strong Under';
+   368→                    } else if (totalSignal >= 0.5) {
+   369→                      regressionSignalQuick = 'Under';
+   370→                    }
+   371→                  }
+   372→
+   373→                  // Compute league-adapted baselines and resolve all thresholds
+   374→                  // (backtest-derived when available, hybrid fallback otherwise)
+   375→                  const baselines = computeLeagueBaselines(results, analytics);
+   376→                  const resolved = resolveAllThresholds(selectedLeague, baselines);
+   377→
+   378→                  // Compute calibrated O3.5 probability (preferred over raw for checklist accuracy)
+   379→                  const o35ProbValue = prediction.prediction.calibrated?.over35 ?? prediction.prediction.over35;
+   380→
+   381→                  // Calculate BTTS Check list count (9 criteria) using shared utility
+   382→                  // All probability inputs use calibrated values when available
+   383→                  // Now includes O2.5 implied probability + rolling 5-game scoring
+   384→
+   385→                  // Compute O2.5 implied probability from match odds
+   386→                  const homeOdds25 = results.filter(r => r.homeTeam === predHomeTeam && r.oddsAvgOver25)
+   387→                    .sort((a, b) => b.date.localeCompare(a.date))[0]?.oddsAvgOver25;
+   388→                  const o25ImpliedProb = homeOdds25 ? (1 / homeOdds25) * 100 : null;
+   389→
+   390→                  // Rolling 5-game scoring (from predict response if available)
+   391→                  const rolling = prediction.rollingStats;
+   392→
+   393→                  const bttsChecklistInput: ChecklistInput = {
+   394→                    avgGoalsPerGame: analytics.avgGoalsPerGame,
+   395→                    over25Percent: analytics.over25Percent,
+   396→                    bttsProb: bttsProbValue,
+   397→                    avgHomeGoals: analytics.avgHomeGoals,
+   398→                    avgAwayGoals: analytics.avgAwayGoals,
+   399→                    o25Prob: o25ProbValue,
+   400→                    o35Prob: o35ProbValue,
+   401→                    overallShotConversion: parseFloat(analytics.overallShotConversion),
+   402→                    // NEW: Rolling 5-game scoring features
+   403→                    rollingHomeScored: rolling?.homeRollingScored ?? analytics.avgHomeGoals,
+   404→                    rollingAwayScored: rolling?.awayRollingScored ?? analytics.avgAwayGoals,
+   405→                    rollingCombinedScoring: rolling?.rollingCombinedScoring ?? (analytics.avgHomeGoals + analytics.avgAwayGoals),
+   406→                    // NEW: O2.5 implied probability from bookmaker odds
+   407→                    o25ImpliedProb,
+   408→                  };
+   409→                  const bttsChecksQuickCount = computeBttsChecklist(bttsChecklistInput, resolved);
+   410→
+   411→                  // BTTS Confidence
+   412→                  const bttsConf = bttsProbValue >= 60 ? 'High' : bttsProbValue >= 50 ? 'Medium' : 'Low';
+   413→
+   414→                  // Calculate xG Overperformance Signal for Strong Bet
+   415→                  const teamXgStatsQuick = new Map<string, {
+   416→                    matches: number;
+   417→                    totalXg: number;
+   418→                    actualGoals: number;
+   419→                    shotsOnTarget: number;
+   420→                  }>();
+   421→
+   422→                  results.forEach(r => {
+   423→                    const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+   424→                    const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+   425→                    const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+   426→                    const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+   427→
+   428→                    const homeStats = teamXgStatsQuick.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
+   429→                    homeStats.matches++;
+   430→                    homeStats.totalXg += homeXg;
+   431→                    homeStats.actualGoals += r.ftHomeGoals;
+   432→                    homeStats.shotsOnTarget += r.homeShotsOnTarget;
+   433→                    teamXgStatsQuick.set(r.homeTeam, homeStats);
+   434→
+   435→                    const awayStats = teamXgStatsQuick.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
+   436→                    awayStats.matches++;
+   437→                    awayStats.totalXg += awayXg;
+   438→                    awayStats.actualGoals += r.ftAwayGoals;
+   439→                    awayStats.shotsOnTarget += r.awayShotsOnTarget;
+   440→                    teamXgStatsQuick.set(r.awayTeam, awayStats);
+   441→                  });
+   442→
+   443→                  const homeXgDataQuick = teamXgStatsQuick.get(predHomeTeam);
+   444→                  const awayXgDataQuick = teamXgStatsQuick.get(predAwayTeam);
+   445→
+   446→                  let xgSignalQuick = 'Neutral';
+   447→                  if (homeXgDataQuick && awayXgDataQuick) {
+   448→                    const homeXgDiff = (homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches);
+   449→                    const awayXgDiff = (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches);
+   450→                    const totalXgDiff = homeXgDiff + awayXgDiff;
+   451→
+   452→                    // Tightened thresholds: was ±0.3/±0.7 (fired 89% of the time = no discrimination)
+   453→                    // Now ±0.5/±1.0 — only fires when there's meaningful xG deviation
+   454→                    // This restores the signal's predictive power as a Strong Bet input
+   455→                    if (totalXgDiff <= -1.0) xgSignalQuick = 'Strong Over';
+   456→                    else if (totalXgDiff <= -0.5) xgSignalQuick = 'Over';
+   457→                    else if (totalXgDiff >= 1.0) xgSignalQuick = 'Strong Under';
+   458→                    else if (totalXgDiff >= 0.5) xgSignalQuick = 'Under';
+   459→                  }
+   460→
+   461→                  // Calculate Over 3.5 Checklist (7 auto-check criteria) using shared utility
+   462→                  const over35ChecksQuickCount = computeOver35Checklist(bttsChecklistInput, resolved);
+   463→
+   464→                  // Z-Score Signal - computed independently using Z-Score methodology
+   465→                  // matching the detailed Z-Score Analysis & Confidence Intervals card
+   466→                  let zScoreSignalQuick = 'Neutral';
+   467→                  // Hoisted per-team Z-Scores for BTTS/Third Goal qualifiers
+   468→                  let homeZForQualifier = 0;
+   469→                  let awayZForQualifier = 0;
+   470→                  {
+   471→                    const zTeamStats = new Map<string, {
+   472→                      matches: number;
+   473→                      goals: number[];
+   474→                      totalGoals: number;
+   475→                      mean: number;
+   476→                      stdDev: number;
+   477→                      last3Avg: number;
+   478→                    }>();
+   479→
+   480→                    sortedResultsForRegression.forEach(r => {
+   481→                      const totalGoals = r.ftHomeGoals + r.ftAwayGoals;
+   482→                      const hStats = zTeamStats.get(r.homeTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   483→                      hStats.matches++;
+   484→                      hStats.goals.push(totalGoals);
+   485→                      hStats.totalGoals += totalGoals;
+   486→                      zTeamStats.set(r.homeTeam, hStats);
+   487→
+   488→                      const aStats = zTeamStats.get(r.awayTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   489→                      aStats.matches++;
+   490→                      aStats.goals.push(totalGoals);
+   491→                      aStats.totalGoals += totalGoals;
+   492→                      zTeamStats.set(r.awayTeam, aStats);
+   493→                    });
+   494→
+   495→                    zTeamStats.forEach((stats) => {
+   496→                      stats.mean = stats.totalGoals / stats.matches;
+   497→                      const last3 = stats.goals.slice(0, 3);
+   498→                      stats.last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+   499→                      const squaredDiffs = stats.goals.map(g => Math.pow(g - stats.mean, 2));
+   500→                      stats.stdDev = Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / stats.matches);
+   501→                    });
+   502→
+   503→                    const homeZStats = zTeamStats.get(predHomeTeam);
+   504→                    const awayZStats = zTeamStats.get(predAwayTeam);
+   505→
+   506→                    if (homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3) {
+   507→                      const homeZ = homeZStats.stdDev > 0 ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev : 0;
+   508→                      const awayZ = awayZStats.stdDev > 0 ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev : 0;
+   509→                      // Hoist for qualifier use
+   510→                      homeZForQualifier = homeZ;
+   511→                      awayZForQualifier = awayZ;
+   512→                      const homeCILower = homeZStats.mean - 1.96 * (homeZStats.stdDev / Math.sqrt(homeZStats.matches));
+   513→                      const awayCILower = awayZStats.mean - 1.96 * (awayZStats.stdDev / Math.sqrt(awayZStats.matches));
+   514→                      const homeBelowCI = homeZStats.last3Avg < homeCILower;
+   515→                      const awayBelowCI = awayZStats.last3Avg < awayCILower;
+   516→                      const homeCV = homeZStats.mean > 0 ? (homeZStats.stdDev / homeZStats.mean) * 100 : 0;
+   517→                      const awayCV = awayZStats.mean > 0 ? (awayZStats.stdDev / awayZStats.mean) * 100 : 0;
+   518→
+   519→                      let score = 0;
+   520→                      if (homeZ <= -1.5) score += 2;
+   521→                      else if (homeZ <= -1.0) score += 1;
+   522→                      if (awayZ <= -1.5) score += 2;
+   523→                      else if (awayZ <= -1.0) score += 1;
+   524→                      if (homeBelowCI) score += 1;
+   525→                      if (awayBelowCI) score += 1;
+   526→                      if (homeCV < 35 && homeZ < -1) score += 0.5;
+   527→                      if (awayCV < 35 && awayZ < -1) score += 0.5;
+   528→                      if (homeZ >= 1.5) score -= 2;
+   529→                      else if (homeZ >= 1.0) score -= 1;
+   530→                      if (awayZ >= 1.5) score -= 2;
+   531→                      else if (awayZ >= 1.0) score -= 1;
+   532→
+   533→                      if (score >= 4) zScoreSignalQuick = 'Strong Over';
+   534→                      else if (score >= 2.5) zScoreSignalQuick = 'Over';
+   535→                      else if (score <= -3) zScoreSignalQuick = 'Strong Under';
+   536→                      else if (score <= -1.5) zScoreSignalQuick = 'Under';
+   537→                    }
+   538→                  }
+   539→
+   540→                  // ============================================================
+   541→                  // Signal Momentum (Derivatives) — compare current vs previous
+   542→                  // ============================================================
+   543→                  // Compute signals for previous period (offset by 5 games)
+   544→                  // to detect whether signals are Rising, Falling, or Flat
+   545→                  let prevXgSignal = 'Neutral';
+   546→                  let prevRegressionSignal = 'Neutral';
+   547→                  let prevZScoreSignal = 'Neutral';
+   548→                  {
+   549→                    const offset = 5; // compare to 5 games ago
+   550→                    const prevXgStats = new Map<string, { matches: number; totalXg: number; actualGoals: number }>();
+   551→                    sortedResultsForRegression.slice(offset).forEach(r => {
+   552→                      const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+   553→                      const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+   554→                      const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+   555→                      const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+   556→                      const hs = prevXgStats.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+   557→                      hs.matches++; hs.totalXg += homeXg; hs.actualGoals += r.ftHomeGoals;
+   558→                      prevXgStats.set(r.homeTeam, hs);
+   559→                      const as = prevXgStats.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0 };
+   560→                      as.matches++; as.totalXg += awayXg; as.actualGoals += r.ftAwayGoals;
+   561→                      prevXgStats.set(r.awayTeam, as);
+   562→                    });
+   563→                    const prevHomeXg = prevXgStats.get(predHomeTeam);
+   564→                    const prevAwayXg = prevXgStats.get(predAwayTeam);
+   565→                    if (prevHomeXg && prevAwayXg && prevHomeXg.matches >= 3 && prevAwayXg.matches >= 3) {
+   566→                      const prevHomeDiff = (prevHomeXg.actualGoals / prevHomeXg.matches) - (prevHomeXg.totalXg / prevHomeXg.matches);
+   567→                      const prevAwayDiff = (prevAwayXg.actualGoals / prevAwayXg.matches) - (prevAwayXg.totalXg / prevAwayXg.matches);
+   568→                      const prevTotal = prevHomeDiff + prevAwayDiff;
+   569→                      if (prevTotal <= -1.0) prevXgSignal = 'Strong Over';
+   570→                      else if (prevTotal <= -0.5) prevXgSignal = 'Over';
+   571→                      else if (prevTotal >= 1.0) prevXgSignal = 'Strong Under';
+   572→                      else if (prevTotal >= 0.5) prevXgSignal = 'Under';
+   573→                    }
+   574→
+   575→                    // Previous period regression
+   576→                    const prevTeamGoalStats = new Map<string, {
+   577→                      matchesThisSeason: number; scoredThisSeason: number; concededThisSeason: number;
+   578→                      last10Matches: { totalGoals: number }[]; last3Matches: { totalGoals: number }[];
+   579→                    }>();
+   580→                    sortedResultsForRegression.slice(offset).forEach(r => {
+   581→                      const tg = r.ftHomeGoals + r.ftAwayGoals;
+   582→                      const ph = prevTeamGoalStats.get(r.homeTeam) || { matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [] };
+   583→                      ph.matchesThisSeason++; ph.scoredThisSeason += r.ftHomeGoals; ph.concededThisSeason += r.ftAwayGoals;
+   584→                      ph.last10Matches.push({ totalGoals: tg }); ph.last3Matches.push({ totalGoals: tg });
+   585→                      prevTeamGoalStats.set(r.homeTeam, ph);
+   586→                      const pa = prevTeamGoalStats.get(r.awayTeam) || { matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [] };
+   587→                      pa.matchesThisSeason++; pa.scoredThisSeason += r.ftAwayGoals; pa.concededThisSeason += r.ftHomeGoals;
+   588→                      pa.last10Matches.push({ totalGoals: tg }); pa.last3Matches.push({ totalGoals: tg });
+   589→                      prevTeamGoalStats.set(r.awayTeam, pa);
+   590→                    });
+   591→                    const prevHomeGoal = prevTeamGoalStats.get(predHomeTeam);
+   592→                    const prevAwayGoal = prevTeamGoalStats.get(predAwayTeam);
+   593→                    if (prevHomeGoal && prevAwayGoal) {
+   594→                      const calcPrevDev = (td: typeof prevHomeGoal) => {
+   595→                        const sAvg = td.matchesThisSeason > 0 ? (td.scoredThisSeason + td.concededThisSeason) / td.matchesThisSeason : 0;
+   596→                        const l10 = td.last10Matches.slice(0, 10); const l10Avg = l10.length > 0 ? l10.reduce((s, m) => s + m.totalGoals, 0) / l10.length : 0;
+   597→                        const l3 = td.last3Matches.slice(0, 3); const l3Avg = l3.length > 0 ? l3.reduce((s, m) => s + m.totalGoals, 0) / l3.length : 0;
+   598→                        return { combinedSignal: (l3Avg - sAvg) * 0.4 + (l3Avg - l10Avg) * 0.3 };
+   599→                      };
+   600→                      const prevTotal = calcPrevDev(prevHomeGoal).combinedSignal + calcPrevDev(prevAwayGoal).combinedSignal;
+   601→                      if (prevTotal <= -1.2) prevRegressionSignal = 'Strong Over';
+   602→                      else if (prevTotal <= -0.5) prevRegressionSignal = 'Over';
+   603→                      else if (prevTotal >= 1.2) prevRegressionSignal = 'Strong Under';
+   604→                      else if (prevTotal >= 0.5) prevRegressionSignal = 'Under';
+   605→                    }
+   606→
+   607→                    // Previous period Z-Score
+   608→                    const prevZTeamStats = new Map<string, { matches: number; goals: number[]; totalGoals: number; mean: number; stdDev: number; last3Avg: number }>();
+   609→                    sortedResultsForRegression.slice(offset).forEach(r => {
+   610→                      const tg = r.ftHomeGoals + r.ftAwayGoals;
+   611→                      const ph = prevZTeamStats.get(r.homeTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   612→                      ph.matches++; ph.goals.push(tg); ph.totalGoals += tg;
+   613→                      prevZTeamStats.set(r.homeTeam, ph);
+   614→                      const pa = prevZTeamStats.get(r.awayTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   615→                      pa.matches++; pa.goals.push(tg); pa.totalGoals += tg;
+   616→                      prevZTeamStats.set(r.awayTeam, pa);
+   617→                    });
+   618→                    prevZTeamStats.forEach(s => { s.mean = s.totalGoals / s.matches; const l3 = s.goals.slice(0, 3); s.last3Avg = l3.length > 0 ? l3.reduce((a, b) => a + b, 0) / l3.length : 0; s.stdDev = Math.sqrt(s.goals.map(g => (g - s.mean) ** 2).reduce((a, b) => a + b, 0) / s.matches); });
+   619→                    const prevHomeZ = prevZTeamStats.get(predHomeTeam);
+   620→                    const prevAwayZ = prevZTeamStats.get(predAwayTeam);
+   621→                    if (prevHomeZ && prevAwayZ && prevHomeZ.matches >= 3 && prevAwayZ.matches >= 3) {
+   622→                      const hz = prevHomeZ.stdDev > 0 ? (prevHomeZ.last3Avg - prevHomeZ.mean) / prevHomeZ.stdDev : 0;
+   623→                      const az = prevAwayZ.stdDev > 0 ? (prevAwayZ.last3Avg - prevAwayZ.mean) / prevAwayZ.stdDev : 0;
+   624→                      let ps = 0; if (hz <= -1.5) ps += 2; else if (hz <= -1.0) ps += 1; if (az <= -1.5) ps += 2; else if (az <= -1.0) ps += 1;
+   625→                      if (hz >= 1.5) ps -= 2; else if (hz >= 1.0) ps -= 1; if (az >= 1.5) ps -= 2; else if (az >= 1.0) ps -= 1;
+   626→                      if (ps >= 4) prevZScoreSignal = 'Strong Over';
+   627→                      else if (ps >= 2.5) prevZScoreSignal = 'Over';
+   628→                      else if (ps <= -3) prevZScoreSignal = 'Strong Under';
+   629→                      else if (ps <= -1.5) prevZScoreSignal = 'Under';
+   630→                    }
+   631→                  }
+   632→
+   633→                  const signalMomentum = computeAllSignalMomentum(
+   634→                    { xgSignal: xgSignalQuick, regressionSignal: regressionSignalQuick, zScoreSignal: zScoreSignalQuick },
+   635→                    { xgSignal: prevXgSignal, regressionSignal: prevRegressionSignal, zScoreSignal: prevZScoreSignal }
+   636→                  );
+   637→
+   638→                  // ============================================================
+   639→                  // Cumulative Z-Score Trend (Integration) — accumulate deviations
+   640→                  // ============================================================
+   641→                  // Compute league average goals from the regression data
+   642→                  const totalLeagueGoals = sortedResultsForRegression.reduce((s, r) => s + r.ftHomeGoals + r.ftAwayGoals, 0);
+   643→                  const leagueAvgForZ = sortedResultsForRegression.length > 0 ? totalLeagueGoals / sortedResultsForRegression.length : 2.7;
+   644→                  // Cumulative Z-Score: compute from recent match goals for both teams
+   645→                  const matchGoalsForCumZ = sortedResultsForRegression
+   646→                    .filter(r => r.homeTeam === predHomeTeam || r.awayTeam === predHomeTeam || r.homeTeam === predAwayTeam || r.awayTeam === predHomeTeam)
+   647→                    .slice(0, 5)
+   648→                    .map(r => r.ftHomeGoals + r.ftAwayGoals);
+   649→                  const expectedGoalsForZ = matchGoalsForCumZ.map(() => leagueAvgForZ);
+   650→                  const cumulativeZ = computeCumulativeZScore(
+   651→                    matchGoalsForCumZ,
+   652→                    expectedGoalsForZ,
+   653→                    5
+   654→                  );
+   655→
+   656→                  // ============================================================
+   657→                  // Momentum Signal — Form Continuation Track
+   658→                  // ============================================================
+   659→                  const homeLast5Goals = homeTeamDataQuick?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   660→                  const awayLast5Goals = awayTeamDataQuick?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   661→                  const homeSeasonAvg = homeTeamDataQuick?.matchesThisSeason > 0 ? (homeTeamDataQuick.scoredThisSeason + homeTeamDataQuick.concededThisSeason) / homeTeamDataQuick.matchesThisSeason : 0;
+   662→                  const awaySeasonAvg = awayTeamDataQuick?.matchesThisSeason > 0 ? (awayTeamDataQuick.scoredThisSeason + awayTeamDataQuick.concededThisSeason) / awayTeamDataQuick.matchesThisSeason : 0;
+   663→                  const homeXgDiffVal = homeXgDataQuick ? (homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches) : 0;
+   664→                  const awayXgDiffVal = awayXgDataQuick ? (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches) : 0;
+   665→                  const homeSotPerGame = homeXgDataQuick?.matches > 0 ? homeXgDataQuick.shotsOnTarget / homeXgDataQuick.matches : null;
+   666→                  const awaySotPerGame = awayXgDataQuick?.matches > 0 ? awayXgDataQuick.shotsOnTarget / awayXgDataQuick.matches : null;
+   667→
+   668→                  const homeMomentumInput: MomentumTeamInput = { last5Goals: homeLast5Goals, seasonAvg: homeSeasonAvg, xgDiff: homeXgDiffVal, sotPerGame: homeSotPerGame };
+   669→                  const awayMomentumInput: MomentumTeamInput = { last5Goals: awayLast5Goals, seasonAvg: awaySeasonAvg, xgDiff: awayXgDiffVal, sotPerGame: awaySotPerGame };
+   670→
+   671→                  const momentumResult = computeMomentumSignal(homeMomentumInput, awayMomentumInput);
+   672→
+   673→                  // ---- Blowout Risk Qualifier (Change 5) ----
+   674→                  // When either team is a massive favorite (avg odds <= 1.50),
+   675→                  // override Regression "Under" to "Neutral" — quality gap outweighs form.
+   676→                  const homeAvgOdds = computeTeamAvgOdds(results, predHomeTeam);
+   677→                  const awayAvgOdds = computeTeamAvgOdds(results, predAwayTeam);
+   678→                  const rawSignalInput: SignalInput = {
+   679→                    xgSignal: xgSignalQuick,
+   680→                    regressionSignal: regressionSignalQuick,
+   681→                    zScoreSignal: zScoreSignalQuick,
+   682→                  };
+   683→                  const blowoutResult = applyBlowoutQualifier(rawSignalInput, homeAvgOdds, awayAvgOdds, baselines.avgGoalsPerGame);
+   684→                  const signalInput: SignalInput = blowoutResult.signals;
+   685→                  if (blowoutResult.blowoutOverride) {
+   686→                    console.log(`[PredictionsTab] ${blowoutResult.reason}`);
+   687→                  }
+   688→
+   689→                  // ---- LOW-OPEN SIGNAL — Strong Over trend + tight last H2H ----
+   690→                  const lastH2HGoalsTotal = lastH2HQuick ? lastH2HQuick.ftHomeGoals + lastH2HQuick.ftAwayGoals : null;
+   691→                  const lastH2HScoreline = lastH2HQuick ? `${lastH2HQuick.ftHomeGoals}-${lastH2HQuick.ftAwayGoals}` : null;
+   692→                  const isTightH2H = lastH2HGoalsTotal !== null && lastH2HGoalsTotal <= 1;
+   693→                  const isLowOpenSignal = signalInput.regressionSignal === 'Strong Over'
+   694→                    && signalInput.zScoreSignal === 'Neutral'
+   695→                    && signalInput.xgSignal === 'Strong Over'
+   696→                    && isTightH2H;
+   697→
+   698→                  // ============================================================
+   699→                  // FP1-Style Parallel Signal — Scored-Only Regression + Z-Score
+   700→                  // ============================================================
+   701→                  // Mirrors Techmari Pro FP1 logic: measures offensive output only
+   702→                  // (not blended offense+defense), uses simple per-team direction
+   703→                  // and simple majority Z-Score combination.
+   704→                  // Runs as a PARALLEL path — does NOT affect existing signals.
+   705→
+   706→                  // --- FP1 Scored-Only Regression (per team) ---
+   707→                  const buildFP1ScoredStats = (teamName: string) => {
+   708→                    const matches = sortedResultsForRegression.filter(r =>
+   709→                      r.homeTeam === teamName || r.awayTeam === teamName
+
+[showing lines 260-709 of 3390; use offset=710 with limit to continue reading]
