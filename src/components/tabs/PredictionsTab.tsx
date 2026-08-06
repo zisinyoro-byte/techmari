@@ -17,7 +17,8 @@ import {
   applyBlowoutQualifier, computeTeamAvgOdds,
   computeBTTSQualification, computeThirdGoalQualifier,
   computeMomentumSignal, computeDominantTeamQualifier, classifyLeagueVariance,
-  type MomentumTeamInput, type DominantTeamInput,
+  computeBTTSBothHalves,
+  type MomentumTeamInput, type DominantTeamInput, type BTTSBothHalvesTier,
   classifyPerTeamRegressionSignal, classifyPerTeamXgSignal, classifyPerTeamZScoreSignal,
   type ChecklistInput, type SignalInput,
 } from '@/lib/betting-filters'
@@ -916,8 +917,27 @@ export default function PredictionsTab({
                   });
 
                   // ============================================================
-                  // Build 7-signal combo string for Match Backtest tab
-                  // Format: SB:Y | GR:Y | GF:N | BTTS:Strong | GOAL:Rich | MOM:OVER | FP1:N
+                  // BTTS BOTH HALVES — Dedicated O2.5 implied + rolling scoring detector
+                  // ============================================================
+                  const drawProbValue = prediction.prediction.calibrated?.draw ?? prediction.prediction.draw;
+                  const htDrawProbValue = prediction.prediction.htDraw;
+                  const bttsBHResult = computeBTTSBothHalves({
+                    o25Prob: o25ProbValue,
+                    o35Prob: o35ProbValue,
+                    bttsProb: bttsProbValue,
+                    rollingCombinedScoring: bttsChecklistInput.rollingCombinedScoring,
+                    o25ImpliedProb: o25ImpliedProb,
+                    drawProb: drawProbValue,
+                    htDrawProb: htDrawProbValue,
+                    avgGoalsPerGame: analytics.avgGoalsPerGame,
+                    resolvedO35Prob: resolved.over35.modelO35Prob,
+                    resolvedBttsProb: resolved.btts.modelBttsProb,
+                    resolvedO25Prob: resolved.strongBet.o25Prob,
+                  });
+                  const isBTTSBothHalves = bttsBHResult.isBTTSBothHalves;
+
+                  // ============================================================
+                  // Build combo string for Match Backtest tab
                   // ============================================================
                   if (onComboReady) {
                     const bttsTierMap: Record<string, string> = {
@@ -936,6 +956,14 @@ export default function PredictionsTab({
                     const momLabel = (momentumResult.matchSignal || 'NEUTRAL')
                       .replace('MOMENTUM ', '');
 
+                    const bhTierMap: Record<string, string> = {
+                      'BTTS-BH STRONG': 'Strong',
+                      'BTTS-BH QUALIFIED': 'Qualified',
+                      'BTTS-BH BORDERLINE': 'Borderline',
+                      'BTTS-BH UNLIKELY': 'Unlikely',
+                    };
+                    const bhTierLabel = bhTierMap[bttsBHResult.tier] || 'Unlikely';
+
                     const comboString = [
                       'SB:' + (isStrongBet ? 'Y' : 'N'),
                       'GR:' + (isGreyResult ? 'Y' : 'N'),
@@ -944,6 +972,7 @@ export default function PredictionsTab({
                       'GOAL:' + goalTierLabel,
                       'MOM:' + momLabel,
                       'FP1:' + (isFP1Signal ? 'Y' : 'N'),
+                      'BH:' + bhTierLabel,
                     ].join(' | ');
                     onComboReady(comboString);
                   }
@@ -1417,6 +1446,58 @@ export default function PredictionsTab({
                               <div key={i} className={`p-1.5 rounded text-center ${check.passed ? (check.points > 0 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600') : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400'}`}>
                                 {check.passed ? (check.points > 0 ? '✅' : '⚠️') : '❌'} {check.check}
                               </div>
+                            ))}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* BTTS BOTH HALVES — Dedicated O2.5 Implied + Rolling Scoring Detector */}
+                    <Card className={`shadow-md border-2 ${isBTTSBothHalves ? 'border-cyan-400 bg-gradient-to-br from-cyan-50 to-teal-50 dark:from-cyan-900/20 dark:to-teal-900/20' : 'border-gray-200 dark:border-gray-700'}`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Flame className={`w-5 h-5 ${isBTTSBothHalves ? 'text-cyan-600' : 'text-gray-400'}`} />
+                          BTTS Both Halves
+                          {isBTTSBothHalves && <Badge className="bg-cyan-600 text-white">ACTIVE</Badge>}
+                          <Badge variant="outline" className="text-xs ml-auto">{bttsBHResult.score}/{bttsBHResult.totalChecks}</Badge>
+                        </CardTitle>
+                        <CardDescription>Both teams score in each half (~5.3% base rate, avg 5.52 goals)</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {/* Tier Status */}
+                          <div className={`text-center p-3 rounded-lg ${isBTTSBothHalves ? 'bg-cyan-100 dark:bg-cyan-900/30' : 'bg-gray-50 dark:bg-gray-800/50'}`}>
+                            <p className={`text-xl font-bold ${bttsBHResult.tier === 'BTTS-BH STRONG' ? 'text-cyan-700 dark:text-cyan-300' : bttsBHResult.tier === 'BTTS-BH QUALIFIED' ? 'text-teal-600' : bttsBHResult.tier === 'BTTS-BH BORDERLINE' ? 'text-amber-600' : 'text-gray-500'}`}>
+                              {bttsBHResult.tier}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {bttsBHResult.tier === 'BTTS-BH STRONG' ? 'All signals aligned — extremely rare, highest confidence'
+                                : bttsBHResult.tier === 'BTTS-BH QUALIFIED' ? 'Core checks pass — actionable signal'
+                                : bttsBHResult.tier === 'BTTS-BH BORDERLINE' ? 'Some signals present — watch list'
+                                : 'Insufficient evidence for BTTS in both halves'}
+                            </p>
+                          </div>
+
+                          {/* 10-check breakdown grid */}
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5 text-xs">
+                            {bttsBHResult.breakdown.map((check, i) => (
+                              <div key={i} className={`p-1.5 rounded text-center ${check.passed
+                                ? (check.weight === 'CRITICAL' ? 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 font-medium'
+                                  : check.weight === 'HIGH' ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700'
+                                  : 'bg-gray-100 dark:bg-gray-800/50 text-gray-600')
+                                : 'bg-gray-50 dark:bg-gray-800/30 text-gray-400 line-through'}`}>
+                                {check.passed ? '✅' : '❌'} {check.check}
+                                <span className="block text-[10px] opacity-60">{check.weight}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Reasoning */}
+                          <div className="p-2.5 rounded-lg bg-cyan-50/50 dark:bg-cyan-900/10 text-xs text-muted-foreground">
+                            {bttsBHResult.reasoning.map((r, i) => (
+                              <p key={i} className="flex items-start gap-1.5">
+                                <span className="text-cyan-500 mt-0.5">•</span> {r}
+                              </p>
                             ))}
                           </div>
                         </div>

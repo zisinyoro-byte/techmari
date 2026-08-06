@@ -1,0 +1,6 @@
+var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/soccer/fixtures/route.js")
+R.c("server/chunks/[root-of-the-server]__32d28554._.js")
+R.c("server/chunks/[root-of-the-server]__f408c708._.js")
+R.c("server/chunks/_next-internal_server_app_api_soccer_fixtures_route_actions_dcf729ac.js")
+R.m(90172)
+module.exports=R.m(90172).exports

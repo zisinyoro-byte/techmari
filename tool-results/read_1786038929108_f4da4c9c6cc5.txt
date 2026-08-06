@@ -1,0 +1,502 @@
+  1220→                              <p>Regression: <span className={awayRegSignalPerTeam === 'Under' || awayRegSignalPerTeam === 'Strong Under' ? 'text-green-600 font-medium' : 'text-gray-600'}>{awayRegSignalPerTeam}</span></p>
+  1221→                              <p>xG Diff: <span className={awayXgDiffValue <= -0.5 ? 'text-green-600 font-medium' : 'text-gray-600'}>{awayXgDiffValue > 0 ? '+' : ''}{awayXgDiffValue.toFixed(2)}</span></p>
+  1222→                              <p>Z-Score: <span className={awayZForQualifier < 1.0 ? 'text-green-600' : 'text-red-600 font-medium'}>{awayZForQualifier.toFixed(2)}</span></p>
+  1223→                              <p>SOT Conv: <span className={awaySotConv && awaySotConv < 25 ? 'text-red-600 font-medium' : 'text-gray-600'}>{awaySotConv ? `${awaySotConv.toFixed(0)}%` : 'N/A'}</span></p>
+  1224→                            </div>
+  1225→                          </div>
+  1226→
+  1227→                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+  1228→                            <p className="font-semibold text-muted-foreground mb-1">BTTS Tier Guide:</p>
+  1229→                            <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-xs">
+  1230→                              <div className="p-1 rounded bg-emerald-50 dark:bg-emerald-900/20"><strong>STRONG</strong> (5+) Cap 70%</div>
+  1231→                              <div className="p-1 rounded bg-blue-50 dark:bg-blue-900/20"><strong>QUALIFIED</strong> (3-4) Cap 55%</div>
+  1232→                              <div className="p-1 rounded bg-amber-50 dark:bg-amber-900/20"><strong>WEAK</strong> (1-2) Cap 40%</div>
+  1233→                              <div className="p-1 rounded bg-red-50 dark:bg-red-900/20"><strong>AVOID</strong> (≤0) Cap 25%</div>
+  1234→                            </div>
+  1235→                          </div>
+  1236→                        </div>
+  1237→                      </CardContent>
+  1238→                    </Card>
+  1239→
+  1240→                    {/* Third Goal (2-Goal Ceiling) Detector */}
+  1241→                    <Card className={`shadow-md border-2 ${
+  1242→                      thirdGoalResult.tier === 'GOAL RICH' ? 'border-green-400 bg-gradient-to-r from-green-50 to-lime-50 dark:from-green-900/20 dark:to-lime-900/20' :
+  1243→                      thirdGoalResult.tier === 'GOAL LIKELY' ? 'border-teal-400 bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20' :
+  1244→                      thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'border-orange-400 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20' :
+  1245→                      thirdGoalResult.tier === 'GOAL THIN' ? 'border-yellow-400 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20' :
+  1246→                      'border-red-300 bg-gradient-to-r from-red-50 to-gray-50 dark:from-red-900/20 dark:to-gray-900/20'
+  1247→                    }`}>
+  1248→                      <CardHeader className="pb-2">
+  1249→                        <CardTitle className="text-lg flex items-center gap-2">
+  1250→                          <Flame className={`w-5 h-5 ${
+  1251→                            thirdGoalResult.tier === 'GOAL RICH' || thirdGoalResult.tier === 'GOAL LIKELY' ? 'text-green-600' :
+  1252→                            thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'text-orange-600' :
+  1253→                            'text-red-400'
+  1254→                          }`} />
+  1255→                          Third Goal Detector (2-Goal Ceiling)
+  1256→                        </CardTitle>
+  1257→                        <CardDescription>
+  1258→                          Distinguishes 2-goal games from 3+ goal games within pre-filtered selections
+  1259→                        </CardDescription>
+  1260→                      </CardHeader>
+  1261→                      <CardContent>
+  1262→                        <div className="space-y-3">
+  1263→                          <div className={`text-center p-4 rounded-lg ${
+  1264→                            thirdGoalResult.tier === 'GOAL RICH' ? 'bg-green-100 dark:bg-green-800/30' :
+  1265→                            thirdGoalResult.tier === 'GOAL LIKELY' ? 'bg-teal-100 dark:bg-teal-800/30' :
+  1266→                            thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'bg-orange-100 dark:bg-orange-800/30' :
+  1267→                            thirdGoalResult.tier === 'GOAL THIN' ? 'bg-yellow-100 dark:bg-yellow-800/30' :
+  1268→                            'bg-red-100 dark:bg-red-800/30'
+  1269→                          }`}>
+  1270→                            <p className={`text-2xl font-bold ${
+  1271→                              thirdGoalResult.tier === 'GOAL RICH' ? 'text-green-600' :
+  1272→                              thirdGoalResult.tier === 'GOAL LIKELY' ? 'text-teal-600' :
+  1273→                              thirdGoalResult.tier === 'GOAL BORDERLINE' ? 'text-orange-600' :
+  1274→                              thirdGoalResult.tier === 'GOAL THIN' ? 'text-yellow-600' :
+  1275→                              'text-red-500'
+  1276→                            }`}>
+  1277→                              {thirdGoalResult.tier === 'GOAL RICH' ? '🟢' : thirdGoalResult.tier === 'GOAL LIKELY' ? '🟢' : thirdGoalResult.tier === 'GOAL BORDERLINE' ? '🟠' : thirdGoalResult.tier === 'GOAL THIN' ? '🟡' : '🔴'} {thirdGoalResult.tier}
+  1278→                            </p>
+  1279→                            <p className="text-sm text-muted-foreground mt-1">
+  1280→                              Score: {thirdGoalResult.score}
+  1281→                            </p>
+  1282→                            <p className="text-xs text-muted-foreground mt-1 font-medium">
+  1283→                              {thirdGoalResult.recommendation}
+  1284→                            </p>
+  1285→                          </div>
+  1286→
+  1287→                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+  1288→                            <p className="font-semibold text-muted-foreground mb-2">Key Factors:</p>
+  1289→                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1 text-xs">
+  1290→                              <div>Combined xG: <strong>{combinedXgTotal.toFixed(2)}</strong> {combinedXgTotal > 3.0 ? '(🟢 high)' : combinedXgTotal >= 2.5 ? '(🟡 moderate)' : '(🔴 low)'}</div>
+  1291→                              <div>Fav Odds: <strong>{favoriteOdds ? favoriteOdds.toFixed(2) : 'N/A'}</strong> {favoriteOdds && favoriteOdds >= 1.80 && favoriteOdds <= 2.50 ? '(🟢 competitive)' : ''}</div>
+  1292→                              <div>Home SOT/G: <strong>{homeAvgSot ? homeAvgSot.toFixed(1) : 'N/A'}</strong> {homeAvgSot && homeAvgSot > 5.5 ? '(🟢)' : ''}</div>
+  1293→                              <div>Away SOT/G: <strong>{awayAvgSot ? awayAvgSot.toFixed(1) : 'N/A'}</strong> {awayAvgSot && awayAvgSot > 5.5 ? '(🟢)' : ''}</div>
+  1294→                            </div>
+  1295→                          </div>
+  1296→
+  1297→                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+  1298→                            <p className="font-semibold text-muted-foreground mb-1">Goal Tier Guide:</p>
+  1299→                            <div className="grid grid-cols-2 md:grid-cols-5 gap-1 text-xs">
+  1300→                              <div className="p-1 rounded bg-green-50 dark:bg-green-900/20"><strong>RICH</strong> (6+)</div>
+  1301→                              <div className="p-1 rounded bg-teal-50 dark:bg-teal-900/20"><strong>LIKELY</strong> (4-5)</div>
+  1302→                              <div className="p-1 rounded bg-orange-50 dark:bg-orange-900/20"><strong>BORDER</strong> (2-3)</div>
+  1303→                              <div className="p-1 rounded bg-yellow-50 dark:bg-yellow-900/20"><strong>THIN</strong> (0-1)</div>
+  1304→                              <div className="p-1 rounded bg-red-50 dark:bg-red-900/20"><strong>STALL</strong> (&lt;0)</div>
+  1305→                            </div>
+  1306→                          </div>
+  1307→                        </div>
+  1308→                      </CardContent>
+  1309→                    </Card>
+  1310→
+  1311→                    {/* Momentum Signal — Form Continuation Track */}
+  1312→                    <Card className={`shadow-md border-2 ${
+  1313→                      momentumResult.matchSignal === 'MOMENTUM OVER' ? 'border-violet-500 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20' :
+  1314→                      momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'border-violet-300 bg-gradient-to-r from-violet-50 to-fuchsia-50 dark:from-violet-900/10 dark:to-fuchsia-900/10' :
+  1315→                      momentumResult.matchSignal === 'MOMENTUM UNDER' ? 'border-slate-400 bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-900/20 dark:to-gray-900/20' :
+  1316→                      momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'border-slate-300 bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-900/10 dark:to-gray-900/10' :
+  1317→                      'border-gray-200 bg-gray-50 dark:bg-gray-800/20'
+  1318→                    }`}>
+  1319→                      <CardHeader className="pb-2">
+  1320→                        <CardTitle className="text-lg flex items-center gap-2">
+  1321→                          <TrendingUp className={`w-5 h-5 ${
+  1322→                            momentumResult.matchSignal === 'MOMENTUM OVER' || momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'text-violet-600' :
+  1323→                            momentumResult.matchSignal === 'MOMENTUM UNDER' || momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'text-slate-500' :
+  1324→                            'text-gray-400'
+  1325→                          }`} />
+  1326→                          Momentum Signal (Form Continuation)
+  1327→                        </CardTitle>
+  1328→                        <CardDescription>
+  1329→                          Parallel to Regression — detects sustained hot streaks that will keep producing goals
+  1330→                        </CardDescription>
+  1331→                      </CardHeader>
+  1332→                      <CardContent>
+  1333→                        <div className="space-y-3">
+  1334→                          <div className={`text-center p-4 rounded-lg ${
+  1335→                            momentumResult.matchSignal === 'MOMENTUM OVER' ? 'bg-violet-100 dark:bg-violet-800/30' :
+  1336→                            momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'bg-violet-50 dark:bg-violet-800/15' :
+  1337→                            momentumResult.matchSignal === 'MOMENTUM UNDER' ? 'bg-slate-100 dark:bg-slate-800/30' :
+  1338→                            momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'bg-slate-50 dark:bg-slate-800/15' :
+  1339→                            'bg-gray-100 dark:bg-gray-700/30'
+  1340→                          }`}>
+  1341→                            <p className={`text-2xl font-bold ${
+  1342→                              momentumResult.matchSignal === 'MOMENTUM OVER' ? 'text-violet-600' :
+  1343→                              momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? 'text-violet-500' :
+  1344→                              momentumResult.matchSignal === 'MOMENTUM UNDER' ? 'text-slate-500' :
+  1345→                              momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? 'text-slate-400' :
+  1346→                              'text-gray-500'
+  1347→                            }`}>
+  1348→                              {momentumResult.matchSignal === 'MOMENTUM OVER' ? '🔥' : momentumResult.matchSignal === 'MOMENTUM LEAN OVER' ? '📈' : momentumResult.matchSignal === 'MOMENTUM UNDER' ? '📉' : momentumResult.matchSignal === 'MOMENTUM LEAN UNDER' ? '⬇️' : '➖'} {momentumResult.matchSignal}
+  1349→                            </p>
+  1350→                          </div>
+  1351→                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+  1352→                            <div className="p-2 rounded-lg bg-white/50 dark:bg-gray-800/50 space-y-1">
+  1353→                              <p className="font-semibold text-muted-foreground">Home: {predHomeTeam}</p>
+  1354→                              <p>Momentum: <span className={momentumResult.homeSignal === 'Strong Momentum' || momentumResult.homeSignal === 'Momentum' ? 'text-violet-600 font-medium' : momentumResult.homeSignal === 'Cold' || momentumResult.homeSignal === 'Cooling' ? 'text-slate-600 font-medium' : 'text-gray-600'}>{momentumResult.homeSignal}</span></p>
+  1355→                            </div>
+  1356→                            <div className="p-2 rounded-lg bg-white/50 dark:bg-gray-800/50 space-y-1">
+  1357→                              <p className="font-semibold text-muted-foreground">Away: {predAwayTeam}</p>
+  1358→                              <p>Momentum: <span className={momentumResult.awaySignal === 'Strong Momentum' || momentumResult.awaySignal === 'Momentum' ? 'text-violet-600 font-medium' : momentumResult.awaySignal === 'Cold' || momentumResult.awaySignal === 'Cooling' ? 'text-slate-600 font-medium' : 'text-gray-600'}>{momentumResult.awaySignal}</span></p>
+  1359→                            </div>
+  1360→                          </div>
+  1361→                          <div className="p-3 rounded-lg bg-white/50 dark:bg-gray-800/30 text-sm">
+  1362→                            <p className="font-semibold text-muted-foreground mb-1">How It Works:</p>
+  1363→                            <ul className="text-xs text-muted-foreground space-y-1">
+  1364→                              <li>• <strong>Strong Momentum:</strong> 5+ game sustained overperformance, low variance, 2+ goals/game avg</li>
+  1365→                              <li>• <strong>Momentum:</strong> Sustained above-season output or accelerating form with xG backing</li>
+  1366→                              <li>• <strong>Neutral:</strong> Normal fluctuation around baseline</li>
+  1367→                              <li>• <strong>Cooling/Cold:</strong> Declining output — regression track may be more reliable</li>
+  1368→                              <li>• When MOMENTUM OVER, STRONG BET Regression check passes via momentum alternative pathway</li>
+  1369→                            </ul>
+  1370→                          </div>
+  1371→                        </div>
+  1372→                      </CardContent>
+  1373→                    </Card>
+  1374→
+  1375→                    {/* Dominant Team Detector — One-Sided Demolition Flag */}
+  1376→                    <Card className={`shadow-md border-2 ${
+  1377→                      dominantResult.tier === 'DOMINANT EXPECTED' ? 'border-amber-500 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20' :
+  1378→                      dominantResult.tier === 'DOMINANT LIKELY' ? 'border-orange-400 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20' :
+  1379→                      dominantResult.tier === 'DOMINANT POSSIBLE' ? 'border-yellow-300 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20' :
+  1380→                      'border-gray-200 bg-gray-50 dark:bg-gray-800/20'
+  1381→                    }`}>
+  1382→                      <CardHeader className="pb-2">
+  1383→                        <CardTitle className="text-lg flex items-center gap-2">
+  1384→                          <Trophy className={`w-5 h-5 ${
+  1385→                            dominantResult.tier === 'DOMINANT EXPECTED' || dominantResult.tier === 'DOMINANT LIKELY' ? 'text-amber-600' :
+  1386→                            dominantResult.tier === 'DOMINANT POSSIBLE' ? 'text-orange-500' :
+  1387→                            'text-gray-400'
+  1388→                          }`} />
+  1389→                          Dominant Team Detector
+  1390→                        </CardTitle>
+  1391→                        <CardDescription>
+  1392→                          Flags one-sided demolition games — Over markets hit but BTTS does NOT
+  1393→                        </CardDescription>
+  1394→                      </CardHeader>
+  1395→                      <CardContent>
+  1396→                        <div className="space-y-3">
+  1397→                          <div className={`text-center p-4 rounded-lg ${
+  1398→                            dominantResult.tier === 'DOMINANT EXPECTED' ? 'bg-amber-100 dark:bg-amber-800/30' :
+  1399→                            dominantResult.tier === 'DOMINANT LIKELY' ? 'bg-orange-100 dark:bg-orange-800/30' :
+  1400→                            dominantResult.tier === 'DOMINANT POSSIBLE' ? 'bg-yellow-100 dark:bg-yellow-800/30' :
+  1401→                            'bg-gray-100 dark:bg-gray-700/30'
+  1402→                          }`}>
+  1403→                            <p className={`text-2xl font-bold ${
+  1404→                              dominantResult.tier === 'DOMINANT EXPECTED' ? 'text-amber-600' :
+  1405→                              dominantResult.tier === 'DOMINANT LIKELY' ? 'text-orange-600' :
+  1406→                              dominantResult.tier === 'DOMINANT POSSIBLE' ? 'text-yellow-600' :
+  1407→                              'text-gray-500'
+  1408→                            }`}>
+  1409→                              {dominantResult.tier === 'DOMINANT EXPECTED' ? '👑' : dominantResult.tier === 'DOMINANT LIKELY' ? '⚡' : dominantResult.tier === 'DOMINANT POSSIBLE' ? '🔶' : '⚪'} {dominantResult.tier}
+  1410→                            </p>
+  1411→                            <p className="text-sm text-muted-foreground mt-1">
+  1412→                              Score: {dominantResult.score} | Over 2.5: {dominantResult.over25Rec} | BTTS: {dominantResult.bttsRec}
+  1413→                            </p>
+  1414→                          </div>
+  1415→                          <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-xs">
+  1416→                            {dominantResult.breakdown.map((check, i) => (
+  1417→                              <div key={i} className={`p-1.5 rounded text-center ${check.passed ? (check.points > 0 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600') : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400'}`}>
+  1418→                                {check.passed ? (check.points > 0 ? '✅' : '⚠️') : '❌'} {check.check}
+  1419→                              </div>
+  1420→                            ))}
+  1421→                          </div>
+  1422→                        </div>
+  1423→                      </CardContent>
+  1424→                    </Card>
+  1425→                    </>
+  1426→                  );
+  1427→                })()}
+  1428→
+  1429→                {/* Value Bet Calculator for O1.5 & BTTS */}
+  1430→                <Card className="shadow-md border-2 border-yellow-300 bg-gradient-to-r from-yellow-50 to-amber-50">
+  1431→                  <CardHeader>
+  1432→                    <CardTitle className="text-lg flex items-center gap-2">
+  1433→                      <DollarSign className="w-5 h-5 text-yellow-600" />
+  1434→                      Value Bet Calculator - Over 1.5 & BTTS
+  1435→                    </CardTitle>
+  1436→                    <CardDescription>Enter bookmaker odds to find value bets</CardDescription>
+  1437→                  </CardHeader>
+  1438→                  <CardContent>
+  1439→                    <div className="grid md:grid-cols-2 gap-6">
+  1440→                      {/* Over 1.5 */}
+  1441→                      <div className="space-y-4">
+  1442→                        <h4 className="font-semibold text-teal-700">Over 1.5 Goals</h4>
+  1443→                        <div className="grid grid-cols-2 gap-4">
+  1444→                          <div>
+  1445→                            <label className="text-xs text-muted-foreground">Bookmaker Odds</label>
+  1446→                            <Input
+  1447→                              type="number"
+  1448→                              step="0.01"
+  1449→                              min="1.01"
+  1450→                              placeholder="e.g. 1.85"
+  1451→                              value={bookmakerOdds15}
+  1452→                              onChange={(e) => setBookmakerOdds15(e.target.value)}
+  1453→                              className="mt-1"
+  1454→                            />
+  1455→                          </div>
+  1456→                          <div>
+  1457→                            <label className="text-xs text-muted-foreground">Model Probability</label>
+  1458→                            <div className="mt-1 p-2 bg-teal-100 rounded text-center">
+  1459→                              <span className="text-lg font-bold text-teal-700">{prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15}%</span>
+  1460→                            </div>
+  1461→                          </div>
+  1462→                        </div>
+  1463→                        {bookmakerOdds15 && parseFloat(bookmakerOdds15) > 1 && (
+  1464→                          <div className={`p-4 rounded-lg ${
+  1465→                            (((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 
+  1466→                              ? 'bg-green-100 border-2 border-green-400' 
+  1467→                              : 'bg-red-100 border-2 border-red-300'
+  1468→                          }`}>
+  1469→                            <div className="grid grid-cols-3 gap-2 text-center">
+  1470→                              <div>
+  1471→                                <p className="text-xs text-muted-foreground">Implied Prob</p>
+  1472→                                <p className="font-bold">{(100 / parseFloat(bookmakerOdds15)).toFixed(1)}%</p>
+  1473→                              </div>
+  1474→                              <div>
+  1475→                                <p className="text-xs text-muted-foreground">Expected Value</p>
+  1476→                                <p className={`font-bold text-lg ${(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1477→                                  {((((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) * 100 - 100).toFixed(1)}%
+  1478→                                </p>
+  1479→                              </div>
+  1480→                              <div>
+  1481→                                <p className="text-xs text-muted-foreground">Verdict</p>
+  1482→                                <p className={`font-bold ${(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1483→                                  {(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
+  1484→                                </p>
+  1485→                              </div>
+  1486→                            </div>
+  1487→                            {(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 && (
+  1488→                              <p className="text-center text-sm text-green-700 mt-2">
+  1489→                                Edge: Model rates this {((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) - (100 / parseFloat(bookmakerOdds15))).toFixed(1)}% higher than bookmaker
+  1490→                              </p>
+  1491→                            )}
+  1492→                          </div>
+  1493→                        )}
+  1494→                      </div>
+  1495→
+  1496→                      {/* BTTS Yes */}
+  1497→                      <div className="space-y-4">
+  1498→                        <h4 className="font-semibold text-purple-700">BTTS Yes</h4>
+  1499→                        <div className="grid grid-cols-2 gap-4">
+  1500→                          <div>
+  1501→                            <label className="text-xs text-muted-foreground">Bookmaker Odds</label>
+  1502→                            <Input
+  1503→                              type="number"
+  1504→                              step="0.01"
+  1505→                              min="1.01"
+  1506→                              placeholder="e.g. 1.75"
+  1507→                              value={bookmakerOddsBtts}
+  1508→                              onChange={(e) => setBookmakerOddsBtts(e.target.value)}
+  1509→                              className="mt-1"
+  1510→                            />
+  1511→                          </div>
+  1512→                          <div>
+  1513→                            <label className="text-xs text-muted-foreground">Model Probability</label>
+  1514→                            <div className="mt-1 p-2 bg-purple-100 rounded text-center">
+  1515→                              <span className="text-lg font-bold text-purple-700">{prediction.prediction.calibrated?.btts ?? prediction.prediction.btts}%</span>
+  1516→                            </div>
+  1517→                          </div>
+  1518→                        </div>
+  1519→                        {bookmakerOddsBtts && parseFloat(bookmakerOddsBtts) > 1 && (
+  1520→                          <div className={`p-4 rounded-lg ${
+  1521→                            (((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 
+  1522→                              ? 'bg-green-100 border-2 border-green-400' 
+  1523→                              : 'bg-red-100 border-2 border-red-300'
+  1524→                          }`}>
+  1525→                            <div className="grid grid-cols-3 gap-2 text-center">
+  1526→                              <div>
+  1527→                                <p className="text-xs text-muted-foreground">Implied Prob</p>
+  1528→                                <p className="font-bold">{(100 / parseFloat(bookmakerOddsBtts)).toFixed(1)}%</p>
+  1529→                              </div>
+  1530→                              <div>
+  1531→                                <p className="text-xs text-muted-foreground">Expected Value</p>
+  1532→                                <p className={`font-bold text-lg ${(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1533→                                  {((((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) * 100 - 100).toFixed(1)}%
+  1534→                                </p>
+  1535→                              </div>
+  1536→                              <div>
+  1537→                                <p className="text-xs text-muted-foreground">Verdict</p>
+  1538→                                <p className={`font-bold ${(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1539→                                  {(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
+  1540→                                </p>
+  1541→                              </div>
+  1542→                            </div>
+  1543→                            {(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 && (
+  1544→                              <p className="text-center text-sm text-green-700 mt-2">
+  1545→                                Edge: Model rates this {((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) - (100 / parseFloat(bookmakerOddsBtts))).toFixed(1)}% higher than bookmaker
+  1546→                              </p>
+  1547→                            )}
+  1548→                          </div>
+  1549→                        )}
+  1550→                      </div>
+  1551→                    </div>
+  1552→                    <p className="text-xs text-muted-foreground mt-4 text-center">
+  1553→                      💡 Value = (Model Probability × Bookmaker Odds) - 1. Positive expected value indicates a potential value bet.
+  1554→                    </p>
+  1555→                  </CardContent>
+  1556→                </Card>
+  1557→
+  1558→                {/* Confidence Banner */}
+  1559→                <Card className={`shadow-md border-2 ${
+  1560→                  prediction.prediction.confidence === 'high' ? 'border-green-500 bg-green-50' :
+  1561→                  prediction.prediction.confidence === 'medium' ? 'border-amber-500 bg-amber-50' :
+  1562→                  'border-gray-300 bg-gray-50'
+  1563→                }`}>
+  1564→                  <CardContent className="py-4">
+  1565→                    <div className="flex items-center gap-3">
+  1566→                      {prediction.prediction.confidence === 'high' ? (
+  1567→                        <CheckCircle className="w-6 h-6 text-green-600" />
+  1568→                      ) : prediction.prediction.confidence === 'medium' ? (
+  1569→                        <Target className="w-6 h-6 text-amber-600" />
+  1570→                      ) : (
+  1571→                        <AlertTriangle className="w-6 h-6 text-gray-600" />
+  1572→                      )}
+  1573→                      <div>
+  1574→                        <p className="font-semibold capitalize">{prediction.prediction.confidence} Confidence Prediction</p>
+  1575→                        <p className="text-sm text-muted-foreground">{prediction.prediction.confidenceReason}</p>
+  1576→                      </div>
+  1577→                    </div>
+  1578→                  </CardContent>
+  1579→                </Card>
+  1580→
+  1581→                {/* Main Probabilities */}
+  1582→                <div className="grid grid-cols-3 gap-4">
+  1583→                  <Card className="shadow-md border-2 border-green-200 bg-gradient-to-b from-green-50 to-white">
+  1584→                    <CardContent className="py-6 text-center">
+  1585→                      <p className="text-sm text-muted-foreground uppercase tracking-wide">Home Win</p>
+  1586→                      <p className="text-4xl font-bold text-green-600 mt-2">{prediction.prediction.homeWin}%</p>
+  1587→                      {prediction.prediction.calibrated && (
+  1588→                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+  1589→                          Calibrated: {prediction.prediction.calibrated.homeWin}%
+  1590→                        </p>
+  1591→                      )}
+  1592→                      <p className="text-sm text-muted-foreground mt-2">xG: {prediction.prediction.homeXg}</p>
+  1593→                      <p className="text-xs text-green-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.homeWin}</p>
+  1594→                    </CardContent>
+  1595→                  </Card>
+  1596→
+  1597→                  <Card className="shadow-md border-2 border-amber-200 bg-gradient-to-b from-amber-50 to-white">
+  1598→                    <CardContent className="py-6 text-center">
+  1599→                      <p className="text-sm text-muted-foreground uppercase tracking-wide">Draw</p>
+  1600→                      <p className="text-4xl font-bold text-amber-600 mt-2">{prediction.prediction.draw}%</p>
+  1601→                      {prediction.prediction.calibrated && (
+  1602→                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+  1603→                          Calibrated: {prediction.prediction.calibrated.draw}%
+  1604→                        </p>
+  1605→                      )}
+  1606→                      <p className="text-sm text-muted-foreground mt-2">Most Likely: {prediction.prediction.likelyScore}</p>
+  1607→                      <p className="text-xs text-amber-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.draw}</p>
+  1608→                    </CardContent>
+  1609→                  </Card>
+  1610→
+  1611→                  <Card className="shadow-md border-2 border-blue-200 bg-gradient-to-b from-blue-50 to-white">
+  1612→                    <CardContent className="py-6 text-center">
+  1613→                      <p className="text-sm text-muted-foreground uppercase tracking-wide">Away Win</p>
+  1614→                      <p className="text-4xl font-bold text-blue-600 mt-2">{prediction.prediction.awayWin}%</p>
+  1615→                      {prediction.prediction.calibrated && (
+  1616→                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+  1617→                          Calibrated: {prediction.prediction.calibrated.awayWin}%
+  1618→                        </p>
+  1619→                      )}
+  1620→                      <p className="text-sm text-muted-foreground mt-2">xG: {prediction.prediction.awayXg}</p>
+  1621→                      <p className="text-xs text-blue-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.awayWin}</p>
+  1622→                    </CardContent>
+  1623→                  </Card>
+  1624→                </div>
+  1625→
+  1626→                {/* Halftime Predictions */}
+  1627→                <Card className="shadow-md border-2 border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50">
+  1628→                  <CardHeader>
+  1629→                    <CardTitle className="text-lg flex items-center gap-2">
+  1630→                      <Target className="w-5 h-5 text-cyan-600" />
+  1631→                      Halftime Predictions
+  1632→                    </CardTitle>
+  1633→                    <CardDescription>First half result and expected goals</CardDescription>
+  1634→                  </CardHeader>
+  1635→                  <CardContent>
+  1636→                    <div className="grid grid-cols-3 gap-4 mb-4">
+  1637→                      <div className="text-center p-4 rounded-lg bg-white/70 border border-green-200">
+  1638→                        <p className="text-sm text-muted-foreground">HT Home Win</p>
+  1639→                        <p className="text-2xl font-bold text-green-600 mt-1">{prediction.prediction.htHomeWin}%</p>
+  1640→                        <p className="text-xs text-green-700 mt-1">Odds: {prediction.prediction.impliedOdds.htHomeWin}</p>
+  1641→                      </div>
+  1642→                      <div className="text-center p-4 rounded-lg bg-white/70 border border-amber-200">
+  1643→                        <p className="text-sm text-muted-foreground">HT Draw</p>
+  1644→                        <p className="text-2xl font-bold text-amber-600 mt-1">{prediction.prediction.htDraw}%</p>
+  1645→                        <p className="text-xs text-amber-700 mt-1">Odds: {prediction.prediction.impliedOdds.htDraw}</p>
+  1646→                      </div>
+  1647→                      <div className="text-center p-4 rounded-lg bg-white/70 border border-blue-200">
+  1648→                        <p className="text-sm text-muted-foreground">HT Away Win</p>
+  1649→                        <p className="text-2xl font-bold text-blue-600 mt-1">{prediction.prediction.htAwayWin}%</p>
+  1650→                        <p className="text-xs text-blue-700 mt-1">Odds: {prediction.prediction.impliedOdds.htAwayWin}</p>
+  1651→                      </div>
+  1652→                    </div>
+  1653→                    <div className="flex justify-center gap-8 text-sm">
+  1654→                      <div className="text-center">
+  1655→                        <p className="text-muted-foreground">HT xG (Home)</p>
+  1656→                        <p className="font-bold text-lg">{prediction.prediction.htHomeXg}</p>
+  1657→                      </div>
+  1658→                      <div className="text-center">
+  1659→                        <p className="text-muted-foreground">HT xG (Away)</p>
+  1660→                        <p className="font-bold text-lg">{prediction.prediction.htAwayXg}</p>
+  1661→                      </div>
+  1662→                      <div className="text-center">
+  1663→                        <p className="text-muted-foreground">Most Likely HT Score</p>
+  1664→                        <p className="font-bold text-lg">{prediction.prediction.htLikelyScore} ({prediction.prediction.htLikelyScoreProb}%)</p>
+  1665→                      </div>
+  1666→                    </div>
+  1667→                    <div className="mt-4 grid grid-cols-5 gap-2">
+  1668→                      {prediction.prediction.htScoreMatrix.slice(0, 5).map((s, i) => (
+  1669→                        <div key={i} className={`text-center p-2 rounded ${i === 0 ? 'bg-cyan-200 border border-cyan-400' : 'bg-white/50'}`}>
+  1670→                          <p className="font-mono font-bold">{s.score}</p>
+  1671→                          <p className="text-xs text-muted-foreground">{s.prob}%</p>
+  1672→                        </div>
+  1673→                      ))}
+  1674→                    </div>
+  1675→                  </CardContent>
+  1676→                </Card>
+  1677→
+  1678→                {/* Score Matrix */}
+  1679→                <Card className="shadow-md">
+  1680→                  <CardHeader>
+  1681→                    <CardTitle className="text-lg">Most Likely Scorelines</CardTitle>
+  1682→                    <CardDescription>Top 10 predicted scores from Monte Carlo simulation</CardDescription>
+  1683→                  </CardHeader>
+  1684→                  <CardContent>
+  1685→                    <div className="grid grid-cols-5 gap-3">
+  1686→                      {prediction.prediction.scoreMatrix.map((s, i) => (
+  1687→                        <div key={i} className={`text-center p-3 rounded-lg ${i === 0 ? 'bg-green-100 border-2 border-green-400' : 'bg-gray-50'}`}>
+  1688→                          <p className="font-mono font-bold text-lg">{s.score}</p>
+  1689→                          <p className="text-xs text-muted-foreground">{s.prob}%</p>
+  1690→                        </div>
+  1691→                      ))}
+  1692→                    </div>
+  1693→                  </CardContent>
+  1694→                </Card>
+  1695→
+  1696→                {/* Team Statistics Comparison */}
+  1697→                <div className="grid md:grid-cols-2 gap-6">
+  1698→                  {/* Home Team Stats */}
+  1699→                  <Card className="shadow-md border-l-4 border-l-green-500">
+  1700→                    <CardHeader>
+  1701→                      <CardTitle className="text-lg">{predHomeTeam} (Home)</CardTitle>
+  1702→                      <CardDescription>Team statistics</CardDescription>
+  1703→                    </CardHeader>
+  1704→                    <CardContent>
+  1705→                      {prediction.homeTeamStats && (
+  1706→                        <div className="space-y-3">
+  1707→                          <div className="grid grid-cols-2 gap-4">
+  1708→                            <div>
+  1709→                              <p className="text-xs text-muted-foreground">Attack Strength</p>
+  1710→                              <p className="text-xl font-bold">{(prediction.homeTeamStats.attack * 100).toFixed(0)}%</p>
+  1711→                            </div>
+  1712→                            <div>
+  1713→                              <p className="text-xs text-muted-foreground">Defense Strength</p>
+  1714→                              <p className="text-xl font-bold">{(prediction.homeTeamStats.defense * 100).toFixed(0)}%</p>
+  1715→                            </div>
+  1716→                          </div>
+  1717→                          <div className="grid grid-cols-2 gap-4">
+  1718→                            <div>
+  1719→                              <p className="text-xs text-muted-foreground">Avg Goals Scored</p>
+
+[showing lines 1220-1719 of 3390; use offset=1720 with limit to continue reading]

@@ -1,0 +1,502 @@
+   629→                      else if (ps <= -1.5) prevZScoreSignal = 'Under';
+   630→                    }
+   631→                  }
+   632→
+   633→                  const signalMomentum = computeAllSignalMomentum(
+   634→                    { xgSignal: xgSignalQuick, regressionSignal: regressionSignalQuick, zScoreSignal: zScoreSignalQuick },
+   635→                    { xgSignal: prevXgSignal, regressionSignal: prevRegressionSignal, zScoreSignal: prevZScoreSignal }
+   636→                  );
+   637→
+   638→                  // ============================================================
+   639→                  // Cumulative Z-Score Trend (Integration) — accumulate deviations
+   640→                  // ============================================================
+   641→                  // Compute league average goals from the regression data
+   642→                  const totalLeagueGoals = sortedResultsForRegression.reduce((s, r) => s + r.ftHomeGoals + r.ftAwayGoals, 0);
+   643→                  const leagueAvgForZ = sortedResultsForRegression.length > 0 ? totalLeagueGoals / sortedResultsForRegression.length : 2.7;
+   644→                  // Cumulative Z-Score: compute from recent match goals for both teams
+   645→                  const matchGoalsForCumZ = sortedResultsForRegression
+   646→                    .filter(r => r.homeTeam === predHomeTeam || r.awayTeam === predHomeTeam || r.homeTeam === predAwayTeam || r.awayTeam === predHomeTeam)
+   647→                    .slice(0, 5)
+   648→                    .map(r => r.ftHomeGoals + r.ftAwayGoals);
+   649→                  const expectedGoalsForZ = matchGoalsForCumZ.map(() => leagueAvgForZ);
+   650→                  const cumulativeZ = computeCumulativeZScore(
+   651→                    matchGoalsForCumZ,
+   652→                    expectedGoalsForZ,
+   653→                    5
+   654→                  );
+   655→
+   656→                  // ============================================================
+   657→                  // Momentum Signal — Form Continuation Track
+   658→                  // ============================================================
+   659→                  const homeLast5Goals = homeTeamDataQuick?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   660→                  const awayLast5Goals = awayTeamDataQuick?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   661→                  const homeSeasonAvg = homeTeamDataQuick?.matchesThisSeason > 0 ? (homeTeamDataQuick.scoredThisSeason + homeTeamDataQuick.concededThisSeason) / homeTeamDataQuick.matchesThisSeason : 0;
+   662→                  const awaySeasonAvg = awayTeamDataQuick?.matchesThisSeason > 0 ? (awayTeamDataQuick.scoredThisSeason + awayTeamDataQuick.concededThisSeason) / awayTeamDataQuick.matchesThisSeason : 0;
+   663→                  const homeXgDiffVal = homeXgDataQuick ? (homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches) : 0;
+   664→                  const awayXgDiffVal = awayXgDataQuick ? (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches) : 0;
+   665→                  const homeSotPerGame = homeXgDataQuick?.matches > 0 ? homeXgDataQuick.shotsOnTarget / homeXgDataQuick.matches : null;
+   666→                  const awaySotPerGame = awayXgDataQuick?.matches > 0 ? awayXgDataQuick.shotsOnTarget / awayXgDataQuick.matches : null;
+   667→
+   668→                  const homeMomentumInput: MomentumTeamInput = { last5Goals: homeLast5Goals, seasonAvg: homeSeasonAvg, xgDiff: homeXgDiffVal, sotPerGame: homeSotPerGame };
+   669→                  const awayMomentumInput: MomentumTeamInput = { last5Goals: awayLast5Goals, seasonAvg: awaySeasonAvg, xgDiff: awayXgDiffVal, sotPerGame: awaySotPerGame };
+   670→
+   671→                  const momentumResult = computeMomentumSignal(homeMomentumInput, awayMomentumInput);
+   672→
+   673→                  // ---- Blowout Risk Qualifier (Change 5) ----
+   674→                  // When either team is a massive favorite (avg odds <= 1.50),
+   675→                  // override Regression "Under" to "Neutral" — quality gap outweighs form.
+   676→                  const homeAvgOdds = computeTeamAvgOdds(results, predHomeTeam);
+   677→                  const awayAvgOdds = computeTeamAvgOdds(results, predAwayTeam);
+   678→                  const rawSignalInput: SignalInput = {
+   679→                    xgSignal: xgSignalQuick,
+   680→                    regressionSignal: regressionSignalQuick,
+   681→                    zScoreSignal: zScoreSignalQuick,
+   682→                  };
+   683→                  const blowoutResult = applyBlowoutQualifier(rawSignalInput, homeAvgOdds, awayAvgOdds, baselines.avgGoalsPerGame);
+   684→                  const signalInput: SignalInput = blowoutResult.signals;
+   685→                  if (blowoutResult.blowoutOverride) {
+   686→                    console.log(`[PredictionsTab] ${blowoutResult.reason}`);
+   687→                  }
+   688→
+   689→                  // ---- LOW-OPEN SIGNAL — Strong Over trend + tight last H2H ----
+   690→                  const lastH2HGoalsTotal = lastH2HQuick ? lastH2HQuick.ftHomeGoals + lastH2HQuick.ftAwayGoals : null;
+   691→                  const lastH2HScoreline = lastH2HQuick ? `${lastH2HQuick.ftHomeGoals}-${lastH2HQuick.ftAwayGoals}` : null;
+   692→                  const isTightH2H = lastH2HGoalsTotal !== null && lastH2HGoalsTotal <= 1;
+   693→                  const isLowOpenSignal = signalInput.regressionSignal === 'Strong Over'
+   694→                    && signalInput.zScoreSignal === 'Neutral'
+   695→                    && signalInput.xgSignal === 'Strong Over'
+   696→                    && isTightH2H;
+   697→
+   698→                  // ============================================================
+   699→                  // FP1-Style Parallel Signal — Scored-Only Regression + Z-Score
+   700→                  // ============================================================
+   701→                  // Mirrors Techmari Pro FP1 logic: measures offensive output only
+   702→                  // (not blended offense+defense), uses simple per-team direction
+   703→                  // and simple majority Z-Score combination.
+   704→                  // Runs as a PARALLEL path — does NOT affect existing signals.
+   705→
+   706→                  // --- FP1 Scored-Only Regression (per team) ---
+   707→                  const buildFP1ScoredStats = (teamName: string) => {
+   708→                    const matches = sortedResultsForRegression.filter(r =>
+   709→                      r.homeTeam === teamName || r.awayTeam === teamName
+   710→                    );
+   711→                    if (matches.length === 0) return null;
+   712→                    const goalsPerMatch = matches.map(m =>
+   713→                      m.homeTeam === teamName ? m.ftHomeGoals : m.ftAwayGoals
+   714→                    );
+   715→                    const mean = goalsPerMatch.reduce((a, b) => a + b, 0) / goalsPerMatch.length;
+   716→                    const last3 = goalsPerMatch.slice(-3);
+   717→                    const last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+   718→                    const deviation = mean > 0 ? ((last3Avg - mean) / mean) * 100 : 0;
+   719→                    // FP1 thresholds: < -15% = regression UP, > +15% = regression DOWN
+   720→                    const direction = deviation < -15 ? 'up' : deviation > 15 ? 'down' : 'neutral';
+   721→                    return { mean, last3Avg, deviation, direction, matches: matches.length };
+   722→                  };
+   723→
+   724→                  const homeFP1Reg = buildFP1ScoredStats(predHomeTeam);
+   725→                  const awayFP1Reg = buildFP1ScoredStats(predAwayTeam);
+   726→
+   727→                  // FP1 Combined Regression with Mixed states
+   728→                  let fp1RegressionLabel = 'Neutral';
+   729→                  if (homeFP1Reg && awayFP1Reg) {
+   730→                    if (homeFP1Reg.direction === 'up' && awayFP1Reg.direction === 'up') {
+   731→                      fp1RegressionLabel = 'Strong Over';
+   732→                    } else if (homeFP1Reg.direction === 'down' && awayFP1Reg.direction === 'down') {
+   733→                      fp1RegressionLabel = 'Strong Under';
+   734→                    } else if (homeFP1Reg.direction === 'up' || awayFP1Reg.direction === 'up') {
+   735→                      fp1RegressionLabel = 'Mixed (Over Lean)';
+   736→                    } else if (homeFP1Reg.direction === 'down' || awayFP1Reg.direction === 'down') {
+   737→                      fp1RegressionLabel = 'Mixed (Under Lean)';
+   738→                    }
+   739→                  }
+   740→
+   741→                  // --- FP1 Scored-Only Z-Score (per team) ---
+   742→                  const buildFP1ZScore = (teamName: string) => {
+   743→                    const matches = sortedResultsForRegression.filter(r =>
+   744→                      r.homeTeam === teamName || r.awayTeam === teamName
+   745→                    );
+   746→                    if (matches.length < 3) return null;
+   747→                    const goalsPerMatch = matches.map(m =>
+   748→                      m.homeTeam === teamName ? m.ftHomeGoals : m.ftAwayGoals
+   749→                    );
+   750→                    const mean = goalsPerMatch.reduce((a, b) => a + b, 0) / matches.length;
+   751→                    const stdDev = Math.sqrt(
+   752→                      goalsPerMatch.map(g => Math.pow(g - mean, 2)).reduce((a, b) => a + b, 0) / matches.length
+   753→                    );
+   754→                    const last3 = goalsPerMatch.slice(-3);
+   755→                    const last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+   756→                    const zScore = stdDev > 0 ? (last3Avg - mean) / stdDev : 0;
+   757→                    // FP1 thresholds: < -1.0 = up (underperforming), > +1.0 = down (overperforming)
+   758→                    const direction = zScore < -1.0 ? 'up' : zScore > 1.0 ? 'down' : 'neutral';
+   759→                    return { zScore, mean, stdDev, direction, last3Avg, matches: matches.length };
+   760→                  };
+   761→
+   762→                  const homeFP1Z = buildFP1ZScore(predHomeTeam);
+   763→                  const awayFP1Z = buildFP1ZScore(predAwayTeam);
+   764→
+   765→                  // FP1 Combined Z-Score — simple majority
+   766→                  let fp1ZScoreLabel = 'Neutral';
+   767→                  if (homeFP1Z && awayFP1Z) {
+   768→                    if (homeFP1Z.direction === 'up' && awayFP1Z.direction === 'up') {
+   769→                      fp1ZScoreLabel = 'Strong Over';
+   770→                    } else if (homeFP1Z.direction === 'down' && awayFP1Z.direction === 'down') {
+   771→                      fp1ZScoreLabel = 'Strong Under';
+   772→                    } else if (homeFP1Z.direction === 'up' || awayFP1Z.direction === 'up') {
+   773→                      fp1ZScoreLabel = 'Mixed (Over Lean)';
+   774→                    } else if (homeFP1Z.direction === 'down' || awayFP1Z.direction === 'down') {
+   775→                      fp1ZScoreLabel = 'Mixed (Under Lean)';
+   776→                    }
+   777→                  }
+   778→
+   779→                  // FP1 SIGNAL: Mixed (Over Lean) Regression + Z-Score Neutral
+   780→                  const isFP1Signal = fp1RegressionLabel === 'Mixed (Over Lean)' && fp1ZScoreLabel === 'Neutral';
+   781→
+   782→                  // ============================================================
+   783→                  // Dominant Team Detector — One-Sided Demolition Flag
+   784→                  // ============================================================
+   785→                  const favoriteOddsValue = homeAvgOdds && awayAvgOdds ? Math.min(homeAvgOdds, awayAvgOdds) : null;
+   786→                  const isHomeFavorite = homeAvgOdds && awayAvgOdds ? homeAvgOdds <= awayAvgOdds : false;
+   787→
+   788→                  // Determine which team is favorite vs underdog
+   789→                  const favTeamData = isHomeFavorite ? homeTeamDataQuick : awayTeamDataQuick;
+   790→                  const undTeamData = isHomeFavorite ? awayTeamDataQuick : homeTeamDataQuick;
+   791→                  const favXgData = isHomeFavorite ? homeXgDataQuick : awayXgDataQuick;
+   792→                  const undXgData = isHomeFavorite ? awayXgDataQuick : homeXgDataQuick;
+   793→                  const favLast5Avg = (isHomeFavorite ? homeLast5Goals : awayLast5Goals).length > 0
+   794→                    ? (isHomeFavorite ? homeLast5Goals : awayLast5Goals).reduce((s, g) => s + g, 0) / (isHomeFavorite ? homeLast5Goals : awayLast5Goals).length : 0;
+   795→                  const favLast3Goals = (isHomeFavorite ? homeTeamDataQuick?.last3Matches : awayTeamDataQuick?.last3Matches)?.slice(0, 3).map(m => m.totalGoals) ?? [];
+   796→                  const favLast3AllLow = favLast3Goals.length >= 3 && favLast3Goals.every(g => g < 1.5);
+   797→
+   798→                  const dominantInput: DominantTeamInput = {
+   799→                    favoriteOdds: favoriteOddsValue ?? 2.0,
+   800→                    favoriteAvgGoalsPerGame: favTeamData?.matchesThisSeason > 0 ? (favTeamData.scoredThisSeason + favTeamData.concededThisSeason) / favTeamData.matchesThisSeason : 0,
+   801→                    underdogAvgConcededPerGame: undTeamData?.matchesThisSeason > 0 ? undTeamData.concededThisSeason / undTeamData.matchesThisSeason : 0,
+   802→                    favoriteXgPerGame: favXgData?.matches > 0 ? favXgData.totalXg / favXgData.matches : 0,
+   803→                    underdogXgPerGame: undXgData?.matches > 0 ? undXgData.totalXg / undXgData.matches : 0,
+   804→                    favoriteLast5Avg: favLast5Avg,
+   805→                    favoriteSotPerGame: favXgData?.matches > 0 ? favXgData.shotsOnTarget / favXgData.matches : null,
+   806→                    leagueAvgGoalsPerGame: baselines.avgGoalsPerGame,
+   807→                    underdogAwayBttsRate: null, // Not directly available — pass null
+   808→                    favoriteLast3AllLow: favLast3AllLow,
+   809→                  };
+   810→
+   811→                  const dominantResult = computeDominantTeamQualifier(dominantInput);
+   812→
+   813→                  // STRONG BET — New points-based system (need 7+ of 11 points)
+   814→                  // Replaces old auto-qualify on O2.5 ≥ 68% + 4/6 checks
+   815→                  // o35ProbValue already computed above with calibrated fallback
+   816→                  const strongBetResult = computeStrongBet(bttsChecklistInput, signalInput, resolved, {
+   817→                    momentumSignal: momentumResult.matchSignal,
+   818→                    leagueBttsRate: baselines.bttsRate,
+   819→                  });
+   820→                  const isStrongBet = strongBetResult.isStrongBet;
+   821→                  const strongBetChecks = strongBetResult.breakdown.map(c => c.passed);
+   822→                  const strongBetScore = strongBetResult.points;
+   823→
+   824→                  // Grey Result Predictor — Tightened criteria using shared utility
+   825→                  const greyResultData = computeGreyResult(bttsChecklistInput, signalInput, resolved);
+   826→                  const isGreyResult = greyResultData.isGreyResult;
+   827→                  const greyResultChecks = greyResultData.breakdown.map(c => c.passed);
+   828→                  const greyScore = greyResultData.score;
+   829→
+   830→                  // GOAL FEST — Backtest-optimized combo detector
+   831→                  const goalFestData = computeGoalFest(bttsChecklistInput, signalInput, resolved);
+   832→                  const isGoalFest = goalFestData.isGoalFest;
+   833→
+   834→                  // ============================================================
+   835→                  // BTTS Dual-Team Qualification + Third Goal Detector
+   836→                  // ============================================================
+   837→                  // Compute per-team signal data for the new dual-team qualifiers
+   838→                  const homeRegDeviation = homeDeviation?.combinedSignal ?? 0;
+   839→                  const awayRegDeviation = awayDeviation?.combinedSignal ?? 0;
+   840→                  const homeRegSignalPerTeam = classifyPerTeamRegressionSignal(homeRegDeviation);
+   841→                  const awayRegSignalPerTeam = classifyPerTeamRegressionSignal(awayRegDeviation);
+   842→
+   843→                  const homeXgDiffValue = homeXgDataQuick ? (homeXgDataQuick.actualGoals / homeXgDataQuick.matches) - (homeXgDataQuick.totalXg / homeXgDataQuick.matches) : 0;
+   844→                  const awayXgDiffValue = awayXgDataQuick ? (awayXgDataQuick.actualGoals / awayXgDataQuick.matches) - (awayXgDataQuick.totalXg / awayXgDataQuick.matches) : 0;
+   845→                  const homeXgSignalPerTeam = classifyPerTeamXgSignal(homeXgDiffValue);
+   846→                  const awayXgSignalPerTeam = classifyPerTeamXgSignal(awayXgDiffValue);
+   847→
+   848→                  // Compute per-team SOT stats from results
+   849→                  const teamSotStats = new Map<string, { matches: number; shotsOnTarget: number; goalsScored: number }>();
+   850→                  sortedResultsForRegression.forEach(r => {
+   851→                    const hSot = teamSotStats.get(r.homeTeam) || { matches: 0, shotsOnTarget: 0, goalsScored: 0 };
+   852→                    hSot.matches++;
+   853→                    hSot.shotsOnTarget += r.homeShotsOnTarget;
+   854→                    hSot.goalsScored += r.ftHomeGoals;
+   855→                    teamSotStats.set(r.homeTeam, hSot);
+   856→                    const aSot = teamSotStats.get(r.awayTeam) || { matches: 0, shotsOnTarget: 0, goalsScored: 0 };
+   857→                    aSot.matches++;
+   858→                    aSot.shotsOnTarget += r.awayShotsOnTarget;
+   859→                    aSot.goalsScored += r.ftAwayGoals;
+   860→                    teamSotStats.set(r.awayTeam, aSot);
+   861→                  });
+   862→                  const homeSotData = teamSotStats.get(predHomeTeam);
+   863→                  const awaySotData = teamSotStats.get(predAwayTeam);
+   864→
+   865→                  // Per-team SOT conversion
+   866→                  const homeSotConv = homeSotData && homeSotData.shotsOnTarget > 0
+   867→                    ? (homeSotData.goalsScored / homeSotData.shotsOnTarget) * 100
+   868→                    : null;
+   869→                  const awaySotConv = awaySotData && awaySotData.shotsOnTarget > 0
+   870→                    ? (awaySotData.goalsScored / awaySotData.shotsOnTarget) * 100
+   871→                    : null;
+   872→
+   873→                  // Per-team average SOT per game
+   874→                  const homeAvgSot = homeSotData && homeSotData.matches > 0
+   875→                    ? homeSotData.shotsOnTarget / homeSotData.matches
+   876→                    : null;
+   877→                  const awayAvgSot = awaySotData && awaySotData.matches > 0
+   878→                    ? awaySotData.shotsOnTarget / awaySotData.matches
+   879→                    : null;
+   880→
+   881→                  // Favorite odds (minimum of home/away avg odds)
+   882→                  const favoriteOdds = homeAvgOdds && awayAvgOdds ? Math.min(homeAvgOdds, awayAvgOdds) : null;
+   883→
+   884→                  // Combined xG total
+   885→                  const homeXgPerGame = homeXgDataQuick ? homeXgDataQuick.totalXg / homeXgDataQuick.matches : 0;
+   886→                  const awayXgPerGame = awayXgDataQuick ? awayXgDataQuick.totalXg / awayXgDataQuick.matches : 0;
+   887→                  const combinedXgTotal = homeXgPerGame + awayXgPerGame;
+   888→
+   889→                  // BTTS Dual-Team Qualification
+   890→                  const bttsQualification = computeBTTSQualification({
+   891→                    homeRegressionSignal: homeRegSignalPerTeam,
+   892→                    awayRegressionSignal: awayRegSignalPerTeam,
+   893→                    homeXgDiff: homeXgDiffValue,
+   894→                    awayXgDiff: awayXgDiffValue,
+   895→                    homeZScore: homeZForQualifier,
+   896→                    awayZScore: awayZForQualifier,
+   897→                    homeSotConversion: homeSotConv,
+   898→                    awaySotConversion: awaySotConv,
+   899→                    favoriteOdds,
+   900→                    homeMomentumSignal: momentumResult.homeSignal,
+   901→                    awayMomentumSignal: momentumResult.awaySignal,
+   902→                  });
+   903→
+   904→                  // Third Goal Qualifier
+   905→                  const thirdGoalResult = computeThirdGoalQualifier({
+   906→                    combinedXgTotal,
+   907→                    homeRegressionSignal: homeRegSignalPerTeam,
+   908→                    awayRegressionSignal: awayRegSignalPerTeam,
+   909→                    homeXgSignal: homeXgSignalPerTeam,
+   910→                    awayXgSignal: awayXgSignalPerTeam,
+   911→                    homeAvgSot,
+   912→                    awayAvgSot,
+   913→                    favoriteOdds,
+   914→                    homeSotConversion: homeSotConv,
+   915→                    awaySotConversion: awaySotConv,
+   916→                  });
+   917→
+   918→                  // ============================================================
+   919→                  // Build 7-signal combo string for Match Backtest tab
+   920→                  // Format: SB:Y | GR:Y | GF:N | BTTS:Strong | GOAL:Rich | MOM:OVER | FP1:N
+   921→                  // ============================================================
+   922→                  if (onComboReady) {
+   923→                    const bttsTierMap: Record<string, string> = {
+   924→                      'BTTS STRONG': 'Strong',
+   925→                      'BTTS QUALIFIED': 'Qualified',
+   926→                      'BTTS WEAK': 'Weak',
+   927→                      'BTTS AVOID': 'Avoid',
+   928→                    };
+   929→                    const bttsTierLabel = bttsTierMap[bttsQualification.tier] || 'Avoid';
+   930→
+   931→                    const goalTierLabel = combinedXgTotal > 3 ? 'Rich'
+   932→                      : combinedXgTotal > 2.5 ? 'Likely'
+   933→                      : combinedXgTotal > 2 ? 'Borderline'
+   934→                      : combinedXgTotal > 1.5 ? 'Thin' : 'Stall';
+   935→
+   936→                    const momLabel = (momentumResult.matchSignal || 'NEUTRAL')
+   937→                      .replace('MOMENTUM ', '');
+   938→
+   939→                    const comboString = [
+   940→                      'SB:' + (isStrongBet ? 'Y' : 'N'),
+   941→                      'GR:' + (isGreyResult ? 'Y' : 'N'),
+   942→                      'GF:' + (isGoalFest ? 'Y' : 'N'),
+   943→                      'BTTS:' + bttsTierLabel,
+   944→                      'GOAL:' + goalTierLabel,
+   945→                      'MOM:' + momLabel,
+   946→                      'FP1:' + (isFP1Signal ? 'Y' : 'N'),
+   947→                    ].join(' | ');
+   948→                    onComboReady(comboString);
+   949→                  }
+   950→
+   951→                  return (
+   952→                    <>
+   953→                    {/* Signal Momentum Strip — Derivatives & Integration */}
+   954→                    <Card className="shadow-md bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-900/30 dark:to-gray-900/30">
+   955→                      <CardHeader className="pb-2">
+   956→                        <CardTitle className="text-sm flex items-center gap-2">
+   957→                          <TrendingUp className="w-4 h-4 text-blue-600" />
+   958→                          Signal Momentum & Cumulative Trend
+   959→                        </CardTitle>
+   960→                      </CardHeader>
+   961→                      <CardContent>
+   962→                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+   963→                          <div className={`p-2 rounded-lg text-center ${signalMomentum.xgMomentum.direction === 'Rising' ? 'bg-green-50 border border-green-200' : signalMomentum.xgMomentum.direction === 'Falling' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+   964→                            <p className="text-xs text-muted-foreground">xG Signal</p>
+   965→                            <p className="font-semibold">{xgSignalQuick} <span className="text-lg">{signalMomentum.xgMomentum.arrow}</span></p>
+   966→                            <p className="text-xs text-muted-foreground">{signalMomentum.xgMomentum.direction}</p>
+   967→                          </div>
+   968→                          <div className={`p-2 rounded-lg text-center ${signalMomentum.regressionMomentum.direction === 'Rising' ? 'bg-green-50 border border-green-200' : signalMomentum.regressionMomentum.direction === 'Falling' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+   969→                            <p className="text-xs text-muted-foreground">Regression Signal</p>
+   970→                            <p className="font-semibold">{regressionSignalQuick} <span className="text-lg">{signalMomentum.regressionMomentum.arrow}</span></p>
+   971→                            <p className="text-xs text-muted-foreground">{signalMomentum.regressionMomentum.direction}</p>
+   972→                          </div>
+   973→                          <div className={`p-2 rounded-lg text-center ${signalMomentum.zScoreMomentum.direction === 'Rising' ? 'bg-green-50 border border-green-200' : signalMomentum.zScoreMomentum.direction === 'Falling' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}>
+   974→                            <p className="text-xs text-muted-foreground">Z-Score Signal</p>
+   975→                            <p className="font-semibold">{zScoreSignalQuick} <span className="text-lg">{signalMomentum.zScoreMomentum.arrow}</span></p>
+   976→                            <p className="text-xs text-muted-foreground">{signalMomentum.zScoreMomentum.direction}</p>
+   977→                          </div>
+   978→                          <div className={`p-2 rounded-lg text-center ${cumulativeZ.trend === 'Accumulating Positive' ? 'bg-emerald-50 border border-emerald-200' : cumulativeZ.trend === 'Accumulating Negative' ? 'bg-orange-50 border border-orange-200' : cumulativeZ.trend === 'Volatile' ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50 border border-gray-200'}`}>
+   979→                            <p className="text-xs text-muted-foreground">Cumulative Z-Score</p>
+   980→                            <p className="font-semibold">{cumulativeZ.cumulativeZScore >= 0 ? '+' : ''}{cumulativeZ.cumulativeZScore}</p>
+   981→                            <p className="text-xs text-muted-foreground">{cumulativeZ.displayTag}</p>
+   982→                          </div>
+   983→                        </div>
+   984→                        {isLowOpenSignal && lastH2HScoreline && (
+   985→                          <div className="mt-3 p-3 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-300 dark:border-teal-700">
+   986→                            <p className="text-sm font-bold text-teal-700 dark:text-teal-300">
+   987→                              🔒 LOW-OPEN SIGNAL
+   988→                            </p>
+   989→                            <p className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+   990→                              Strong Over trend (Reg + xG), Z-Score Neutral, tight last H2H ({lastH2HScoreline})
+   991→                            </p>
+   992→                          </div>
+   993→                        )}
+   994→                        {/* FP1-Style Parallel Signal Badge */}
+   995→                        {isFP1Signal && (
+   996→                          <div className="mt-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700">
+   997→                            <p className="text-sm font-bold text-green-700 dark:text-green-300">
+   998→                              FP1 Signal: {fp1RegressionLabel} + {fp1ZScoreLabel}
+   999→                            </p>
+  1000→                            <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+  1001→                              Scored-only regression: one team due to bounce back, no statistical counter-force from Z-Score. FP1 O2.5 sweet spot.
+  1002→                            </p>
+  1003→                            <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+  1004→                              <div className="bg-white/60 dark:bg-gray-800/40 rounded p-1.5">
+  1005→                                <span className="text-muted-foreground">FP1 Regression:</span>{' '}
+  1006→                                <span className="font-semibold text-green-700">{fp1RegressionLabel}</span>
+  1007→                              </div>
+  1008→                              <div className="bg-white/60 dark:bg-gray-800/40 rounded p-1.5">
+  1009→                                <span className="text-muted-foreground">FP1 Z-Score:</span>{' '}
+  1010→                                <span className="font-semibold text-green-700">{fp1ZScoreLabel}</span>
+  1011→                              </div>
+  1012→                            </div>
+  1013→                          </div>
+  1014→                        )}
+  1015→                        {/* FP1 Reference (shown when FP1 signals are active but not the exact combo) */}
+  1016→                        {fp1RegressionLabel && fp1RegressionLabel !== 'Neutral' && !isFP1Signal && (
+  1017→                          <div className="mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700 text-xs text-muted-foreground">
+  1018→                            <span className="font-medium">FP1 Reference:</span> Regression={fp1RegressionLabel}, Z-Score={fp1ZScoreLabel}
+  1019→                          </div>
+  1020→                        )}
+  1021→                        <p className="text-xs text-muted-foreground text-center mt-2">
+  1022→                          Derivatives: comparing current signals vs previous period. Integration: accumulated Z-Score over last {cumulativeZ.windowSize} games.
+  1023→                        </p>
+  1024→                      </CardContent>
+  1025→                    </Card>
+  1026→
+  1027→                    {/* Strong Bet Indicator - Updated based on actual betting results */}
+  1028→                    <Card className={`shadow-md border-2 ${isStrongBet ? 'border-green-400 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
+  1029→                      <CardHeader className="pb-2">
+  1030→                        <CardTitle className="text-lg flex items-center gap-2">
+  1031→                          <CheckCircle className={`w-5 h-5 ${isStrongBet ? 'text-green-600' : 'text-gray-400'}`} />
+  1032→                          🎯 Strong Bet Indicator
+  1033→                        </CardTitle>
+  1034→                        <CardDescription>
+  1035→                          Based on analysis of your actual betting results (30 matches analyzed)
+  1036→                        </CardDescription>
+  1037→                      </CardHeader>
+  1038→                      <CardContent>
+  1039→                        <div className="space-y-3">
+  1040→                          {/* Result Badge */}
+  1041→                          <div className={`text-center p-4 rounded-lg ${isStrongBet ? 'bg-green-100 dark:bg-green-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
+  1042→                            <p className={`text-2xl font-bold ${isStrongBet ? 'text-green-600' : 'text-gray-500'}`}>
+  1043→                              {isStrongBet ? '✅ STRONG BET' : `⚠️ ${strongBetScore}/${strongBetResult.maxPoints} Points`}
+  1044→                            </p>
+  1045→                            <p className="text-xs text-muted-foreground mt-1">
+  1046→                              {isStrongBet ? 'This match meets the criteria for a strong BTTS + O2.5 bet' : `Needs ${STRONG_BET_POINTS.threshold}+ points to qualify as a Strong Bet`}
+  1047→                            </p>
+  1048→                          </div>
+  1049→
+  1050→                          {/* Checklist - 7 items with point values */}
+  1051→                          <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm">
+  1052→                            {strongBetResult.breakdown.map((check, i) => (
+  1053→                              <div key={i} className={`p-2 rounded-lg text-center ${check.passed ? 'bg-green-100 dark:bg-green-800/30 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+  1054→                                {check.passed ? '✅' : '❌'} {check.check}
+  1055→                                <p className="text-xs text-muted-foreground">{check.passed ? `+${check.points}pt` : '0pt'}</p>
+  1056→                              </div>
+  1057→                            ))}
+  1058→                          </div>
+  1059→
+  1060→                          <p className="text-xs text-muted-foreground text-center">
+  1061→                            Points-based system: need {STRONG_BET_POINTS.threshold}+ of {STRONG_BET_POINTS.maxPoints} points. Signal checks optimized from 7,110-match backtest.
+  1062→                          </p>
+  1063→                        </div>
+  1064→                      </CardContent>
+  1065→                    </Card>
+  1066→
+  1067→                    {/* GOAL FEST Indicator - Backtest-Optimized Combo */}
+  1068→                    <Card className={`shadow-md border-2 ${isGoalFest ? 'border-orange-400 bg-gradient-to-r from-orange-50 to-yellow-50 dark:from-orange-900/20 dark:to-yellow-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
+  1069→                      <CardHeader className="pb-2">
+  1070→                        <CardTitle className="text-lg flex items-center gap-2">
+  1071→                          <Goal className={`w-5 h-5 ${isGoalFest ? 'text-orange-600' : 'text-gray-400'}`} />
+  1072→                          Goal Fest Detector
+  1073→                          {isGoalFest && (
+  1074→                            <Badge className="bg-orange-500 text-white text-xs border border-orange-400">
+  1075→                              LIVE
+  1076→                            </Badge>
+  1077→                          )}
+  1078→                        </CardTitle>
+  1079→                        <CardDescription>
+  1080→                          Backtest-optimized combo v2 — 7,230 + 7,110 matches (4 leagues x 5 seasons). 5 of 6 checks must pass.
+  1081→                        </CardDescription>
+  1082→                      </CardHeader>
+  1083→                      <CardContent>
+  1084→                        <div className="space-y-3">
+  1085→                          {/* Result Badge */}
+  1086→                          <div className={`text-center p-4 rounded-lg ${isGoalFest ? 'bg-orange-100 dark:bg-orange-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
+  1087→                            <p className={`text-2xl font-bold ${isGoalFest ? 'text-orange-600' : 'text-gray-500'}`}>
+  1088→                              {isGoalFest ? 'GOAL FEST DETECTED' : `${goalFestData.score}/${goalFestData.totalChecks} Checks`}
+  1089→                            </p>
+  1090→                            <p className="text-xs text-muted-foreground mt-1">
+  1091→                              {isGoalFest ? '5 of 6 signals aligned — high-probability goal fest combo' : `Needs ${goalFestData.totalChecks > goalFestData.score ? (goalFestData.totalChecks - goalFestData.score) : 0} more check(s) for Goal Fest (${goalFestData.score}/${goalFestData.totalChecks})`}
+  1092→                            </p>
+  1093→                          </div>
+  1094→
+  1095→                          {/* Checklist - 6 items (v2) */}
+  1096→                          <div className="grid grid-cols-1 md:grid-cols-6 gap-2 text-sm">
+  1097→                            {goalFestData.breakdown.map((check, i) => (
+  1098→                              <div key={i} className={`p-2 rounded-lg text-center ${check.passed ? 'bg-orange-100 dark:bg-orange-800/30 text-orange-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+  1099→                                {check.passed ? '✅' : '❌'} {check.check}
+  1100→                              </div>
+  1101→                            ))}
+  1102→                          </div>
+  1103→
+  1104→                          <div className="p-3 rounded-lg bg-orange-100/50 dark:bg-orange-800/20 text-sm">
+  1105→                            <p className="font-semibold text-orange-700 dark:text-orange-300 mb-1">Two Goal-Fest Patterns Captured:</p>
+  1106→                            <p className="text-xs text-muted-foreground">
+  1107→                              <strong>Pattern A (Divergence):</strong> xG=Over/Under + Reg=Under/StrongUnder + ZS=Neutral — teams underperforming xG but on hot streaks.<br />
+  1108→                              <strong>Pattern B (Overperformance):</strong> xG=Under/StrongUnder + Reg=Neutral + ZS=Neutral — clinical finishing, natural high-scoring games.<br />
+  1109→                              Both share <strong>Z-Score = Neutral</strong> as the common thread. Updated with O3.5 direct check.
+  1110→                            </p>
+  1111→                          </div>
+  1112→                        </div>
+  1113→                      </CardContent>
+  1114→                    </Card>
+  1115→
+  1116→                    {/* Grey Result Predictor - Both Teams Score in Both Halves */}
+  1117→                    <Card className={`shadow-md border-2 ${isGreyResult ? 'border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20' : 'border-gray-200 bg-gray-50 dark:bg-gray-800/20'}`}>
+  1118→                      <CardHeader className="pb-2">
+  1119→                        <CardTitle className="text-lg flex items-center gap-2">
+  1120→                          <Zap className={`w-5 h-5 ${isGreyResult ? 'text-purple-600' : 'text-gray-400'}`} />
+  1121→                          🔮 Grey Result Predictor
+  1122→                        </CardTitle>
+  1123→                        <CardDescription>
+  1124→                          Predicts if both teams will score in BOTH halves (Based on 3 actual grey results from your data)
+  1125→                        </CardDescription>
+  1126→                      </CardHeader>
+  1127→                      <CardContent>
+  1128→                        <div className="space-y-3">
+
+[showing lines 629-1128 of 3390; use offset=1129 with limit to continue reading]

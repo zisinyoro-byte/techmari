@@ -1,0 +1,17 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/analyze-image/route": "app/api/analyze-image/route.js",
+  "/api/route": "app/api/route.js",
+  "/api/soccer/analytics/route": "app/api/soccer/analytics/route.js",
+  "/api/soccer/backtest-single/route": "app/api/soccer/backtest-single/route.js",
+  "/api/soccer/backtest/route": "app/api/soccer/backtest/route.js",
+  "/api/soccer/fixtures/route": "app/api/soccer/fixtures/route.js",
+  "/api/soccer/h2h/route": "app/api/soccer/h2h/route.js",
+  "/api/soccer/leagues/route": "app/api/soccer/leagues/route.js",
+  "/api/soccer/patterns/route": "app/api/soccer/patterns/route.js",
+  "/api/soccer/predict/route": "app/api/soccer/predict/route.js",
+  "/api/soccer/results/route": "app/api/soccer/results/route.js",
+  "/api/soccer/teams/route": "app/api/soccer/teams/route.js",
+  "/page": "app/page.js"
+}

@@ -1,0 +1,1980 @@
+  1440→                            <p className="text-sm text-muted-foreground mt-1">
+  1441→                              Score: {dominantResult.score} | Over 2.5: {dominantResult.over25Rec} | BTTS: {dominantResult.bttsRec}
+  1442→                            </p>
+  1443→                          </div>
+  1444→                          <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-xs">
+  1445→                            {dominantResult.breakdown.map((check, i) => (
+  1446→                              <div key={i} className={`p-1.5 rounded text-center ${check.passed ? (check.points > 0 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600') : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400'}`}>
+  1447→                                {check.passed ? (check.points > 0 ? '✅' : '⚠️') : '❌'} {check.check}
+  1448→                              </div>
+  1449→                            ))}
+  1450→                          </div>
+  1451→                        </div>
+  1452→                      </CardContent>
+  1453→                    </Card>
+  1454→                    </>
+  1455→                  );
+  1456→                })()}
+  1457→
+  1458→                {/* Value Bet Calculator for O1.5 & BTTS */}
+  1459→                <Card className="shadow-md border-2 border-yellow-300 bg-gradient-to-r from-yellow-50 to-amber-50">
+  1460→                  <CardHeader>
+  1461→                    <CardTitle className="text-lg flex items-center gap-2">
+  1462→                      <DollarSign className="w-5 h-5 text-yellow-600" />
+  1463→                      Value Bet Calculator - Over 1.5 & BTTS
+  1464→                    </CardTitle>
+  1465→                    <CardDescription>Enter bookmaker odds to find value bets</CardDescription>
+  1466→                  </CardHeader>
+  1467→                  <CardContent>
+  1468→                    <div className="grid md:grid-cols-2 gap-6">
+  1469→                      {/* Over 1.5 */}
+  1470→                      <div className="space-y-4">
+  1471→                        <h4 className="font-semibold text-teal-700">Over 1.5 Goals</h4>
+  1472→                        <div className="grid grid-cols-2 gap-4">
+  1473→                          <div>
+  1474→                            <label className="text-xs text-muted-foreground">Bookmaker Odds</label>
+  1475→                            <Input
+  1476→                              type="number"
+  1477→                              step="0.01"
+  1478→                              min="1.01"
+  1479→                              placeholder="e.g. 1.85"
+  1480→                              value={bookmakerOdds15}
+  1481→                              onChange={(e) => setBookmakerOdds15(e.target.value)}
+  1482→                              className="mt-1"
+  1483→                            />
+  1484→                          </div>
+  1485→                          <div>
+  1486→                            <label className="text-xs text-muted-foreground">Model Probability</label>
+  1487→                            <div className="mt-1 p-2 bg-teal-100 rounded text-center">
+  1488→                              <span className="text-lg font-bold text-teal-700">{prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15}%</span>
+  1489→                            </div>
+  1490→                          </div>
+  1491→                        </div>
+  1492→                        {bookmakerOdds15 && parseFloat(bookmakerOdds15) > 1 && (
+  1493→                          <div className={`p-4 rounded-lg ${
+  1494→                            (((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 
+  1495→                              ? 'bg-green-100 border-2 border-green-400' 
+  1496→                              : 'bg-red-100 border-2 border-red-300'
+  1497→                          }`}>
+  1498→                            <div className="grid grid-cols-3 gap-2 text-center">
+  1499→                              <div>
+  1500→                                <p className="text-xs text-muted-foreground">Implied Prob</p>
+  1501→                                <p className="font-bold">{(100 / parseFloat(bookmakerOdds15)).toFixed(1)}%</p>
+  1502→                              </div>
+  1503→                              <div>
+  1504→                                <p className="text-xs text-muted-foreground">Expected Value</p>
+  1505→                                <p className={`font-bold text-lg ${(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1506→                                  {((((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) * 100 - 100).toFixed(1)}%
+  1507→                                </p>
+  1508→                              </div>
+  1509→                              <div>
+  1510→                                <p className="text-xs text-muted-foreground">Verdict</p>
+  1511→                                <p className={`font-bold ${(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1512→                                  {(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
+  1513→                                </p>
+  1514→                              </div>
+  1515→                            </div>
+  1516→                            {(((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) / 100) * parseFloat(bookmakerOdds15)) > 1 && (
+  1517→                              <p className="text-center text-sm text-green-700 mt-2">
+  1518→                                Edge: Model rates this {((prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15) - (100 / parseFloat(bookmakerOdds15))).toFixed(1)}% higher than bookmaker
+  1519→                              </p>
+  1520→                            )}
+  1521→                          </div>
+  1522→                        )}
+  1523→                      </div>
+  1524→
+  1525→                      {/* BTTS Yes */}
+  1526→                      <div className="space-y-4">
+  1527→                        <h4 className="font-semibold text-purple-700">BTTS Yes</h4>
+  1528→                        <div className="grid grid-cols-2 gap-4">
+  1529→                          <div>
+  1530→                            <label className="text-xs text-muted-foreground">Bookmaker Odds</label>
+  1531→                            <Input
+  1532→                              type="number"
+  1533→                              step="0.01"
+  1534→                              min="1.01"
+  1535→                              placeholder="e.g. 1.75"
+  1536→                              value={bookmakerOddsBtts}
+  1537→                              onChange={(e) => setBookmakerOddsBtts(e.target.value)}
+  1538→                              className="mt-1"
+  1539→                            />
+  1540→                          </div>
+  1541→                          <div>
+  1542→                            <label className="text-xs text-muted-foreground">Model Probability</label>
+  1543→                            <div className="mt-1 p-2 bg-purple-100 rounded text-center">
+  1544→                              <span className="text-lg font-bold text-purple-700">{prediction.prediction.calibrated?.btts ?? prediction.prediction.btts}%</span>
+  1545→                            </div>
+  1546→                          </div>
+  1547→                        </div>
+  1548→                        {bookmakerOddsBtts && parseFloat(bookmakerOddsBtts) > 1 && (
+  1549→                          <div className={`p-4 rounded-lg ${
+  1550→                            (((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 
+  1551→                              ? 'bg-green-100 border-2 border-green-400' 
+  1552→                              : 'bg-red-100 border-2 border-red-300'
+  1553→                          }`}>
+  1554→                            <div className="grid grid-cols-3 gap-2 text-center">
+  1555→                              <div>
+  1556→                                <p className="text-xs text-muted-foreground">Implied Prob</p>
+  1557→                                <p className="font-bold">{(100 / parseFloat(bookmakerOddsBtts)).toFixed(1)}%</p>
+  1558→                              </div>
+  1559→                              <div>
+  1560→                                <p className="text-xs text-muted-foreground">Expected Value</p>
+  1561→                                <p className={`font-bold text-lg ${(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1562→                                  {((((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) * 100 - 100).toFixed(1)}%
+  1563→                                </p>
+  1564→                              </div>
+  1565→                              <div>
+  1566→                                <p className="text-xs text-muted-foreground">Verdict</p>
+  1567→                                <p className={`font-bold ${(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? 'text-green-600' : 'text-red-600'}`}>
+  1568→                                  {(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 ? '✓ VALUE' : '✗ NO VALUE'}
+  1569→                                </p>
+  1570→                              </div>
+  1571→                            </div>
+  1572→                            {(((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) / 100) * parseFloat(bookmakerOddsBtts)) > 1 && (
+  1573→                              <p className="text-center text-sm text-green-700 mt-2">
+  1574→                                Edge: Model rates this {((prediction.prediction.calibrated?.btts ?? prediction.prediction.btts) - (100 / parseFloat(bookmakerOddsBtts))).toFixed(1)}% higher than bookmaker
+  1575→                              </p>
+  1576→                            )}
+  1577→                          </div>
+  1578→                        )}
+  1579→                      </div>
+  1580→                    </div>
+  1581→                    <p className="text-xs text-muted-foreground mt-4 text-center">
+  1582→                      💡 Value = (Model Probability × Bookmaker Odds) - 1. Positive expected value indicates a potential value bet.
+  1583→                    </p>
+  1584→                  </CardContent>
+  1585→                </Card>
+  1586→
+  1587→                {/* Confidence Banner */}
+  1588→                <Card className={`shadow-md border-2 ${
+  1589→                  prediction.prediction.confidence === 'high' ? 'border-green-500 bg-green-50' :
+  1590→                  prediction.prediction.confidence === 'medium' ? 'border-amber-500 bg-amber-50' :
+  1591→                  'border-gray-300 bg-gray-50'
+  1592→                }`}>
+  1593→                  <CardContent className="py-4">
+  1594→                    <div className="flex items-center gap-3">
+  1595→                      {prediction.prediction.confidence === 'high' ? (
+  1596→                        <CheckCircle className="w-6 h-6 text-green-600" />
+  1597→                      ) : prediction.prediction.confidence === 'medium' ? (
+  1598→                        <Target className="w-6 h-6 text-amber-600" />
+  1599→                      ) : (
+  1600→                        <AlertTriangle className="w-6 h-6 text-gray-600" />
+  1601→                      )}
+  1602→                      <div>
+  1603→                        <p className="font-semibold capitalize">{prediction.prediction.confidence} Confidence Prediction</p>
+  1604→                        <p className="text-sm text-muted-foreground">{prediction.prediction.confidenceReason}</p>
+  1605→                      </div>
+  1606→                    </div>
+  1607→                  </CardContent>
+  1608→                </Card>
+  1609→
+  1610→                {/* Main Probabilities */}
+  1611→                <div className="grid grid-cols-3 gap-4">
+  1612→                  <Card className="shadow-md border-2 border-green-200 bg-gradient-to-b from-green-50 to-white">
+  1613→                    <CardContent className="py-6 text-center">
+  1614→                      <p className="text-sm text-muted-foreground uppercase tracking-wide">Home Win</p>
+  1615→                      <p className="text-4xl font-bold text-green-600 mt-2">{prediction.prediction.homeWin}%</p>
+  1616→                      {prediction.prediction.calibrated && (
+  1617→                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+  1618→                          Calibrated: {prediction.prediction.calibrated.homeWin}%
+  1619→                        </p>
+  1620→                      )}
+  1621→                      <p className="text-sm text-muted-foreground mt-2">xG: {prediction.prediction.homeXg}</p>
+  1622→                      <p className="text-xs text-green-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.homeWin}</p>
+  1623→                    </CardContent>
+  1624→                  </Card>
+  1625→
+  1626→                  <Card className="shadow-md border-2 border-amber-200 bg-gradient-to-b from-amber-50 to-white">
+  1627→                    <CardContent className="py-6 text-center">
+  1628→                      <p className="text-sm text-muted-foreground uppercase tracking-wide">Draw</p>
+  1629→                      <p className="text-4xl font-bold text-amber-600 mt-2">{prediction.prediction.draw}%</p>
+  1630→                      {prediction.prediction.calibrated && (
+  1631→                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+  1632→                          Calibrated: {prediction.prediction.calibrated.draw}%
+  1633→                        </p>
+  1634→                      )}
+  1635→                      <p className="text-sm text-muted-foreground mt-2">Most Likely: {prediction.prediction.likelyScore}</p>
+  1636→                      <p className="text-xs text-amber-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.draw}</p>
+  1637→                    </CardContent>
+  1638→                  </Card>
+  1639→
+  1640→                  <Card className="shadow-md border-2 border-blue-200 bg-gradient-to-b from-blue-50 to-white">
+  1641→                    <CardContent className="py-6 text-center">
+  1642→                      <p className="text-sm text-muted-foreground uppercase tracking-wide">Away Win</p>
+  1643→                      <p className="text-4xl font-bold text-blue-600 mt-2">{prediction.prediction.awayWin}%</p>
+  1644→                      {prediction.prediction.calibrated && (
+  1645→                        <p className="text-sm font-semibold text-cyan-600 bg-cyan-50 rounded px-2 py-0.5 mt-1">
+  1646→                          Calibrated: {prediction.prediction.calibrated.awayWin}%
+  1647→                        </p>
+  1648→                      )}
+  1649→                      <p className="text-sm text-muted-foreground mt-2">xG: {prediction.prediction.awayXg}</p>
+  1650→                      <p className="text-xs text-blue-700 mt-1 font-medium">Odds: {prediction.prediction.impliedOdds.awayWin}</p>
+  1651→                    </CardContent>
+  1652→                  </Card>
+  1653→                </div>
+  1654→
+  1655→                {/* Halftime Predictions */}
+  1656→                <Card className="shadow-md border-2 border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50">
+  1657→                  <CardHeader>
+  1658→                    <CardTitle className="text-lg flex items-center gap-2">
+  1659→                      <Target className="w-5 h-5 text-cyan-600" />
+  1660→                      Halftime Predictions
+  1661→                    </CardTitle>
+  1662→                    <CardDescription>First half result and expected goals</CardDescription>
+  1663→                  </CardHeader>
+  1664→                  <CardContent>
+  1665→                    <div className="grid grid-cols-3 gap-4 mb-4">
+  1666→                      <div className="text-center p-4 rounded-lg bg-white/70 border border-green-200">
+  1667→                        <p className="text-sm text-muted-foreground">HT Home Win</p>
+  1668→                        <p className="text-2xl font-bold text-green-600 mt-1">{prediction.prediction.htHomeWin}%</p>
+  1669→                        <p className="text-xs text-green-700 mt-1">Odds: {prediction.prediction.impliedOdds.htHomeWin}</p>
+  1670→                      </div>
+  1671→                      <div className="text-center p-4 rounded-lg bg-white/70 border border-amber-200">
+  1672→                        <p className="text-sm text-muted-foreground">HT Draw</p>
+  1673→                        <p className="text-2xl font-bold text-amber-600 mt-1">{prediction.prediction.htDraw}%</p>
+  1674→                        <p className="text-xs text-amber-700 mt-1">Odds: {prediction.prediction.impliedOdds.htDraw}</p>
+  1675→                      </div>
+  1676→                      <div className="text-center p-4 rounded-lg bg-white/70 border border-blue-200">
+  1677→                        <p className="text-sm text-muted-foreground">HT Away Win</p>
+  1678→                        <p className="text-2xl font-bold text-blue-600 mt-1">{prediction.prediction.htAwayWin}%</p>
+  1679→                        <p className="text-xs text-blue-700 mt-1">Odds: {prediction.prediction.impliedOdds.htAwayWin}</p>
+  1680→                      </div>
+  1681→                    </div>
+  1682→                    <div className="flex justify-center gap-8 text-sm">
+  1683→                      <div className="text-center">
+  1684→                        <p className="text-muted-foreground">HT xG (Home)</p>
+  1685→                        <p className="font-bold text-lg">{prediction.prediction.htHomeXg}</p>
+  1686→                      </div>
+  1687→                      <div className="text-center">
+  1688→                        <p className="text-muted-foreground">HT xG (Away)</p>
+  1689→                        <p className="font-bold text-lg">{prediction.prediction.htAwayXg}</p>
+  1690→                      </div>
+  1691→                      <div className="text-center">
+  1692→                        <p className="text-muted-foreground">Most Likely HT Score</p>
+  1693→                        <p className="font-bold text-lg">{prediction.prediction.htLikelyScore} ({prediction.prediction.htLikelyScoreProb}%)</p>
+  1694→                      </div>
+  1695→                    </div>
+  1696→                    <div className="mt-4 grid grid-cols-5 gap-2">
+  1697→                      {prediction.prediction.htScoreMatrix.slice(0, 5).map((s, i) => (
+  1698→                        <div key={i} className={`text-center p-2 rounded ${i === 0 ? 'bg-cyan-200 border border-cyan-400' : 'bg-white/50'}`}>
+  1699→                          <p className="font-mono font-bold">{s.score}</p>
+  1700→                          <p className="text-xs text-muted-foreground">{s.prob}%</p>
+  1701→                        </div>
+  1702→                      ))}
+  1703→                    </div>
+  1704→                  </CardContent>
+  1705→                </Card>
+  1706→
+  1707→                {/* Score Matrix */}
+  1708→                <Card className="shadow-md">
+  1709→                  <CardHeader>
+  1710→                    <CardTitle className="text-lg">Most Likely Scorelines</CardTitle>
+  1711→                    <CardDescription>Top 10 predicted scores from Monte Carlo simulation</CardDescription>
+  1712→                  </CardHeader>
+  1713→                  <CardContent>
+  1714→                    <div className="grid grid-cols-5 gap-3">
+  1715→                      {prediction.prediction.scoreMatrix.map((s, i) => (
+  1716→                        <div key={i} className={`text-center p-3 rounded-lg ${i === 0 ? 'bg-green-100 border-2 border-green-400' : 'bg-gray-50'}`}>
+  1717→                          <p className="font-mono font-bold text-lg">{s.score}</p>
+  1718→                          <p className="text-xs text-muted-foreground">{s.prob}%</p>
+  1719→                        </div>
+  1720→                      ))}
+  1721→                    </div>
+  1722→                  </CardContent>
+  1723→                </Card>
+  1724→
+  1725→                {/* Team Statistics Comparison */}
+  1726→                <div className="grid md:grid-cols-2 gap-6">
+  1727→                  {/* Home Team Stats */}
+  1728→                  <Card className="shadow-md border-l-4 border-l-green-500">
+  1729→                    <CardHeader>
+  1730→                      <CardTitle className="text-lg">{predHomeTeam} (Home)</CardTitle>
+  1731→                      <CardDescription>Team statistics</CardDescription>
+  1732→                    </CardHeader>
+  1733→                    <CardContent>
+  1734→                      {prediction.homeTeamStats && (
+  1735→                        <div className="space-y-3">
+  1736→                          <div className="grid grid-cols-2 gap-4">
+  1737→                            <div>
+  1738→                              <p className="text-xs text-muted-foreground">Attack Strength</p>
+  1739→                              <p className="text-xl font-bold">{(prediction.homeTeamStats.attack * 100).toFixed(0)}%</p>
+  1740→                            </div>
+  1741→                            <div>
+  1742→                              <p className="text-xs text-muted-foreground">Defense Strength</p>
+  1743→                              <p className="text-xl font-bold">{(prediction.homeTeamStats.defense * 100).toFixed(0)}%</p>
+  1744→                            </div>
+  1745→                          </div>
+  1746→                          <div className="grid grid-cols-2 gap-4">
+  1747→                            <div>
+  1748→                              <p className="text-xs text-muted-foreground">Avg Goals Scored</p>
+  1749→                              <p className="font-semibold">{prediction.homeTeamStats.avgScored.toFixed(2)}</p>
+  1750→                            </div>
+  1751→                            <div>
+  1752→                              <p className="text-xs text-muted-foreground">Avg Goals Conceded</p>
+  1753→                              <p className="font-semibold">{prediction.homeTeamStats.avgConceded.toFixed(2)}</p>
+  1754→                            </div>
+  1755→                          </div>
+  1756→                          <div className="pt-2 border-t">
+  1757→                            <p className="text-xs text-muted-foreground mb-1">Recent Form (Last 5)</p>
+  1758→                            <div className="flex gap-1">
+  1759→                              {prediction.homeTeamStats.recentForm.map((r, i) => (
+  1760→                                <Badge key={i} className={`w-8 h-8 flex items-center justify-center ${
+  1761→                                  r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
+  1762→                                }`}>
+  1763→                                  {r}
+  1764→                                </Badge>
+  1765→                              ))}
+  1766→                            </div>
+  1767→                          </div>
+  1768→                          <div className="grid grid-cols-2 gap-4 text-sm">
+  1769→                            <div>
+  1770→                              <p className="text-muted-foreground">Games: {prediction.homeTeamStats.totalGames}</p>
+  1771→                            </div>
+  1772→                            <div>
+  1773→                              <p className="text-muted-foreground">W/D/L: {prediction.homeTeamStats.wins}/{prediction.homeTeamStats.draws}/{prediction.homeTeamStats.losses}</p>
+  1774→                            </div>
+  1775→                          </div>
+  1776→                        </div>
+  1777→                      )}
+  1778→                    </CardContent>
+  1779→                  </Card>
+  1780→
+  1781→                  {/* Away Team Stats */}
+  1782→                  <Card className="shadow-md border-l-4 border-l-blue-500">
+  1783→                    <CardHeader>
+  1784→                      <CardTitle className="text-lg">{predAwayTeam} (Away)</CardTitle>
+  1785→                      <CardDescription>Team statistics</CardDescription>
+  1786→                    </CardHeader>
+  1787→                    <CardContent>
+  1788→                      {prediction.awayTeamStats && (
+  1789→                        <div className="space-y-3">
+  1790→                          <div className="grid grid-cols-2 gap-4">
+  1791→                            <div>
+  1792→                              <p className="text-xs text-muted-foreground">Attack Strength</p>
+  1793→                              <p className="text-xl font-bold">{(prediction.awayTeamStats.attack * 100).toFixed(0)}%</p>
+  1794→                            </div>
+  1795→                            <div>
+  1796→                              <p className="text-xs text-muted-foreground">Defense Strength</p>
+  1797→                              <p className="text-xl font-bold">{(prediction.awayTeamStats.defense * 100).toFixed(0)}%</p>
+  1798→                            </div>
+  1799→                          </div>
+  1800→                          <div className="grid grid-cols-2 gap-4">
+  1801→                            <div>
+  1802→                              <p className="text-xs text-muted-foreground">Avg Goals Scored</p>
+  1803→                              <p className="font-semibold">{prediction.awayTeamStats.avgScored.toFixed(2)}</p>
+  1804→                            </div>
+  1805→                            <div>
+  1806→                              <p className="text-xs text-muted-foreground">Avg Goals Conceded</p>
+  1807→                              <p className="font-semibold">{prediction.awayTeamStats.avgConceded.toFixed(2)}</p>
+  1808→                            </div>
+  1809→                          </div>
+  1810→                          <div className="pt-2 border-t">
+  1811→                            <p className="text-xs text-muted-foreground mb-1">Recent Form (Last 5)</p>
+  1812→                            <div className="flex gap-1">
+  1813→                              {prediction.awayTeamStats.recentForm.map((r, i) => (
+  1814→                                <Badge key={i} className={`w-8 h-8 flex items-center justify-center ${
+  1815→                                  r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
+  1816→                                }`}>
+  1817→                                  {r}
+  1818→                                </Badge>
+  1819→                              ))}
+  1820→                            </div>
+  1821→                          </div>
+  1822→                          <div className="grid grid-cols-2 gap-4 text-sm">
+  1823→                            <div>
+  1824→                              <p className="text-muted-foreground">Games: {prediction.awayTeamStats.totalGames}</p>
+  1825→                            </div>
+  1826→                            <div>
+  1827→                              <p className="text-muted-foreground">W/D/L: {prediction.awayTeamStats.wins}/{prediction.awayTeamStats.draws}/{prediction.awayTeamStats.losses}</p>
+  1828→                            </div>
+  1829→                          </div>
+  1830→                        </div>
+  1831→                      )}
+  1832→                    </CardContent>
+  1833→                  </Card>
+  1834→                </div>
+  1835→
+  1836→                {/* H2H & League Insights */}
+  1837→                <div className="grid md:grid-cols-2 gap-6">
+  1838→                  {/* H2H Stats */}
+  1839→                  <Card className="shadow-md">
+  1840→                    <CardHeader>
+  1841→                      <CardTitle className="text-lg">Head-to-Head History</CardTitle>
+  1842→                      <CardDescription>Historical matchups between these teams</CardDescription>
+  1843→                    </CardHeader>
+  1844→                    <CardContent>
+  1845→                      {prediction.h2hStats.totalMatches > 0 ? (
+  1846→                        <div className="space-y-3">
+  1847→                          <div className="flex justify-between">
+  1848→                            <span>Total Meetings</span>
+  1849→                            <Badge variant="secondary">{prediction.h2hStats.totalMatches}</Badge>
+  1850→                          </div>
+  1851→                          <div className="flex justify-between">
+  1852→                            <span>{predHomeTeam} Wins</span>
+  1853→                            <Badge style={{ backgroundColor: COLORS.homeWin }} className="text-white">{prediction.h2hStats.homeTeamWins}</Badge>
+  1854→                          </div>
+  1855→                          <div className="flex justify-between">
+  1856→                            <span>Draws</span>
+  1857→                            <Badge style={{ backgroundColor: COLORS.draw }} className="text-white">{prediction.h2hStats.draws}</Badge>
+  1858→                          </div>
+  1859→                          <div className="flex justify-between">
+  1860→                            <span>{predAwayTeam} Wins</span>
+  1861→                            <Badge style={{ backgroundColor: COLORS.awayWin }} className="text-white">{prediction.h2hStats.awayTeamWins}</Badge>
+  1862→                          </div>
+  1863→                          <div className="flex justify-between">
+  1864→                            <span>Avg Goals/Game</span>
+  1865→                            <Badge variant="outline">{prediction.h2hStats.avgGoals}</Badge>
+  1866→                          </div>
+  1867→                        </div>
+  1868→                      ) : (
+  1869→                        <p className="text-muted-foreground text-center py-4">No historical matchups found</p>
+  1870→                      )}
+  1871→                    </CardContent>
+  1872→                  </Card>
+  1873→
+  1874→                  {/* League Insights */}
+  1875→                  <Card className="shadow-md">
+  1876→                    <CardHeader>
+  1877→                      <CardTitle className="text-lg">League Insights</CardTitle>
+  1878→                      <CardDescription>League-wide statistics for context</CardDescription>
+  1879→                    </CardHeader>
+  1880→                    <CardContent>
+  1881→                      <div className="space-y-3">
+  1882→                        <div className="grid grid-cols-2 gap-4">
+  1883→                          <div>
+  1884→                            <p className="text-xs text-muted-foreground">Avg Goals/Game</p>
+  1885→                            <p className="font-semibold">{prediction.leagueInsights.avgGoalsPerGame}</p>
+  1886→                          </div>
+  1887→                          <div>
+  1888→                            <p className="text-xs text-muted-foreground">BTTS %</p>
+  1889→                            <p className="font-semibold">{prediction.leagueInsights.bttsPercent}%</p>
+  1890→                          </div>
+  1891→                        </div>
+  1892→                        <div className="grid grid-cols-2 gap-4">
+  1893→                          <div>
+  1894→                            <p className="text-xs text-muted-foreground">Home Win %</p>
+  1895→                            <p className="font-semibold">{prediction.leagueInsights.homeWinPercent}%</p>
+  1896→                          </div>
+  1897→                          <div>
+  1898→                            <p className="text-xs text-muted-foreground">Away Win %</p>
+  1899→                            <p className="font-semibold">{prediction.leagueInsights.awayWinPercent}%</p>
+  1900→                          </div>
+  1901→                        </div>
+  1902→                        <div className="pt-2 border-t">
+  1903→                          <p className="text-xs text-muted-foreground mb-1">Best Attack</p>
+  1904→                          <p className="font-semibold">{prediction.leagueInsights.bestAttack.team} ({prediction.leagueInsights.bestAttack.avg} goals/game)</p>
+  1905→                        </div>
+  1906→                        <div>
+  1907→                          <p className="text-xs text-muted-foreground mb-1">Best Defense</p>
+  1908→                          <p className="font-semibold">{prediction.leagueInsights.bestDefense.team} ({prediction.leagueInsights.bestDefense.avg} conceded/game)</p>
+  1909→                        </div>
+  1910→                      </div>
+  1911→                    </CardContent>
+  1912→                  </Card>
+  1913→                </div>
+  1914→
+  1915→                {/* Pattern Analysis */}
+  1916→                <Card className="shadow-md">
+  1917→                  <CardHeader>
+  1918→                    <CardTitle className="text-lg flex items-center gap-2">
+  1919→                      <BarChart3 className="w-5 h-5 text-indigo-600" />
+  1920→                      League Pattern Analysis
+  1921→                    </CardTitle>
+  1922→                    <CardDescription>Identified patterns from historical data</CardDescription>
+  1923→                  </CardHeader>
+  1924→                  <CardContent>
+  1925→                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+  1926→                      <div className="text-center p-4 rounded-lg bg-indigo-50 border border-indigo-200">
+  1927→                        <p className="text-xs text-muted-foreground">BTTS Both Halves</p>
+  1928→                        <p className="text-2xl font-bold text-indigo-600">{prediction.patternAnalysis.bttsPatterns.bothHalves}%</p>
+  1929→                      </div>
+  1930→                      <div className="text-center p-4 rounded-lg bg-indigo-50 border border-indigo-200">
+  1931→                        <p className="text-xs text-muted-foreground">Comeback Rate</p>
+  1932→                        <p className="text-2xl font-bold text-indigo-600">{prediction.patternAnalysis.comebackRate}%</p>
+  1933→                      </div>
+  1934→                      <div className="text-center p-4 rounded-lg bg-indigo-50 border border-indigo-200">
+  1935→                        <p className="text-xs text-muted-foreground">1H Avg Goals</p>
+  1936→                        <p className="text-2xl font-bold text-indigo-600">{prediction.patternAnalysis.goalTiming.avgFirstHalfGoals}</p>
+  1937→                      </div>
+  1938→                      <div className="text-center p-4 rounded-lg bg-indigo-50 border border-indigo-200">
+  1939→                        <p className="text-xs text-muted-foreground">2H Avg Goals</p>
+  1940→                        <p className="text-2xl font-bold text-indigo-600">{prediction.patternAnalysis.goalTiming.avgSecondHalfGoals}</p>
+  1941→                      </div>
+  1942→                    </div>
+  1943→                    <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+  1944→                      <p className="text-xs text-muted-foreground mb-2">HT/FT Transitions (Home Lead →)</p>
+  1945→                      <div className="grid grid-cols-3 gap-2 text-sm">
+  1946→                        <div className="text-center p-2 bg-green-100 rounded">
+  1947→                          <p className="text-xs text-muted-foreground">FT Win</p>
+  1948→                          <p className="font-bold">{prediction.patternAnalysis.resultTransitions.htHomeLeadFtHomeWin}%</p>
+  1949→                        </div>
+  1950→                        <div className="text-center p-2 bg-amber-100 rounded">
+  1951→                          <p className="text-xs text-muted-foreground">FT Draw</p>
+  1952→                          <p className="font-bold">{prediction.patternAnalysis.resultTransitions.htHomeLeadFtDraw}%</p>
+  1953→                        </div>
+  1954→                        <div className="text-center p-2 bg-blue-100 rounded">
+  1955→                          <p className="text-xs text-muted-foreground">FT Loss</p>
+  1956→                          <p className="font-bold">{prediction.patternAnalysis.resultTransitions.htHomeLeadFtAwayWin}%</p>
+  1957→                        </div>
+  1958→                      </div>
+  1959→                    </div>
+  1960→                  </CardContent>
+  1961→                </Card>
+  1962→
+  1963→                {/* Regression to Mean Analysis */}
+  1964→                <Card className="shadow-md border-2 border-rose-300 bg-gradient-to-r from-rose-50 via-pink-50 to-orange-50 dark:from-rose-900/20 dark:via-pink-900/20 dark:to-orange-900/20">
+  1965→                  <CardHeader>
+  1966→                    <CardTitle className="text-lg flex items-center gap-2">
+  1967→                      <TrendingUp className="w-5 h-5 text-rose-600" />
+  1968→                      📊 Regression to Mean Analysis
+  1969→                    </CardTitle>
+  1970→                    <CardDescription>
+  1971→                      Identifies teams likely to regress toward their average - key for finding value bets
+  1972→                    </CardDescription>
+  1973→                  </CardHeader>
+  1974→                  <CardContent>
+  1975→                    {(() => {
+  1976→                      // Calculate team goal statistics
+  1977→                      // First, sort results by date descending (most recent first)
+  1978→                      const sortedResultsForRegression = [...results].sort((a, b) => {
+  1979→                        const dateA = parseDateSafe(a.date)
+  1980→                        const dateB = parseDateSafe(b.date)
+  1981→                        return dateB.getTime() - dateA.getTime()
+  1982→                      });
+  1983→
+  1984→                      const teamGoalStats = new Map<string, {
+  1985→                        matches: number;
+  1986→                        goalsScored: number;
+  1987→                        goalsConceded: number;
+  1988→                        matchesThisSeason: number;
+  1989→                        scoredThisSeason: number;
+  1990→                        concededThisSeason: number;
+  1991→                        last10Matches: { totalGoals: number }[];
+  1992→                        last3Matches: { totalGoals: number }[];
+  1993→                        allMatchGoals: number[]; // Track all match goal totals for distribution
+  1994→                      }>();
+  1995→
+  1996→                      sortedResultsForRegression.forEach(r => {
+  1997→                        const totalGoals = r.ftHomeGoals + r.ftAwayGoals;
+  1998→                        
+  1999→                        // Home team
+  2000→                        const homeStats = teamGoalStats.get(r.homeTeam) || {
+  2001→                          matches: 0, goalsScored: 0, goalsConceded: 0,
+  2002→                          matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0,
+  2003→                          last10Matches: [], last3Matches: [], allMatchGoals: []
+  2004→                        };
+  2005→                        homeStats.matches++;
+  2006→                        homeStats.goalsScored += r.ftHomeGoals;
+  2007→                        homeStats.goalsConceded += r.ftAwayGoals;
+  2008→                        homeStats.matchesThisSeason++;
+  2009→                        homeStats.scoredThisSeason += r.ftHomeGoals;
+  2010→                        homeStats.concededThisSeason += r.ftAwayGoals;
+  2011→                        homeStats.last10Matches.push({ totalGoals });
+  2012→                        homeStats.last3Matches.push({ totalGoals });
+  2013→                        homeStats.allMatchGoals.push(totalGoals);
+  2014→                        teamGoalStats.set(r.homeTeam, homeStats);
+  2015→
+  2016→                        // Away team
+  2017→                        const awayStats = teamGoalStats.get(r.awayTeam) || {
+  2018→                          matches: 0, goalsScored: 0, goalsConceded: 0,
+  2019→                          matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0,
+  2020→                          last10Matches: [], last3Matches: [], allMatchGoals: []
+  2021→                        };
+  2022→                        awayStats.matches++;
+  2023→                        awayStats.goalsScored += r.ftAwayGoals;
+  2024→                        awayStats.goalsConceded += r.ftHomeGoals;
+  2025→                        awayStats.matchesThisSeason++;
+  2026→                        awayStats.scoredThisSeason += r.ftAwayGoals;
+  2027→                        awayStats.concededThisSeason += r.ftHomeGoals;
+  2028→                        awayStats.last10Matches.push({ totalGoals });
+  2029→                        awayStats.last3Matches.push({ totalGoals });
+  2030→                        awayStats.allMatchGoals.push(totalGoals);
+  2031→                        teamGoalStats.set(r.awayTeam, awayStats);
+  2032→                      });
+  2033→
+  2034→                      // Get stats for home and away teams
+  2035→                      const homeTeamData = teamGoalStats.get(predHomeTeam);
+  2036→                      const awayTeamData = teamGoalStats.get(predAwayTeam);
+  2037→
+  2038→                      if (!homeTeamData || !awayTeamData) return null;
+  2039→
+  2040→                      // Calculate H2H data - filter and sort by date (most recent first)
+  2041→                      const h2hData = results.filter(r => 
+  2042→                        (r.homeTeam === predHomeTeam && r.awayTeam === predAwayTeam) ||
+  2043→                        (r.homeTeam === predAwayTeam && r.awayTeam === predHomeTeam)
+  2044→                      ).sort((a, b) => {
+  2045→                        // Sort by date descending (most recent first)
+  2046→                        const dateA = parseDateSafe(a.date)
+  2047→                        const dateB = parseDateSafe(b.date)
+  2048→                        return dateB.getTime() - dateA.getTime()
+  2049→                      });
+  2050→                      
+  2051→                      const lastH2H = h2hData.length > 0 ? h2hData[0] : null;
+  2052→                      const h2hAvgGoals = h2hData.length > 0 
+  2053→                        ? h2hData.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / h2hData.length 
+  2054→                        : null;
+  2055→
+  2056→                      // Calculate means for each team
+  2057→                      const calculateTeamMeans = (teamData: typeof homeTeamData, teamName: string) => {
+  2058→                        const seasonAvg = teamData.matchesThisSeason > 0 
+  2059→                          ? (teamData.scoredThisSeason + teamData.concededThisSeason) / teamData.matchesThisSeason 
+  2060→                          : 0;
+  2061→                        
+  2062→                        const last10 = teamData.last10Matches.slice(0, 10);
+  2063→                        const last10Avg = last10.length > 0 
+  2064→                          ? last10.reduce((sum, m) => sum + m.totalGoals, 0) / last10.length 
+  2065→                          : 0;
+  2066→                        
+  2067→                        const last3 = teamData.last3Matches.slice(0, 3);
+  2068→                        const last3Avg = last3.length > 0 
+  2069→                          ? last3.reduce((sum, m) => sum + m.totalGoals, 0) / last3.length 
+  2070→                          : 0;
+  2071→
+  2072→                        // H2H specific for this team
+  2073→                        const teamH2H = h2hData.filter(m => 
+  2074→                          m.homeTeam === teamName || m.awayTeam === teamName
+  2075→                        );
+  2076→                        const teamH2HAvg = teamH2H.length > 0 
+  2077→                          ? teamH2H.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / teamH2H.length 
+  2078→                          : null;
+  2079→
+  2080→                        // Last H2H for this team
+  2081→                        const teamLastH2H = lastH2H;
+  2082→
+  2083→                        return {
+  2084→                          seasonAvg,
+  2085→                          last10Avg,
+  2086→                          last3Avg,
+  2087→                          h2hAvg: teamH2HAvg,
+  2088→                          lastH2H: teamLastH2H,
+  2089→                          lastH2HGoals: teamLastH2H ? teamLastH2H.ftHomeGoals + teamLastH2H.ftAwayGoals : null,
+  2090→                          matches: teamData.matchesThisSeason
+  2091→                        };
+  2092→                      };
+  2093→
+  2094→                      const homeMeans = calculateTeamMeans(homeTeamData, predHomeTeam);
+  2095→                      const awayMeans = calculateTeamMeans(awayTeamData, predAwayTeam);
+  2096→
+  2097→                      // Calculate deviation and signal
+  2098→                      const calculateDeviation = (means: typeof homeMeans) => {
+  2099→                        // Deviation from season average
+  2100→                        const deviationFromSeason = means.last3Avg - means.seasonAvg;
+  2101→                        
+  2102→                        // Deviation from last 10 average  
+  2103→                        const deviationFromLast10 = means.last3Avg - means.last10Avg;
+  2104→                        
+  2105→                        // H2H deviation
+  2106→                        const h2hDeviation = means.h2hAvg && means.lastH2HGoals !== null
+  2107→                          ? means.lastH2HGoals - means.h2hAvg
+  2108→                          : 0;
+  2109→
+  2110→                        // Combined signal
+  2111→                        // Positive = last 3 games above mean = likely to regress DOWN (Under)
+  2112→                        // Negative = last 3 games below mean = likely to regress UP (Over)
+  2113→                        const combinedSignal = (deviationFromSeason * 0.4) + (deviationFromLast10 * 0.3) + (h2hDeviation * 0.3);
+  2114→                        
+  2115→                        let signal: 'Strong Over' | 'Over' | 'Neutral' | 'Under' | 'Strong Under' = 'Neutral';
+  2116→                        let signalColor = 'text-gray-600';
+  2117→                        let signalBg = 'bg-gray-100';
+  2118→                        let signalEmoji = '➡️';
+  2119→
+  2120→                        if (combinedSignal <= -0.8) {
+  2121→                          signal = 'Strong Over';
+  2122→                          signalColor = 'text-green-600';
+  2123→                          signalBg = 'bg-green-100';
+  2124→                          signalEmoji = '📈';
+  2125→                        } else if (combinedSignal <= -0.3) {
+  2126→                          signal = 'Over';
+  2127→                          signalColor = 'text-emerald-600';
+  2128→                          signalBg = 'bg-emerald-100';
+  2129→                          signalEmoji = '↗️';
+  2130→                        } else if (combinedSignal >= 0.8) {
+  2131→                          signal = 'Strong Under';
+  2132→                          signalColor = 'text-red-600';
+  2133→                          signalBg = 'bg-red-100';
+  2134→                          signalEmoji = '📉';
+  2135→                        } else if (combinedSignal >= 0.3) {
+  2136→                          signal = 'Under';
+  2137→                          signalColor = 'text-orange-600';
+  2138→                          signalBg = 'bg-orange-100';
+  2139→                          signalEmoji = '↘️';
+  2140→                        }
+  2141→
+  2142→                        return {
+  2143→                          deviationFromSeason,
+  2144→                          deviationFromLast10,
+  2145→                          h2hDeviation,
+  2146→                          combinedSignal,
+  2147→                          signal,
+  2148→                          signalColor,
+  2149→                          signalBg,
+  2150→                          signalEmoji
+  2151→                        };
+  2152→                      };
+  2153→
+  2154→                      const homeDeviation = calculateDeviation(homeMeans);
+  2155→                      const awayDeviation = calculateDeviation(awayMeans);
+  2156→
+  2157→                      // Combined match signal
+  2158→                      const getCombinedSignal = () => {
+  2159→                        const totalSignal = homeDeviation.combinedSignal + awayDeviation.combinedSignal;
+  2160→                        
+  2161→                        if (totalSignal <= -1.2) {
+  2162→                          return {
+  2163→                            recommendation: 'STRONG OVER SIGNAL',
+  2164→                            description: 'Both teams likely to regress UP toward mean - expect more goals',
+  2165→                            color: 'text-green-600',
+  2166→                            bg: 'bg-green-100 border-green-300',
+  2167→                            emoji: '🔥 OVER'
+  2168→                          };
+  2169→                        } else if (totalSignal <= -0.5) {
+  2170→                          return {
+  2171→                            recommendation: 'OVER SIGNAL',
+  2172→                            description: 'Teams showing Under form, likely to regress up',
+  2173→                            color: 'text-emerald-600',
+  2174→                            bg: 'bg-emerald-100 border-emerald-300',
+  2175→                            emoji: '↗️ OVER'
+  2176→                          };
+  2177→                        } else if (totalSignal >= 1.2) {
+  2178→                          return {
+  2179→                            recommendation: 'STRONG UNDER SIGNAL',
+  2180→                            description: 'Both teams likely to regress DOWN toward mean - expect fewer goals',
+  2181→                            color: 'text-red-600',
+  2182→                            bg: 'bg-red-100 border-red-300',
+  2183→                            emoji: '📉 UNDER'
+  2184→                          };
+  2185→                        } else if (totalSignal >= 0.5) {
+  2186→                          return {
+  2187→                            recommendation: 'UNDER SIGNAL',
+  2188→                            description: 'Teams showing Over form, likely to regress down',
+  2189→                            color: 'text-orange-600',
+  2190→                            bg: 'bg-orange-100 border-orange-300',
+  2191→                            emoji: '↘️ UNDER'
+  2192→                          };
+  2193→                        } else {
+  2194→                          return {
+  2195→                            recommendation: 'MIXED SIGNALS',
+  2196→                            description: 'Teams deviating in opposite directions - proceed with caution',
+  2197→                            color: 'text-amber-600',
+  2198→                            bg: 'bg-amber-100 border-amber-300',
+  2199→                            emoji: '⚠️ CAUTION'
+  2200→                          };
+  2201→                        }
+  2202→                      };
+  2203→
+  2204→                      const combinedSignal = getCombinedSignal();
+  2205→
+  2206→                      return (
+  2207→                        <div className="space-y-4">
+  2208→                          {/* Explanation */}
+  2209→                          <div className="p-3 rounded-lg bg-gradient-to-r from-rose-100/50 to-pink-100/50 dark:from-rose-800/20 dark:to-pink-800/20 text-sm">
+  2210→                            <p className="text-muted-foreground">
+  2211→                              <strong>Regression to Mean:</strong> Teams that performed above/below their average are statistically likely to return to normal. 
+  2212→                              <span className="text-green-600 font-medium"> Negative deviation = likely MORE goals</span>
+  2213→                              <span className="text-red-600 font-medium"> • Positive deviation = likely FEWER goals</span>
+  2214→                            </p>
+  2215→                          </div>
+  2216→
+  2217→                          {/* Team Stats Grid */}
+  2218→                          <div className="grid md:grid-cols-2 gap-4">
+  2219→                            {/* Home Team */}
+  2220→                            <div className={`p-4 rounded-xl border-2 ${homeDeviation.signalBg} border-rose-200 dark:border-rose-700`}>
+  2221→                              <div className="flex items-center justify-between mb-3">
+  2222→                                <h4 className="font-bold text-green-700 dark:text-green-300">{predHomeTeam} (Home)</h4>
+  2223→                                <Badge className={`${homeDeviation.signalColor} ${homeDeviation.signalBg} border`}>
+  2224→                                  {homeDeviation.signalEmoji} {homeDeviation.signal}
+  2225→                                </Badge>
+  2226→                              </div>
+  2227→                              
+  2228→                              <div className="space-y-2 text-sm">
+  2229→                                {/* Season Average */}
+  2230→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2231→                                  <span className="text-muted-foreground">Season Avg (All matches)</span>
+  2232→                                  <span className="font-bold">{homeMeans.seasonAvg.toFixed(2)} goals/game</span>
+  2233→                                </div>
+  2234→                                
+  2235→                                {/* Last 10 Average */}
+  2236→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2237→                                  <span className="text-muted-foreground">Last 10 Matches Avg</span>
+  2238→                                  <span className="font-bold">{homeMeans.last10Avg.toFixed(2)} goals/game</span>
+  2239→                                </div>
+  2240→                                
+  2241→                                {/* Last 3 Average */}
+  2242→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2243→                                  <span className="text-muted-foreground">Last 3 Matches Avg</span>
+  2244→                                  <span className={`font-bold ${homeDeviation.deviationFromSeason < 0 ? 'text-blue-600' : homeDeviation.deviationFromSeason > 0 ? 'text-orange-600' : ''}`}>
+  2245→                                    {homeMeans.last3Avg.toFixed(2)} goals/game
+  2246→                                  </span>
+  2247→                                </div>
+  2248→
+  2249→                                {/* Deviation Indicators */}
+  2250→                                <div className="pt-2 border-t border-rose-200 dark:border-rose-700">
+  2251→                                  <div className="grid grid-cols-2 gap-2 text-xs">
+  2252→                                    <div className={`p-2 rounded ${homeDeviation.deviationFromSeason < 0 ? 'bg-green-100 dark:bg-green-800/30' : homeDeviation.deviationFromSeason > 0 ? 'bg-red-100 dark:bg-red-800/30' : 'bg-gray-100 dark:bg-gray-800/30'}`}>
+  2253→                                      <p className="text-muted-foreground">vs Season</p>
+  2254→                                      <p className={`font-bold ${homeDeviation.deviationFromSeason < 0 ? 'text-green-600' : homeDeviation.deviationFromSeason > 0 ? 'text-red-600' : ''}`}>
+  2255→                                        {homeDeviation.deviationFromSeason > 0 ? '+' : ''}{homeDeviation.deviationFromSeason.toFixed(2)}
+  2256→                                      </p>
+  2257→                                    </div>
+  2258→                                    <div className={`p-2 rounded ${homeDeviation.deviationFromLast10 < 0 ? 'bg-green-100 dark:bg-green-800/30' : homeDeviation.deviationFromLast10 > 0 ? 'bg-red-100 dark:bg-red-800/30' : 'bg-gray-100 dark:bg-gray-800/30'}`}>
+  2259→                                      <p className="text-muted-foreground">vs Last 10</p>
+  2260→                                      <p className={`font-bold ${homeDeviation.deviationFromLast10 < 0 ? 'text-green-600' : homeDeviation.deviationFromLast10 > 0 ? 'text-red-600' : ''}`}>
+  2261→                                        {homeDeviation.deviationFromLast10 > 0 ? '+' : ''}{homeDeviation.deviationFromLast10.toFixed(2)}
+  2262→                                      </p>
+  2263→                                    </div>
+  2264→                                  </div>
+  2265→                                </div>
+  2266→
+  2267→                                {/* H2H Data */}
+  2268→                                {homeMeans.h2hAvg !== null && (
+  2269→                                  <div className="pt-2 border-t border-rose-200 dark:border-rose-700">
+  2270→                                    <div className="flex justify-between items-center p-2 rounded bg-purple-50 dark:bg-purple-800/20">
+  2271→                                      <span className="text-muted-foreground">H2H Avg vs {predAwayTeam}</span>
+  2272→                                      <span className="font-bold text-purple-600">{homeMeans.h2hAvg.toFixed(2)} goals</span>
+  2273→                                    </div>
+  2274→                                    {homeMeans.lastH2H && (
+  2275→                                      <div className="flex justify-between items-center p-2 rounded bg-indigo-50 dark:bg-indigo-800/20 mt-1">
+  2276→                                        <span className="text-muted-foreground">Last H2H Result</span>
+  2277→                                        <span className={`font-bold ${homeMeans.lastH2HGoals !== null && homeMeans.lastH2HGoals < homeMeans.h2hAvg ? 'text-blue-600' : 'text-orange-600'}`}>
+  2278→                                          {homeMeans.lastH2H.ftHomeGoals}-{homeMeans.lastH2H.ftAwayGoals} ({homeMeans.lastH2HGoals} goals)
+  2279→                                        </span>
+  2280→                                      </div>
+  2281→                                    )}
+  2282→                                  </div>
+  2283→                                )}
+  2284→                              </div>
+  2285→                            </div>
+  2286→
+  2287→                            {/* Away Team */}
+  2288→                            <div className={`p-4 rounded-xl border-2 ${awayDeviation.signalBg} border-blue-200 dark:border-blue-700`}>
+  2289→                              <div className="flex items-center justify-between mb-3">
+  2290→                                <h4 className="font-bold text-blue-700 dark:text-blue-300">{predAwayTeam} (Away)</h4>
+  2291→                                <Badge className={`${awayDeviation.signalColor} ${awayDeviation.signalBg} border`}>
+  2292→                                  {awayDeviation.signalEmoji} {awayDeviation.signal}
+  2293→                                </Badge>
+  2294→                              </div>
+  2295→                              
+  2296→                              <div className="space-y-2 text-sm">
+  2297→                                {/* Season Average */}
+  2298→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2299→                                  <span className="text-muted-foreground">Season Avg (All matches)</span>
+  2300→                                  <span className="font-bold">{awayMeans.seasonAvg.toFixed(2)} goals/game</span>
+  2301→                                </div>
+  2302→                                
+  2303→                                {/* Last 10 Average */}
+  2304→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2305→                                  <span className="text-muted-foreground">Last 10 Matches Avg</span>
+  2306→                                  <span className="font-bold">{awayMeans.last10Avg.toFixed(2)} goals/game</span>
+  2307→                                </div>
+  2308→                                
+  2309→                                {/* Last 3 Average */}
+  2310→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2311→                                  <span className="text-muted-foreground">Last 3 Matches Avg</span>
+  2312→                                  <span className={`font-bold ${awayDeviation.deviationFromSeason < 0 ? 'text-blue-600' : awayDeviation.deviationFromSeason > 0 ? 'text-orange-600' : ''}`}>
+  2313→                                    {awayMeans.last3Avg.toFixed(2)} goals/game
+  2314→                                  </span>
+  2315→                                </div>
+  2316→
+  2317→                                {/* Deviation Indicators */}
+  2318→                                <div className="pt-2 border-t border-blue-200 dark:border-blue-700">
+  2319→                                  <div className="grid grid-cols-2 gap-2 text-xs">
+  2320→                                    <div className={`p-2 rounded ${awayDeviation.deviationFromSeason < 0 ? 'bg-green-100 dark:bg-green-800/30' : awayDeviation.deviationFromSeason > 0 ? 'bg-red-100 dark:bg-red-800/30' : 'bg-gray-100 dark:bg-gray-800/30'}`}>
+  2321→                                      <p className="text-muted-foreground">vs Season</p>
+  2322→                                      <p className={`font-bold ${awayDeviation.deviationFromSeason < 0 ? 'text-green-600' : awayDeviation.deviationFromSeason > 0 ? 'text-red-600' : ''}`}>
+  2323→                                        {awayDeviation.deviationFromSeason > 0 ? '+' : ''}{awayDeviation.deviationFromSeason.toFixed(2)}
+  2324→                                      </p>
+  2325→                                    </div>
+  2326→                                    <div className={`p-2 rounded ${awayDeviation.deviationFromLast10 < 0 ? 'bg-green-100 dark:bg-green-800/30' : awayDeviation.deviationFromLast10 > 0 ? 'bg-red-100 dark:bg-red-800/30' : 'bg-gray-100 dark:bg-gray-800/30'}`}>
+  2327→                                      <p className="text-muted-foreground">vs Last 10</p>
+  2328→                                      <p className={`font-bold ${awayDeviation.deviationFromLast10 < 0 ? 'text-green-600' : awayDeviation.deviationFromLast10 > 0 ? 'text-red-600' : ''}`}>
+  2329→                                        {awayDeviation.deviationFromLast10 > 0 ? '+' : ''}{awayDeviation.deviationFromLast10.toFixed(2)}
+  2330→                                      </p>
+  2331→                                    </div>
+  2332→                                  </div>
+  2333→                                </div>
+  2334→
+  2335→                                {/* H2H Data */}
+  2336→                                {awayMeans.h2hAvg !== null && (
+  2337→                                  <div className="pt-2 border-t border-blue-200 dark:border-blue-700">
+  2338→                                    <div className="flex justify-between items-center p-2 rounded bg-purple-50 dark:bg-purple-800/20">
+  2339→                                      <span className="text-muted-foreground">H2H Avg vs {predHomeTeam}</span>
+  2340→                                      <span className="font-bold text-purple-600">{awayMeans.h2hAvg.toFixed(2)} goals</span>
+  2341→                                    </div>
+  2342→                                    {awayMeans.lastH2H && (
+  2343→                                      <div className="flex justify-between items-center p-2 rounded bg-indigo-50 dark:bg-indigo-800/20 mt-1">
+  2344→                                        <span className="text-muted-foreground">Last H2H Result</span>
+  2345→                                        <span className={`font-bold ${awayMeans.lastH2HGoals !== null && awayMeans.lastH2HGoals < awayMeans.h2hAvg ? 'text-blue-600' : 'text-orange-600'}`}>
+  2346→                                          {awayMeans.lastH2H.ftHomeGoals}-{awayMeans.lastH2H.ftAwayGoals} ({awayMeans.lastH2HGoals} goals)
+  2347→                                        </span>
+  2348→                                      </div>
+  2349→                                    )}
+  2350→                                  </div>
+  2351→                                )}
+  2352→                              </div>
+  2353→                            </div>
+  2354→                          </div>
+  2355→
+  2356→                          {/* Distribution Shape - 5 Point Summary */}
+  2357→                          {(() => {
+  2358→                            // Calculate 5-point summary for each team
+  2359→                            const calculateFivePointSummary = (goals: number[]) => {
+  2360→                              if (goals.length === 0) return null;
+  2361→                              
+  2362→                              const sorted = [...goals].sort((a, b) => a - b);
+  2363→                              const n = sorted.length;
+  2364→                              
+  2365→                              const min = sorted[0];
+  2366→                              const max = sorted[n - 1];
+  2367→                              const median = n % 2 === 0 
+  2368→                                ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 
+  2369→                                : sorted[Math.floor(n / 2)];
+  2370→                              
+  2371→                              // Q1 is median of lower half
+  2372→                              const lowerHalf = sorted.slice(0, Math.floor(n / 2));
+  2373→                              const q1 = lowerHalf.length > 0 
+  2374→                                ? (lowerHalf.length % 2 === 0 
+  2375→                                  ? (lowerHalf[lowerHalf.length / 2 - 1] + lowerHalf[lowerHalf.length / 2]) / 2 
+  2376→                                  : lowerHalf[Math.floor(lowerHalf.length / 2)])
+  2377→                                : min;
+  2378→                              
+  2379→                              // Q3 is median of upper half
+  2380→                              const upperHalf = sorted.slice(Math.ceil(n / 2));
+  2381→                              const q3 = upperHalf.length > 0 
+  2382→                                ? (upperHalf.length % 2 === 0 
+  2383→                                  ? (upperHalf[upperHalf.length / 2 - 1] + upperHalf[upperHalf.length / 2]) / 2 
+  2384→                                  : upperHalf[Math.floor(upperHalf.length / 2)])
+  2385→                                : max;
+  2386→                              
+  2387→                              return { min, q1, median, q3, max, count: n };
+  2388→                            };
+  2389→
+  2390→                            const homeSummary = calculateFivePointSummary(homeTeamData?.allMatchGoals || []);
+  2391→                            const awaySummary = calculateFivePointSummary(awayTeamData?.allMatchGoals || []);
+  2392→
+  2393→                            if (!homeSummary || !awaySummary) return null;
+  2394→
+  2395→                            // Find global min/max for scaling
+  2396→                            const globalMin = Math.min(homeSummary.min, awaySummary.min);
+  2397→                            const globalMax = Math.max(homeSummary.max, awaySummary.max);
+  2398→                            const range = globalMax - globalMin || 1;
+  2399→
+  2400→                            // Helper to calculate position percentage
+  2401→                            const getPosition = (value: number) => ((value - globalMin) / range) * 100;
+  2402→
+  2403→                            // Box plot component
+  2404→                            const BoxPlot = ({ summary, last3Avg, color, bgColor }: { 
+  2405→                              summary: typeof homeSummary; 
+  2406→                              last3Avg: number;
+  2407→                              color: string;
+  2408→                              bgColor: string;
+  2409→                            }) => {
+  2410→                              const last3Position = getPosition(last3Avg);
+  2411→                              
+  2412→                              return (
+  2413→                                <div className="space-y-2">
+  2414→                                  {/* Visual Box Plot */}
+  2415→                                  <div className="relative h-12 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden">
+  2416→                                    {/* Whisker line (min to max) */}
+  2417→                                    <div 
+  2418→                                      className="absolute top-1/2 h-0.5 bg-gray-400"
+  2419→                                      style={{ left: `${getPosition(summary.min)}%`, width: `${getPosition(summary.max) - getPosition(summary.min)}%`, transform: 'translateY(-50%)' }}
+  2420→                                    />
+  2421→                                    
+  2422→                                    {/* Min marker */}
+  2423→                                    <div 
+  2424→                                      className="absolute top-1/2 w-1 h-4 bg-gray-600 rounded transform -translate-y-1/2"
+  2425→                                      style={{ left: `${getPosition(summary.min)}%` }}
+  2426→                                    />
+  2427→                                    
+  2428→                                    {/* Max marker */}
+  2429→                                    <div 
+  2430→                                      className="absolute top-1/2 w-1 h-4 bg-gray-600 rounded transform -translate-y-1/2"
+  2431→                                      style={{ left: `${getPosition(summary.max)}%` }}
+  2432→                                    />
+  2433→                                    
+  2434→                                    {/* IQR Box (Q1 to Q3) */}
+  2435→                                    <div 
+  2436→                                      className={`absolute top-1/2 h-8 ${bgColor} border-2 border-current rounded transform -translate-y-1/2`}
+  2437→                                      style={{ left: `${getPosition(summary.q1)}%`, width: `${Math.max(2, getPosition(summary.q3) - getPosition(summary.q1))}%` }}
+  2438→                                    />
+  2439→                                    
+  2440→                                    {/* Median line */}
+  2441→                                    <div 
+  2442→                                      className={`absolute top-1/2 h-10 ${color} rounded transform -translate-y-1/2`}
+  2443→                                      style={{ left: `${getPosition(summary.median)}%`, width: '3px' }}
+  2444→                                    />
+  2445→                                    
+  2446→                                    {/* Last 3 Average marker */}
+  2447→                                    <div 
+  2448→                                      className="absolute top-1/2 w-3 h-3 bg-yellow-400 border-2 border-yellow-600 rounded-full transform -translate-y-1/2 z-10"
+  2449→                                      style={{ left: `calc(${last3Position}% - 6px)` }}
+  2450→                                      title={`Last 3 Avg: ${last3Avg.toFixed(2)}`}
+  2451→                                    />
+  2452→                                  </div>
+  2453→                                  
+  2454→                                  {/* Scale labels */}
+  2455→                                  <div className="flex justify-between text-xs text-muted-foreground px-1">
+  2456→                                    <span>{summary.min}</span>
+  2457→                                    <span className="text-blue-600 font-medium">Q1: {summary.q1.toFixed(1)}</span>
+  2458→                                    <span className={`${color} font-bold`}>Med: {summary.median.toFixed(1)}</span>
+  2459→                                    <span className="text-blue-600 font-medium">Q3: {summary.q3.toFixed(1)}</span>
+  2460→                                    <span>{summary.max}</span>
+  2461→                                  </div>
+  2462→                                  
+  2463→                                  {/* 5-Point Summary Stats */}
+  2464→                                  <div className="grid grid-cols-5 gap-1 text-xs">
+  2465→                                    <div className="text-center p-1 rounded bg-gray-50 dark:bg-gray-800">
+  2466→                                      <p className="text-muted-foreground">Min</p>
+  2467→                                      <p className="font-bold">{summary.min}</p>
+  2468→                                    </div>
+  2469→                                    <div className="text-center p-1 rounded bg-blue-50 dark:bg-blue-900/30">
+  2470→                                      <p className="text-muted-foreground">Q1</p>
+  2471→                                      <p className="font-bold text-blue-600">{summary.q1.toFixed(1)}</p>
+  2472→                                    </div>
+  2473→                                    <div className="text-center p-1 rounded bg-purple-50 dark:bg-purple-900/30">
+  2474→                                      <p className="text-muted-foreground">Median</p>
+  2475→                                      <p className="font-bold text-purple-600">{summary.median.toFixed(1)}</p>
+  2476→                                    </div>
+  2477→                                    <div className="text-center p-1 rounded bg-blue-50 dark:bg-blue-900/30">
+  2478→                                      <p className="text-muted-foreground">Q3</p>
+  2479→                                      <p className="font-bold text-blue-600">{summary.q3.toFixed(1)}</p>
+  2480→                                    </div>
+  2481→                                    <div className="text-center p-1 rounded bg-gray-50 dark:bg-gray-800">
+  2482→                                      <p className="text-muted-foreground">Max</p>
+  2483→                                      <p className="font-bold">{summary.max}</p>
+  2484→                                    </div>
+  2485→                                  </div>
+  2486→                                </div>
+  2487→                              );
+  2488→                            };
+  2489→
+  2490→                            return (
+  2491→                              <div className="space-y-4">
+  2492→                                <div className="p-3 rounded-lg bg-gradient-to-r from-violet-100/50 to-purple-100/50 dark:from-violet-800/20 dark:to-purple-800/20">
+  2493→                                  <h4 className="font-semibold text-violet-700 dark:text-violet-300 mb-3 flex items-center gap-2">
+  2494→                                    <span>📊</span> Goal Distribution (5-Point Summary)
+  2495→                                  </h4>
+  2496→                                  <p className="text-xs text-muted-foreground mb-4">
+  2497→                                    Box plot showing goal distribution across all matches. 
+  2498→                                    <span className="text-yellow-600 font-medium"> Yellow dot</span> = Last 3 games average (current form position)
+  2499→                                  </p>
+  2500→                                  
+  2501→                                  <div className="grid md:grid-cols-2 gap-6">
+  2502→                                    {/* Home Team Distribution */}
+  2503→                                    <div className="space-y-2">
+  2504→                                      <h5 className="text-sm font-medium text-green-700 dark:text-green-300">{predHomeTeam}</h5>
+  2505→                                      <BoxPlot 
+  2506→                                        summary={homeSummary} 
+  2507→                                        last3Avg={homeMeans.last3Avg}
+  2508→                                        color="text-green-600"
+  2509→                                        bgColor="bg-green-200 dark:bg-green-800"
+  2510→                                      />
+  2511→                                      <div className="flex items-center justify-between text-xs">
+  2512→                                        <span className="text-muted-foreground">Matches: {homeSummary.count}</span>
+  2513→                                        <span className="text-yellow-600 font-medium">
+  2514→                                          Last 3 Avg: {homeMeans.last3Avg.toFixed(2)} 
+  2515→                                          {homeMeans.last3Avg < homeSummary.median ? ' ↓ Below median' : homeMeans.last3Avg > homeSummary.median ? ' ↑ Above median' : ' = At median'}
+  2516→                                        </span>
+  2517→                                      </div>
+  2518→                                    </div>
+  2519→                                    
+  2520→                                    {/* Away Team Distribution */}
+  2521→                                    <div className="space-y-2">
+  2522→                                      <h5 className="text-sm font-medium text-blue-700 dark:text-blue-300">{predAwayTeam}</h5>
+  2523→                                      <BoxPlot 
+  2524→                                        summary={awaySummary} 
+  2525→                                        last3Avg={awayMeans.last3Avg}
+  2526→                                        color="text-blue-600"
+  2527→                                        bgColor="bg-blue-200 dark:bg-blue-800"
+  2528→                                      />
+  2529→                                      <div className="flex items-center justify-between text-xs">
+  2530→                                        <span className="text-muted-foreground">Matches: {awaySummary.count}</span>
+  2531→                                        <span className="text-yellow-600 font-medium">
+  2532→                                          Last 3 Avg: {awayMeans.last3Avg.toFixed(2)}
+  2533→                                          {awayMeans.last3Avg < awaySummary.median ? ' ↓ Below median' : awayMeans.last3Avg > awaySummary.median ? ' ↑ Above median' : ' = At median'}
+  2534→                                        </span>
+  2535→                                      </div>
+  2536→                                    </div>
+  2537→                                  </div>
+  2538→                                </div>
+  2539→                              </div>
+  2540→                            );
+  2541→                          })()}
+  2542→
+  2543→                          {/* Combined Signal */}
+  2544→                          <div className={`p-4 rounded-xl border-2 ${combinedSignal.bg}`}>
+  2545→                            <div className="text-center">
+  2546→                              <p className="text-2xl font-bold {combinedSignal.color}">{combinedSignal.emoji}</p>
+  2547→                              <p className={`text-xl font-bold ${combinedSignal.color}`}>{combinedSignal.recommendation}</p>
+  2548→                              <p className="text-sm text-muted-foreground mt-2">{combinedSignal.description}</p>
+  2549→                            </div>
+  2550→                          </div>
+  2551→
+  2552→                          {/* Strategy Tips */}
+  2553→                          <div className="p-3 rounded-lg bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-800/20 dark:to-purple-800/20">
+  2554→                            <p className="text-sm">
+  2555→                              <span className="font-semibold text-indigo-700 dark:text-indigo-300">💡 Strategy:</span>{' '}
+  2556→                              {combinedSignal.recommendation.includes('OVER') 
+  2557→                                ? 'Consider Over 1.5 or Over 2.5 goals. Teams due for goal increase based on regression analysis.'
+  2558→                                : combinedSignal.recommendation.includes('UNDER')
+  2559→                                ? 'Consider Under 2.5 or Under 3.5 goals. Teams due for goal decrease based on regression analysis.'
+  2560→                                : 'Wait for clearer signals or check other indicators before placing goals-based bets.'}
+  2561→                            </p>
+  2562→                          </div>
+  2563→                        </div>
+  2564→                      );
+  2565→                    })()}
+  2566→                  </CardContent>
+  2567→                </Card>
+  2568→
+  2569→                {/* xG Overperformance/Underperformance Analysis */}
+  2570→                <Card className="shadow-md border-2 border-cyan-300 bg-gradient-to-r from-cyan-50 via-teal-50 to-emerald-50 dark:from-cyan-900/20 dark:via-teal-900/20 dark:to-emerald-900/20">
+  2571→                  <CardHeader>
+  2572→                    <CardTitle className="text-lg flex items-center gap-2">
+  2573→                      <Target className="w-5 h-5 text-cyan-600" />
+  2574→                      🎯 xG Overperformance/Underperformance
+  2575→                    </CardTitle>
+  2576→                    <CardDescription>
+  2577→                      Compare actual goals vs expected goals (xG) - identifies lucky/unlucky teams due for regression
+  2578→                    </CardDescription>
+  2579→                  </CardHeader>
+  2580→                  <CardContent>
+  2581→                    {(() => {
+  2582→                      // Calculate xG and actual goals for each team
+  2583→                      // Formula: xG = (Shots on Target × 0.30) + (Shots off Target × 0.08)
+  2584→                      const teamXgStats = new Map<string, {
+  2585→                        matches: number;
+  2586→                        totalXg: number;
+  2587→                        actualGoals: number;
+  2588→                        totalXgConceded: number;
+  2589→                        actualConceded: number;
+  2590→                        shotsOnTarget: number;
+  2591→                        shotsOffTarget: number;
+  2592→                      }>();
+  2593→
+  2594→                      results.forEach(r => {
+  2595→                        const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+  2596→                        const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+  2597→                        
+  2598→                        const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+  2599→                        const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+  2600→
+  2601→                        // Home team
+  2602→                        const homeStats = teamXgStats.get(r.homeTeam) || {
+  2603→                          matches: 0, totalXg: 0, actualGoals: 0, totalXgConceded: 0, actualConceded: 0,
+  2604→                          shotsOnTarget: 0, shotsOffTarget: 0
+  2605→                        };
+  2606→                        homeStats.matches++;
+  2607→                        homeStats.totalXg += homeXg;
+  2608→                        homeStats.actualGoals += r.ftHomeGoals;
+  2609→                        homeStats.totalXgConceded += awayXg;
+  2610→                        homeStats.actualConceded += r.ftAwayGoals;
+  2611→                        homeStats.shotsOnTarget += r.homeShotsOnTarget;
+  2612→                        homeStats.shotsOffTarget += homeShotsOff;
+  2613→                        teamXgStats.set(r.homeTeam, homeStats);
+  2614→
+  2615→                        // Away team
+  2616→                        const awayStats = teamXgStats.get(r.awayTeam) || {
+  2617→                          matches: 0, totalXg: 0, actualGoals: 0, totalXgConceded: 0, actualConceded: 0,
+  2618→                          shotsOnTarget: 0, shotsOffTarget: 0
+  2619→                        };
+  2620→                        awayStats.matches++;
+  2621→                        awayStats.totalXg += awayXg;
+  2622→                        awayStats.actualGoals += r.ftAwayGoals;
+  2623→                        awayStats.totalXgConceded += homeXg;
+  2624→                        awayStats.actualConceded += r.ftHomeGoals;
+  2625→                        awayStats.shotsOnTarget += r.awayShotsOnTarget;
+  2626→                        awayStats.shotsOffTarget += awayShotsOff;
+  2627→                        teamXgStats.set(r.awayTeam, awayStats);
+  2628→                      });
+  2629→
+  2630→                      const homeTeamXg = teamXgStats.get(predHomeTeam);
+  2631→                      const awayTeamXg = teamXgStats.get(predAwayTeam);
+  2632→
+  2633→                      if (!homeTeamXg || !awayTeamXg) return null;
+  2634→
+  2635→                      // Calculate performance metrics
+  2636→                      const calculateXgMetrics = (stats: typeof homeTeamXg) => {
+  2637→                        const avgXg = stats.totalXg / stats.matches;
+  2638→                        const avgActual = stats.actualGoals / stats.matches;
+  2639→                        const xgDiff = avgActual - avgXg; // Positive = overperforming, Negative = underperforming
+  2640→                        const conversionRate = stats.shotsOnTarget > 0 
+  2641→                          ? (stats.actualGoals / stats.shotsOnTarget) * 100 
+  2642→                          : 0;
+  2643→                        
+  2644→                        // Expected conversion rate is ~30% for shots on target
+  2645→                        const expectedConversion = 30;
+  2646→                        const conversionDiff = conversionRate - expectedConversion;
+  2647→
+  2648→                        // Attack performance rating
+  2649→                        let attackStatus: 'HOT' | 'OVERPERFORMING' | 'NORMAL' | 'UNDERPERFORMING' | 'COLD' = 'NORMAL';
+  2650→                        let attackColor = 'text-gray-600';
+  2651→                        let attackBg = 'bg-gray-100';
+  2652→                        let attackEmoji = '➡️';
+  2653→
+  2654→                        if (xgDiff >= 0.5) {
+  2655→                          attackStatus = 'HOT';
+  2656→                          attackColor = 'text-red-600';
+  2657→                          attackBg = 'bg-red-100';
+  2658→                          attackEmoji = '🔥';
+  2659→                        } else if (xgDiff >= 0.25) {
+  2660→                          attackStatus = 'OVERPERFORMING';
+  2661→                          attackColor = 'text-orange-600';
+  2662→                          attackBg = 'bg-orange-100';
+  2663→                          attackEmoji = '📈';
+  2664→                        } else if (xgDiff <= -0.5) {
+  2665→                          attackStatus = 'COLD';
+  2666→                          attackColor = 'text-blue-600';
+  2667→                          attackBg = 'bg-blue-100';
+  2668→                          attackEmoji = '❄️';
+  2669→                        } else if (xgDiff <= -0.25) {
+  2670→                          attackStatus = 'UNDERPERFORMING';
+  2671→                          attackColor = 'text-cyan-600';
+  2672→                          attackBg = 'bg-cyan-100';
+  2673→                          attackEmoji = '📉';
+  2674→                        }
+  2675→
+  2676→                        return {
+  2677→                          avgXg,
+  2678→                          avgActual,
+  2679→                          xgDiff,
+  2680→                          conversionRate,
+  2681→                          conversionDiff,
+  2682→                          attackStatus,
+  2683→                          attackColor,
+  2684→                          attackBg,
+  2685→                          attackEmoji,
+  2686→                          matches: stats.matches
+  2687→                        };
+  2688→                      };
+  2689→
+  2690→                      const homeMetrics = calculateXgMetrics(homeTeamXg);
+  2691→                      const awayMetrics = calculateXgMetrics(awayTeamXg);
+  2692→
+  2693→                      // Combined signal
+  2694→                      const getXgCombinedSignal = () => {
+  2695→                        const totalDiff = homeMetrics.xgDiff + awayMetrics.xgDiff;
+  2696→                        
+  2697→                        if (totalDiff <= -0.7) {
+  2698→                          return {
+  2699→                            recommendation: 'GOALS DUE - Both Teams Cold',
+  2700→                            description: 'Both teams underperforming xG significantly. Goals are statistically overdue.',
+  2701→                            color: 'text-green-600',
+  2702→                            bg: 'bg-green-100 border-green-300',
+  2703→                            emoji: '🥶 GOALS INCOMING'
+  2704→                          };
+  2705→                        } else if (totalDiff <= -0.3) {
+  2706→                          return {
+  2707→                            recommendation: 'SLIGHT OVER SIGNAL',
+  2708→                            description: 'Teams marginally underperforming xG. Expect regression toward mean.',
+  2709→                            color: 'text-emerald-600',
+  2710→                            bg: 'bg-emerald-100 border-emerald-300',
+  2711→                            emoji: '↗️ OVER LEAN'
+  2712→                          };
+  2713→                        } else if (totalDiff >= 0.7) {
+  2714→                          return {
+  2715→                            recommendation: 'REGRESSION WARNING - Both Teams Hot',
+  2716→                            description: 'Both teams significantly overperforming xG. Due for fewer goals.',
+  2717→                            color: 'text-red-600',
+  2718→                            bg: 'bg-red-100 border-red-300',
+  2719→                            emoji: '🔥 UNDER LEAN'
+  2720→                          };
+  2721→                        } else if (totalDiff >= 0.3) {
+  2722→                          return {
+  2723→                            recommendation: 'SLIGHT UNDER SIGNAL',
+  2724→                            description: 'Teams marginally overperforming xG. May see fewer goals.',
+  2725→                            color: 'text-orange-600',
+  2726→                            bg: 'bg-orange-100 border-orange-300',
+  2727→                            emoji: '↘️ UNDER LEAN'
+  2728→                          };
+  2729→                        } else {
+  2730→                          return {
+  2731→                            recommendation: 'NEUTRAL - Mixed Signals',
+  2732→                            description: 'Teams performing close to xG expectations. No strong signal.',
+  2733→                            color: 'text-gray-600',
+  2734→                            bg: 'bg-gray-100 border-gray-300',
+  2735→                            emoji: '⚖️ NEUTRAL'
+  2736→                          };
+  2737→                        }
+  2738→                      };
+  2739→
+  2740→                      const xgSignal = getXgCombinedSignal();
+  2741→
+  2742→                      return (
+  2743→                        <div className="space-y-4">
+  2744→                          {/* Explanation */}
+  2745→                          <div className="p-3 rounded-lg bg-gradient-to-r from-cyan-100/50 to-teal-100/50 dark:from-cyan-800/20 dark:to-teal-800/20 text-sm">
+  2746→                            <p className="text-muted-foreground">
+  2747→                              <strong>xG Analysis:</strong> Compares actual goals vs expected goals from shots.
+  2748→                              <span className="text-blue-600 font-medium"> Negative = underperforming (goals due)</span>
+  2749→                              <span className="text-red-600 font-medium"> • Positive = overperforming (regression likely)</span>
+  2750→                            </p>
+  2751→                          </div>
+  2752→
+  2753→                          {/* Team Stats Grid */}
+  2754→                          <div className="grid md:grid-cols-2 gap-4">
+  2755→                            {/* Home Team */}
+  2756→                            <div className={`p-4 rounded-xl border-2 ${homeMetrics.attackBg} border-cyan-200 dark:border-cyan-700`}>
+  2757→                              <div className="flex items-center justify-between mb-3">
+  2758→                                <h4 className="font-bold text-green-700 dark:text-green-300">{predHomeTeam} (Home)</h4>
+  2759→                                <Badge className={`${homeMetrics.attackColor} ${homeMetrics.attackBg} border`}>
+  2760→                                  {homeMetrics.attackEmoji} {homeMetrics.attackStatus}
+  2761→                                </Badge>
+  2762→                              </div>
+  2763→                              
+  2764→                              <div className="space-y-2 text-sm">
+  2765→                                {/* Expected Goals */}
+  2766→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2767→                                  <span className="text-muted-foreground">Expected Goals (xG) per game</span>
+  2768→                                  <span className="font-bold text-cyan-600">{homeMetrics.avgXg.toFixed(2)}</span>
+  2769→                                </div>
+  2770→                                
+  2771→                                {/* Actual Goals */}
+  2772→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2773→                                  <span className="text-muted-foreground">Actual Goals per game</span>
+  2774→                                  <span className="font-bold">{homeMetrics.avgActual.toFixed(2)}</span>
+  2775→                                </div>
+  2776→                                
+  2777→                                {/* xG Difference */}
+  2778→                                <div className={`flex justify-between items-center p-2 rounded ${homeMetrics.xgDiff < 0 ? 'bg-blue-50 dark:bg-blue-800/30' : homeMetrics.xgDiff > 0 ? 'bg-orange-50 dark:bg-orange-800/30' : 'bg-gray-50 dark:bg-gray-800/30'}`}>
+  2779→                                  <span className="text-muted-foreground">xG Difference</span>
+  2780→                                  <span className={`font-bold ${homeMetrics.xgDiff < 0 ? 'text-blue-600' : homeMetrics.xgDiff > 0 ? 'text-red-600' : 'text-gray-600'}`}>
+  2781→                                    {homeMetrics.xgDiff > 0 ? '+' : ''}{homeMetrics.xgDiff.toFixed(2)}
+  2782→                                  </span>
+  2783→                                </div>
+  2784→
+  2785→                                {/* Conversion Rate */}
+  2786→                                <div className="pt-2 border-t border-cyan-200 dark:border-cyan-700">
+  2787→                                  <div className="grid grid-cols-2 gap-2 text-xs">
+  2788→                                    <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2789→                                      <p className="text-muted-foreground">Shot Conversion</p>
+  2790→                                      <p className={`font-bold ${homeMetrics.conversionDiff > 10 ? 'text-red-600' : homeMetrics.conversionDiff < -10 ? 'text-blue-600' : 'text-gray-600'}`}>
+  2791→                                        {homeMetrics.conversionRate.toFixed(1)}%
+  2792→                                      </p>
+  2793→                                    </div>
+  2794→                                    <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2795→                                      <p className="text-muted-foreground">Expected Conv.</p>
+  2796→                                      <p className="font-bold text-gray-600">~30%</p>
+  2797→                                    </div>
+  2798→                                  </div>
+  2799→                                </div>
+  2800→
+  2801→                                {/* Interpretation */}
+  2802→                                <div className="pt-2 border-t border-cyan-200 dark:border-cyan-700">
+  2803→                                  <p className="text-xs text-muted-foreground">
+  2804→                                    {homeMetrics.xgDiff > 0.25 
+  2805→                                      ? '⚠️ Overperforming: Scoring more than chances suggest. Regression likely.'
+  2806→                                      : homeMetrics.xgDiff < -0.25
+  2807→                                      ? '💡 Underperforming: Creating chances but not converting. Goals due.'
+  2808→                                      : '✅ Performing as expected based on chance quality.'}
+  2809→                                  </p>
+  2810→                                </div>
+  2811→                              </div>
+  2812→                            </div>
+  2813→
+  2814→                            {/* Away Team */}
+  2815→                            <div className={`p-4 rounded-xl border-2 ${awayMetrics.attackBg} border-teal-200 dark:border-teal-700`}>
+  2816→                              <div className="flex items-center justify-between mb-3">
+  2817→                                <h4 className="font-bold text-blue-700 dark:text-blue-300">{predAwayTeam} (Away)</h4>
+  2818→                                <Badge className={`${awayMetrics.attackColor} ${awayMetrics.attackBg} border`}>
+  2819→                                  {awayMetrics.attackEmoji} {awayMetrics.attackStatus}
+  2820→                                </Badge>
+  2821→                              </div>
+  2822→                              
+  2823→                              <div className="space-y-2 text-sm">
+  2824→                                {/* Expected Goals */}
+  2825→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2826→                                  <span className="text-muted-foreground">Expected Goals (xG) per game</span>
+  2827→                                  <span className="font-bold text-cyan-600">{awayMetrics.avgXg.toFixed(2)}</span>
+  2828→                                </div>
+  2829→                                
+  2830→                                {/* Actual Goals */}
+  2831→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2832→                                  <span className="text-muted-foreground">Actual Goals per game</span>
+  2833→                                  <span className="font-bold">{awayMetrics.avgActual.toFixed(2)}</span>
+  2834→                                </div>
+  2835→                                
+  2836→                                {/* xG Difference */}
+  2837→                                <div className={`flex justify-between items-center p-2 rounded ${awayMetrics.xgDiff < 0 ? 'bg-blue-50 dark:bg-blue-800/30' : awayMetrics.xgDiff > 0 ? 'bg-orange-50 dark:bg-orange-800/30' : 'bg-gray-50 dark:bg-gray-800/30'}`}>
+  2838→                                  <span className="text-muted-foreground">xG Difference</span>
+  2839→                                  <span className={`font-bold ${awayMetrics.xgDiff < 0 ? 'text-blue-600' : awayMetrics.xgDiff > 0 ? 'text-red-600' : 'text-gray-600'}`}>
+  2840→                                    {awayMetrics.xgDiff > 0 ? '+' : ''}{awayMetrics.xgDiff.toFixed(2)}
+  2841→                                  </span>
+  2842→                                </div>
+  2843→
+  2844→                                {/* Conversion Rate */}
+  2845→                                <div className="pt-2 border-t border-teal-200 dark:border-teal-700">
+  2846→                                  <div className="grid grid-cols-2 gap-2 text-xs">
+  2847→                                    <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2848→                                      <p className="text-muted-foreground">Shot Conversion</p>
+  2849→                                      <p className={`font-bold ${awayMetrics.conversionDiff > 10 ? 'text-red-600' : awayMetrics.conversionDiff < -10 ? 'text-blue-600' : 'text-gray-600'}`}>
+  2850→                                        {awayMetrics.conversionRate.toFixed(1)}%
+  2851→                                      </p>
+  2852→                                    </div>
+  2853→                                    <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  2854→                                      <p className="text-muted-foreground">Expected Conv.</p>
+  2855→                                      <p className="font-bold text-gray-600">~30%</p>
+  2856→                                    </div>
+  2857→                                  </div>
+  2858→                                </div>
+  2859→
+  2860→                                {/* Interpretation */}
+  2861→                                <div className="pt-2 border-t border-teal-200 dark:border-teal-700">
+  2862→                                  <p className="text-xs text-muted-foreground">
+  2863→                                    {awayMetrics.xgDiff > 0.25 
+  2864→                                      ? '⚠️ Overperforming: Scoring more than chances suggest. Regression likely.'
+  2865→                                      : awayMetrics.xgDiff < -0.25
+  2866→                                      ? '💡 Underperforming: Creating chances but not converting. Goals due.'
+  2867→                                      : '✅ Performing as expected based on chance quality.'}
+  2868→                                  </p>
+  2869→                                </div>
+  2870→                              </div>
+  2871→                            </div>
+  2872→                          </div>
+  2873→
+  2874→                          {/* Combined Signal */}
+  2875→                          <div className={`p-4 rounded-xl border-2 ${xgSignal.bg}`}>
+  2876→                            <div className="text-center">
+  2877→                              <p className="text-2xl font-bold">{xgSignal.emoji}</p>
+  2878→                              <p className={`text-xl font-bold ${xgSignal.color}`}>{xgSignal.recommendation}</p>
+  2879→                              <p className="text-sm text-muted-foreground mt-2">{xgSignal.description}</p>
+  2880→                            </div>
+  2881→                          </div>
+  2882→
+  2883→                          {/* Strategy Tips */}
+  2884→                          <div className="p-3 rounded-lg bg-gradient-to-r from-cyan-100 to-emerald-100 dark:from-cyan-800/20 dark:to-emerald-800/20">
+  2885→                            <p className="text-sm">
+  2886→                              <span className="font-semibold text-cyan-700 dark:text-cyan-300">💡 Strategy:</span>{' '}
+  2887→                              {xgSignal.recommendation.includes('GOALS DUE') || xgSignal.recommendation.includes('OVER LEAN')
+  2888→                                ? 'Consider Over goals markets. Teams creating quality chances but not converting - goals statistically overdue.'
+  2889→                                : xgSignal.recommendation.includes('REGRESSION') || xgSignal.recommendation.includes('UNDER LEAN')
+  2890→                                ? 'Consider Under goals markets or proceed with caution. Teams outperforming xG significantly - regression expected.'
+  2891→                                : 'No strong xG signal. Combine with other indicators like Regression to Mean for best results.'}
+  2892→                            </p>
+  2893→                          </div>
+  2894→
+  2895→                          {/* Combined Analysis Hint */}
+  2896→                          <div className="p-3 rounded-lg bg-gradient-to-r from-purple-100 to-indigo-100 dark:from-purple-800/20 dark:to-indigo-800/20">
+  2897→                            <p className="text-sm">
+  2898→                              <span className="font-semibold text-purple-700 dark:text-purple-300">🔗 Combined Insight:</span>{' '}
+  2899→                              Combine xG analysis with Regression to Mean. Teams with <strong>negative xG difference AND below recent form</strong> = Strong Over signal. 
+  2900→                              Teams with <strong>positive xG difference AND above recent form</strong> = Strong Under signal.
+  2901→                            </p>
+  2902→                          </div>
+  2903→                        </div>
+  2904→                      );
+  2905→                    })()}
+  2906→                  </CardContent>
+  2907→                </Card>
+  2908→
+  2909→                {/* Z-Score Analysis & Confidence Intervals */}
+  2910→                <Card className="shadow-md border-2 border-violet-300 bg-gradient-to-r from-violet-50 via-purple-50 to-fuchsia-50 dark:from-violet-900/20 dark:via-purple-900/20 dark:to-fuchsia-900/20">
+  2911→                  <CardHeader>
+  2912→                    <CardTitle className="text-lg flex items-center gap-2">
+  2913→                      <TrendingUp className="w-5 h-5 text-violet-600" />
+  2914→                      📊 Z-Score Analysis & Confidence Intervals
+  2915→                    </CardTitle>
+  2916→                    <CardDescription>
+  2917→                      Statistical significance testing - identifies teams deviating significantly from their mean
+  2918→                    </CardDescription>
+  2919→                  </CardHeader>
+  2920→                  <CardContent>
+  2921→                    {(() => {
+  2922→                      // Calculate Z-Score and Confidence Intervals for each team
+  2923→                      // First, sort results by date descending (most recent first)
+  2924→                      const sortedResults = [...results].sort((a, b) => {
+  2925→                        const dateA = parseDateSafe(a.date)
+  2926→                        const dateB = parseDateSafe(b.date)
+  2927→                        return dateB.getTime() - dateA.getTime()
+  2928→                      });
+  2929→
+  2930→                      const teamStats = new Map<string, {
+  2931→                        matches: number;
+  2932→                        goals: number[];
+  2933→                        totalGoals: number;
+  2934→                        mean: number;
+  2935→                        variance: number;
+  2936→                        stdDev: number;
+  2937→                        last3: number[];
+  2938→                        last3Avg: number;
+  2939→                        last5: number[];
+  2940→                        last5Avg: number;
+  2941→                      }>();
+  2942→
+  2943→                      sortedResults.forEach(r => {
+  2944→                        const totalGoals = r.ftHomeGoals + r.ftAwayGoals;
+  2945→                        
+  2946→                        // Home team
+  2947→                        const homeStats = teamStats.get(r.homeTeam) || {
+  2948→                          matches: 0, goals: [], totalGoals: 0, mean: 0, variance: 0, stdDev: 0,
+  2949→                          last3: [], last3Avg: 0, last5: [], last5Avg: 0
+  2950→                        };
+  2951→                        homeStats.matches++;
+  2952→                        homeStats.goals.push(totalGoals);
+  2953→                        homeStats.totalGoals += totalGoals;
+  2954→                        teamStats.set(r.homeTeam, homeStats);
+  2955→
+  2956→                        // Away team
+  2957→                        const awayStats = teamStats.get(r.awayTeam) || {
+  2958→                          matches: 0, goals: [], totalGoals: 0, mean: 0, variance: 0, stdDev: 0,
+  2959→                          last3: [], last3Avg: 0, last5: [], last5Avg: 0
+  2960→                        };
+  2961→                        awayStats.matches++;
+  2962→                        awayStats.goals.push(totalGoals);
+  2963→                        awayStats.totalGoals += totalGoals;
+  2964→                        teamStats.set(r.awayTeam, awayStats);
+  2965→                      });
+  2966→
+  2967→                      // Calculate statistics for each team
+  2968→                      teamStats.forEach((stats, team) => {
+  2969→                        stats.mean = stats.totalGoals / stats.matches;
+  2970→                        // Goals array is now sorted by date (most recent first), so slice(0, 3) gets last 3
+  2971→                        stats.last3 = stats.goals.slice(0, 3);
+  2972→                        stats.last5 = stats.goals.slice(0, 5);
+  2973→                        stats.last3Avg = stats.last3.length > 0 ? stats.last3.reduce((a, b) => a + b, 0) / stats.last3.length : 0;
+  2974→                        stats.last5Avg = stats.last5.length > 0 ? stats.last5.reduce((a, b) => a + b, 0) / stats.last5.length : 0;
+  2975→                        
+  2976→                        // Calculate variance and standard deviation
+  2977→                        const squaredDiffs = stats.goals.map(g => Math.pow(g - stats.mean, 2));
+  2978→                        stats.variance = squaredDiffs.reduce((a, b) => a + b, 0) / stats.matches;
+  2979→                        stats.stdDev = Math.sqrt(stats.variance);
+  2980→                      });
+  2981→
+  2982→                      const homeTeamStats = teamStats.get(predHomeTeam);
+  2983→                      const awayTeamStats = teamStats.get(predAwayTeam);
+  2984→
+  2985→                      if (!homeTeamStats || !awayTeamStats || homeTeamStats.matches < 3 || awayTeamStats.matches < 3) {
+  2986→                        return (
+  2987→                          <div className="text-center text-muted-foreground py-4">
+  2988→                            Need at least 3 matches for each team to calculate Z-scores
+  2989→                          </div>
+  2990→                        );
+  2991→                      }
+  2992→
+  2993→                      // Calculate Z-Score (how many standard deviations from mean)
+  2994→                      const calculateZScore = (stats: typeof homeTeamStats) => {
+  2995→                        if (stats.stdDev === 0) return 0;
+  2996→                        return (stats.last3Avg - stats.mean) / stats.stdDev;
+  2997→                      };
+  2998→
+  2999→                      const homeZScore = calculateZScore(homeTeamStats);
+  3000→                      const awayZScore = calculateZScore(awayTeamStats);
+  3001→
+  3002→                      // Calculate 95% Confidence Interval
+  3003→                      const calculateCI = (stats: typeof homeTeamStats) => {
+  3004→                        // 95% CI: mean ± 1.96 * (stdDev / sqrt(n))
+  3005→                        const marginOfError = 1.96 * (stats.stdDev / Math.sqrt(stats.matches));
+  3006→                        return {
+  3007→                          lower: stats.mean - marginOfError,
+  3008→                          upper: stats.mean + marginOfError,
+  3009→                          margin: marginOfError
+  3010→                        };
+  3011→                      };
+  3012→
+  3013→                      const homeCI = calculateCI(homeTeamStats);
+  3014→                      const awayCI = calculateCI(awayTeamStats);
+  3015→
+  3016→                      // Coefficient of Variation (consistency measure)
+  3017→                      const calculateCV = (stats: typeof homeTeamStats) => {
+  3018→                        if (stats.mean === 0) return 0;
+  3019→                        return (stats.stdDev / stats.mean) * 100;
+  3020→                      };
+  3021→
+  3022→                      const homeCV = calculateCV(homeTeamStats);
+  3023→                      const awayCV = calculateCV(awayTeamStats);
+  3024→
+  3025→                      // Interpret Z-Score
+  3026→                      const interpretZScore = (zScore: number) => {
+  3027→                        if (zScore <= -2.0) {
+  3028→                          return { 
+  3029→                            signal: 'STRONG OVER', 
+  3030→                            color: 'text-green-600', 
+  3031→                            bg: 'bg-green-100',
+  3032→                            emoji: '🔥',
+  3033→                            description: 'Last 3 games 2+ SD below mean - Very strong regression signal'
+  3034→                          };
+  3035→                        } else if (zScore <= -1.5) {
+  3036→                          return { 
+  3037→                            signal: 'OVER SIGNAL', 
+  3038→                            color: 'text-emerald-600', 
+  3039→                            bg: 'bg-emerald-100',
+  3040→                            emoji: '📈',
+  3041→                            description: 'Last 3 games 1.5+ SD below mean - Strong regression signal'
+  3042→                          };
+  3043→                        } else if (zScore <= -1.0) {
+  3044→                          return { 
+  3045→                            signal: 'SLIGHT OVER', 
+  3046→                            color: 'text-teal-600', 
+  3047→                            bg: 'bg-teal-100',
+  3048→                            emoji: '↗️',
+  3049→                            description: 'Last 3 games 1+ SD below mean - Moderate regression signal'
+  3050→                          };
+  3051→                        } else if (zScore >= 2.0) {
+  3052→                          return { 
+  3053→                            signal: 'STRONG UNDER', 
+  3054→                            color: 'text-red-600', 
+  3055→                            bg: 'bg-red-100',
+  3056→                            emoji: '📉',
+  3057→                            description: 'Last 3 games 2+ SD above mean - Very strong regression signal'
+  3058→                          };
+  3059→                        } else if (zScore >= 1.5) {
+  3060→                          return { 
+  3061→                            signal: 'UNDER SIGNAL', 
+  3062→                            color: 'text-orange-600', 
+  3063→                            bg: 'bg-orange-100',
+  3064→                            emoji: '↘️',
+  3065→                            description: 'Last 3 games 1.5+ SD above mean - Strong regression signal'
+  3066→                          };
+  3067→                        } else if (zScore >= 1.0) {
+  3068→                          return { 
+  3069→                            signal: 'SLIGHT UNDER', 
+  3070→                            color: 'text-amber-600', 
+  3071→                            bg: 'bg-amber-100',
+  3072→                            emoji: '➡️',
+  3073→                            description: 'Last 3 games 1+ SD above mean - Moderate regression signal'
+  3074→                          };
+  3075→                        } else {
+  3076→                          return { 
+  3077→                            signal: 'NEUTRAL', 
+  3078→                            color: 'text-gray-600', 
+  3079→                            bg: 'bg-gray-100',
+  3080→                            emoji: '⚖️',
+  3081→                            description: 'Last 3 games within normal range'
+  3082→                          };
+  3083→                        }
+  3084→                      };
+  3085→
+  3086→                      const homeZInterpretation = interpretZScore(homeZScore);
+  3087→                      const awayZInterpretation = interpretZScore(awayZScore);
+  3088→
+  3089→                      // Check if last 3 avg is outside CI bounds
+  3090→                      const homeBelowCI = homeTeamStats.last3Avg < homeCI.lower;
+  3091→                      const homeAboveCI = homeTeamStats.last3Avg > homeCI.upper;
+  3092→                      const awayBelowCI = awayTeamStats.last3Avg < awayCI.lower;
+  3093→                      const awayAboveCI = awayTeamStats.last3Avg > awayCI.upper;
+  3094→
+  3095→                      // Combined Over Signal
+  3096→                      const getCombinedOverSignal = () => {
+  3097→                        let score = 0;
+  3098→                        let signals: string[] = [];
+  3099→
+  3100→                        // Z-Score signals
+  3101→                        if (homeZScore <= -1.5) { score += 2; signals.push('Home Z ≤ -1.5'); }
+  3102→                        else if (homeZScore <= -1.0) { score += 1; signals.push('Home Z ≤ -1.0'); }
+  3103→                        
+  3104→                        if (awayZScore <= -1.5) { score += 2; signals.push('Away Z ≤ -1.5'); }
+  3105→                        else if (awayZScore <= -1.0) { score += 1; signals.push('Away Z ≤ -1.0'); }
+  3106→
+  3107→                        // CI signals
+  3108→                        if (homeBelowCI) { score += 1; signals.push('Home below CI'); }
+  3109→                        if (awayBelowCI) { score += 1; signals.push('Away below CI'); }
+  3110→
+  3111→                        // CV signals (lower CV = more predictable regression)
+  3112→                        if (homeCV < 35 && homeZScore < -1) { score += 0.5; signals.push('Home consistent'); }
+  3113→                        if (awayCV < 35 && awayZScore < -1) { score += 0.5; signals.push('Away consistent'); }
+  3114→
+  3115→                        // UNDER signals (positive Z = overperforming, regression downward expected)
+  3116→                        if (homeZScore >= 1.5) { score -= 2; signals.push('Home Z ≥ 1.5'); }
+  3117→                        else if (homeZScore >= 1.0) { score -= 1; signals.push('Home Z ≥ 1.0'); }
+  3118→                        if (awayZScore >= 1.5) { score -= 2; signals.push('Away Z ≥ 1.5'); }
+  3119→                        else if (awayZScore >= 1.0) { score -= 1; signals.push('Away Z ≥ 1.0'); }
+  3120→
+  3121→                        // CI above signals
+  3122→                        if (homeAboveCI) { score -= 1; signals.push('Home above CI'); }
+  3123→                        if (awayAboveCI) { score -= 1; signals.push('Away above CI'); }
+  3124→
+  3125→                        // CV signals for UNDER (consistent team overperforming)
+  3126→                        if (homeCV < 35 && homeZScore > 1) { score -= 0.5; signals.push('Home consistent over'); }
+  3127→                        if (awayCV < 35 && awayZScore > 1) { score -= 0.5; signals.push('Away consistent over'); }
+  3128→
+  3129→                        if (score >= 4) {
+  3130→                          return {
+  3131→                            recommendation: '🔥🔥 EXCEPTIONAL OVER OPPORTUNITY',
+  3132→                            description: 'Multiple strong statistical signals suggest both teams are significantly underperforming. High confidence regression play.',
+  3133→                            color: 'text-green-600',
+  3134→                            bg: 'bg-green-100 border-green-400',
+  3135→                            signals,
+  3136→                            score
+  3137→                          };
+  3138→                        } else if (score >= 2.5) {
+  3139→                          return {
+  3140→                            recommendation: '🔥 STRONG OVER SIGNAL',
+  3141→                            description: 'Strong statistical evidence that goals are due. Consider Over 1.5 or Over 2.5.',
+  3142→                            color: 'text-emerald-600',
+  3143→                            bg: 'bg-emerald-100 border-emerald-400',
+  3144→                            signals,
+  3145→                            score
+  3146→                          };
+  3147→                        } else if (score >= 1) {
+  3148→                          return {
+  3149→                            recommendation: '↗️ MODERATE OVER SIGNAL',
+  3150→                            description: 'Some statistical indicators suggest Over value. Combine with other analysis.',
+  3151→                            color: 'text-teal-600',
+  3152→                            bg: 'bg-teal-100 border-teal-400',
+  3153→                            signals,
+  3154→                            score
+  3155→                          };
+  3156→                        } else if (score <= -3) {
+  3157→                          return {
+  3158→                            recommendation: '📉 STRONG UNDER SIGNAL',
+  3159→                            description: 'Teams significantly overperforming. Regression downward expected.',
+  3160→                            color: 'text-red-600',
+  3161→                            bg: 'bg-red-100 border-red-400',
+  3162→                            signals,
+  3163→                            score
+  3164→                          };
+  3165→                        } else if (score <= -1.5) {
+  3166→                          return {
+  3167→                            recommendation: '↘️ MODERATE UNDER SIGNAL',
+  3168→                            description: 'Some statistical indicators suggest Under value. Teams overperforming, regression expected.',
+  3169→                            color: 'text-orange-600',
+  3170→                            bg: 'bg-orange-100 border-orange-400',
+  3171→                            signals,
+  3172→                            score
+  3173→                          };
+  3174→                        } else {
+  3175→                          return {
+  3176→                            recommendation: '⚖️ NEUTRAL / MIXED',
+  3177→                            description: 'No strong Over/Under signal from Z-score analysis. Check other indicators.',
+  3178→                            color: 'text-gray-600',
+  3179→                            bg: 'bg-gray-100 border-gray-400',
+  3180→                            signals,
+  3181→                            score
+  3182→                          };
+  3183→                        }
+  3184→                      };
+  3185→
+  3186→                      const combinedSignal = getCombinedOverSignal();
+  3187→
+  3188→                      return (
+  3189→                        <div className="space-y-4">
+  3190→                          {/* Explanation */}
+  3191→                          <div className="p-3 rounded-lg bg-gradient-to-r from-violet-100/50 to-purple-100/50 dark:from-violet-800/20 dark:to-purple-800/20 text-sm">
+  3192→                            <p className="text-muted-foreground">
+  3193→                              <strong>Z-Score:</strong> Measures how many standard deviations recent form is from the mean.
+  3194→                              <span className="text-green-600 font-medium"> Z &lt; -1 = due for MORE goals</span>
+  3195→                              <span className="text-red-600 font-medium"> • Z &gt; 1 = due for FEWER goals</span>
+  3196→                            </p>
+  3197→                            <p className="text-muted-foreground mt-1">
+  3198→                              <strong>Confidence Interval:</strong> 95% range where true average lies. Last 3 avg <span className="text-green-600 font-medium">below lower bound = Over signal</span>.
+  3199→                            </p>
+  3200→                          </div>
+  3201→
+  3202→                          {/* Team Stats Grid */}
+  3203→                          <div className="grid md:grid-cols-2 gap-4">
+  3204→                            {/* Home Team */}
+  3205→                            <div className={`p-4 rounded-xl border-2 ${homeZInterpretation.bg} border-violet-200 dark:border-violet-700`}>
+  3206→                              <div className="flex items-center justify-between mb-3">
+  3207→                                <h4 className="font-bold text-green-700 dark:text-green-300">{predHomeTeam} (Home)</h4>
+  3208→                                <Badge className={`${homeZInterpretation.color} ${homeZInterpretation.bg} border`}>
+  3209→                                  {homeZInterpretation.emoji} {homeZInterpretation.signal}
+  3210→                                </Badge>
+  3211→                              </div>
+  3212→                              
+  3213→                              <div className="space-y-2 text-sm">
+  3214→                                {/* Z-Score */}
+  3215→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  3216→                                  <span className="text-muted-foreground">Z-Score</span>
+  3217→                                  <span className={`font-bold text-lg ${homeZScore < -1 ? 'text-green-600' : homeZScore > 1 ? 'text-red-600' : 'text-gray-600'}`}>
+  3218→                                    {homeZScore.toFixed(2)}
+  3219→                                  </span>
+  3220→                                </div>
+  3221→
+  3222→                                {/* Mean & StdDev */}
+  3223→                                <div className="grid grid-cols-2 gap-2">
+  3224→                                  <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50 text-center">
+  3225→                                    <p className="text-xs text-muted-foreground">Mean (μ)</p>
+  3226→                                    <p className="font-bold">{homeTeamStats.mean.toFixed(2)}</p>
+  3227→                                  </div>
+  3228→                                  <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50 text-center">
+  3229→                                    <p className="text-xs text-muted-foreground">Std Dev (σ)</p>
+  3230→                                    <p className="font-bold">{homeTeamStats.stdDev.toFixed(2)}</p>
+  3231→                                  </div>
+  3232→                                </div>
+  3233→
+  3234→                                {/* Last 3 vs Season */}
+  3235→                                <div className="grid grid-cols-2 gap-2">
+  3236→                                  <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50 text-center">
+  3237→                                    <p className="text-xs text-muted-foreground">Season Avg</p>
+  3238→                                    <p className="font-bold">{homeTeamStats.mean.toFixed(2)}</p>
+  3239→                                  </div>
+  3240→                                  <div className={`p-2 rounded text-center ${homeTeamStats.last3Avg < homeTeamStats.mean ? 'bg-green-100 dark:bg-green-800/30' : homeTeamStats.last3Avg > homeTeamStats.mean ? 'bg-red-100 dark:bg-red-800/30' : 'bg-white/50 dark:bg-gray-800/50'}`}>
+  3241→                                    <p className="text-xs text-muted-foreground">Last 3 Avg</p>
+  3242→                                    <p className={`font-bold ${homeTeamStats.last3Avg < homeTeamStats.mean ? 'text-green-600' : homeTeamStats.last3Avg > homeTeamStats.mean ? 'text-red-600' : ''}`}>
+  3243→                                      {homeTeamStats.last3Avg.toFixed(2)}
+  3244→                                    </p>
+  3245→                                  </div>
+  3246→                                </div>
+  3247→
+  3248→                                {/* 95% Confidence Interval */}
+  3249→                                <div className={`p-2 rounded ${homeBelowCI ? 'bg-green-100 dark:bg-green-800/30 border border-green-300' : homeAboveCI ? 'bg-red-100 dark:bg-red-800/30 border border-red-300' : 'bg-violet-50 dark:bg-violet-800/20'}`}>
+  3250→                                  <p className="text-xs text-muted-foreground text-center">95% Confidence Interval</p>
+  3251→                                  <div className="flex justify-center items-center gap-2">
+  3252→                                    <span className="font-bold">{homeCI.lower.toFixed(2)}</span>
+  3253→                                    <span className="text-muted-foreground">—</span>
+  3254→                                    <span className="font-bold">{homeCI.upper.toFixed(2)}</span>
+  3255→                                  </div>
+  3256→                                  {homeBelowCI && (
+  3257→                                    <p className="text-xs text-green-600 text-center mt-1 font-medium">
+  3258→                                      ⬆️ Last 3 avg BELOW CI - Strong Over signal
+  3259→                                    </p>
+  3260→                                  )}
+  3261→                                  {homeAboveCI && (
+  3262→                                    <p className="text-xs text-red-600 text-center mt-1 font-medium">
+  3263→                                      ⬇️ Last 3 avg ABOVE CI - Under signal
+  3264→                                    </p>
+  3265→                                  )}
+  3266→                                </div>
+  3267→
+  3268→                                {/* Coefficient of Variation */}
+  3269→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  3270→                                  <span className="text-muted-foreground">Consistency (CV)</span>
+  3271→                                  <span className={`font-bold ${homeCV < 30 ? 'text-green-600' : homeCV < 50 ? 'text-amber-600' : 'text-red-600'}`}>
+  3272→                                    {homeCV.toFixed(1)}%
+  3273→                                    <span className="text-xs ml-1 text-muted-foreground">
+  3274→                                      ({homeCV < 30 ? 'Very consistent' : homeCV < 50 ? 'Moderate' : 'Volatile'})
+  3275→                                    </span>
+  3276→                                  </span>
+  3277→                                </div>
+  3278→                              </div>
+  3279→                            </div>
+  3280→
+  3281→                            {/* Away Team */}
+  3282→                            <div className={`p-4 rounded-xl border-2 ${awayZInterpretation.bg} border-purple-200 dark:border-purple-700`}>
+  3283→                              <div className="flex items-center justify-between mb-3">
+  3284→                                <h4 className="font-bold text-blue-700 dark:text-blue-300">{predAwayTeam} (Away)</h4>
+  3285→                                <Badge className={`${awayZInterpretation.color} ${awayZInterpretation.bg} border`}>
+  3286→                                  {awayZInterpretation.emoji} {awayZInterpretation.signal}
+  3287→                                </Badge>
+  3288→                              </div>
+  3289→                              
+  3290→                              <div className="space-y-2 text-sm">
+  3291→                                {/* Z-Score */}
+  3292→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  3293→                                  <span className="text-muted-foreground">Z-Score</span>
+  3294→                                  <span className={`font-bold text-lg ${awayZScore < -1 ? 'text-green-600' : awayZScore > 1 ? 'text-red-600' : 'text-gray-600'}`}>
+  3295→                                    {awayZScore.toFixed(2)}
+  3296→                                  </span>
+  3297→                                </div>
+  3298→
+  3299→                                {/* Mean & StdDev */}
+  3300→                                <div className="grid grid-cols-2 gap-2">
+  3301→                                  <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50 text-center">
+  3302→                                    <p className="text-xs text-muted-foreground">Mean (μ)</p>
+  3303→                                    <p className="font-bold">{awayTeamStats.mean.toFixed(2)}</p>
+  3304→                                  </div>
+  3305→                                  <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50 text-center">
+  3306→                                    <p className="text-xs text-muted-foreground">Std Dev (σ)</p>
+  3307→                                    <p className="font-bold">{awayTeamStats.stdDev.toFixed(2)}</p>
+  3308→                                  </div>
+  3309→                                </div>
+  3310→
+  3311→                                {/* Last 3 vs Season */}
+  3312→                                <div className="grid grid-cols-2 gap-2">
+  3313→                                  <div className="p-2 rounded bg-white/50 dark:bg-gray-800/50 text-center">
+  3314→                                    <p className="text-xs text-muted-foreground">Season Avg</p>
+  3315→                                    <p className="font-bold">{awayTeamStats.mean.toFixed(2)}</p>
+  3316→                                  </div>
+  3317→                                  <div className={`p-2 rounded text-center ${awayTeamStats.last3Avg < awayTeamStats.mean ? 'bg-green-100 dark:bg-green-800/30' : awayTeamStats.last3Avg > awayTeamStats.mean ? 'bg-red-100 dark:bg-red-800/30' : 'bg-white/50 dark:bg-gray-800/50'}`}>
+  3318→                                    <p className="text-xs text-muted-foreground">Last 3 Avg</p>
+  3319→                                    <p className={`font-bold ${awayTeamStats.last3Avg < awayTeamStats.mean ? 'text-green-600' : awayTeamStats.last3Avg > awayTeamStats.mean ? 'text-red-600' : ''}`}>
+  3320→                                      {awayTeamStats.last3Avg.toFixed(2)}
+  3321→                                    </p>
+  3322→                                  </div>
+  3323→                                </div>
+  3324→
+  3325→                                {/* 95% Confidence Interval */}
+  3326→                                <div className={`p-2 rounded ${awayBelowCI ? 'bg-green-100 dark:bg-green-800/30 border border-green-300' : awayAboveCI ? 'bg-red-100 dark:bg-red-800/30 border border-red-300' : 'bg-purple-50 dark:bg-purple-800/20'}`}>
+  3327→                                  <p className="text-xs text-muted-foreground text-center">95% Confidence Interval</p>
+  3328→                                  <div className="flex justify-center items-center gap-2">
+  3329→                                    <span className="font-bold">{awayCI.lower.toFixed(2)}</span>
+  3330→                                    <span className="text-muted-foreground">—</span>
+  3331→                                    <span className="font-bold">{awayCI.upper.toFixed(2)}</span>
+  3332→                                  </div>
+  3333→                                  {awayBelowCI && (
+  3334→                                    <p className="text-xs text-green-600 text-center mt-1 font-medium">
+  3335→                                      ⬆️ Last 3 avg BELOW CI - Strong Over signal
+  3336→                                    </p>
+  3337→                                  )}
+  3338→                                  {awayAboveCI && (
+  3339→                                    <p className="text-xs text-red-600 text-center mt-1 font-medium">
+  3340→                                      ⬇️ Last 3 avg ABOVE CI - Under signal
+  3341→                                    </p>
+  3342→                                  )}
+  3343→                                </div>
+  3344→
+  3345→                                {/* Coefficient of Variation */}
+  3346→                                <div className="flex justify-between items-center p-2 rounded bg-white/50 dark:bg-gray-800/50">
+  3347→                                  <span className="text-muted-foreground">Consistency (CV)</span>
+  3348→                                  <span className={`font-bold ${awayCV < 30 ? 'text-green-600' : awayCV < 50 ? 'text-amber-600' : 'text-red-600'}`}>
+  3349→                                    {awayCV.toFixed(1)}%
+  3350→                                    <span className="text-xs ml-1 text-muted-foreground">
+  3351→                                      ({awayCV < 30 ? 'Very consistent' : awayCV < 50 ? 'Moderate' : 'Volatile'})
+  3352→                                    </span>
+  3353→                                  </span>
+  3354→                                </div>
+  3355→                              </div>
+  3356→                            </div>
+  3357→                          </div>
+  3358→
+  3359→                          {/* Combined Signal */}
+  3360→                          <div className={`p-4 rounded-xl border-2 ${combinedSignal.bg}`}>
+  3361→                            <div className="text-center">
+  3362→                              <p className="text-2xl font-bold">{combinedSignal.recommendation}</p>
+  3363→                              <p className={`text-sm ${combinedSignal.color} mt-2`}>{combinedSignal.description}</p>
+  3364→                              {combinedSignal.signals.length > 0 && (
+  3365→                                <div className="mt-3 flex flex-wrap justify-center gap-2">
+  3366→                                  {combinedSignal.signals.map((signal, idx) => (
+  3367→                                    <Badge key={idx} variant="outline" className="text-xs">
+  3368→                                      {signal}
+  3369→                                    </Badge>
+  3370→                                  ))}
+  3371→                                </div>
+  3372→                              )}
+  3373→                            </div>
+  3374→                          </div>
+  3375→
+  3376→                          {/* Over Opportunity Highlight */}
+  3377→                          {(homeZScore <= -1.5 || awayZScore <= -1.5 || homeBelowCI || awayBelowCI) && (
+  3378→                            <div className="p-4 rounded-xl bg-gradient-to-r from-green-100 to-emerald-100 dark:from-green-800/30 dark:to-emerald-800/30 border-2 border-green-400">
+  3379→                              <div className="flex items-start gap-3">
+  3380→                                <span className="text-3xl">🎯</span>
+  3381→                                <div>
+  3382→                                  <h4 className="font-bold text-green-700 dark:text-green-300 text-lg">OVER OPPORTUNITY DETECTED</h4>
+  3383→                                  <p className="text-sm text-green-600 dark:text-green-400 mt-1">
+  3384→                                    Statistical analysis shows one or both teams are significantly underperforming their mean.
+  3385→                                    This presents a potential value opportunity for Over goals markets.
+  3386→                                  </p>
+  3387→                                  <div className="mt-2 text-sm">
+  3388→                                    <strong>Recommended Markets:</strong>{' '}
+  3389→                                    {combinedSignal.score >= 4 
+  3390→                                      ? 'Over 2.5, Over 1.5 HT, BTTS' 
+  3391→                                      : combinedSignal.score >= 2.5 
+  3392→                                      ? 'Over 1.5, Over 2.5 (moderate confidence)'
+  3393→                                      : 'Over 1.5 (conservative)'}
+  3394→                                  </div>
+  3395→                                </div>
+  3396→                              </div>
+  3397→                            </div>
+  3398→                          )}
+  3399→
+  3400→                          {/* Legend */}
+  3401→                          <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 text-xs">
+  3402→                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+  3403→                              <div><strong>Z ≤ -1.5:</strong> <span className="text-green-600">Strong Over</span></div>
+  3404→                              <div><strong>Z ≥ 1.5:</strong> <span className="text-red-600">Strong Under</span></div>
+  3405→                              <div><strong>CV &lt; 30%:</strong> Consistent team</div>
+  3406→                              <div><strong>CV &gt; 50%:</strong> Volatile team</div>
+  3407→                            </div>
+  3408→                          </div>
+  3409→                        </div>
+  3410→                      );
+  3411→                    })()}
+  3412→                  </CardContent>
+  3413→                </Card>
+  3414→              </>
+  3415→            )}
+  3416→    </div>
+  3417→  )
+  3418→}
+  3419→

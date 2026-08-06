@@ -1,0 +1,3 @@
+{
+  "/api/soccer/predict/route": "app/api/soccer/predict/route.js"
+}

@@ -1,0 +1,17 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/analyze-image/route": "/api/analyze-image",
+  "/api/route": "/api",
+  "/api/soccer/analytics/route": "/api/soccer/analytics",
+  "/api/soccer/backtest-single/route": "/api/soccer/backtest-single",
+  "/api/soccer/backtest/route": "/api/soccer/backtest",
+  "/api/soccer/fixtures/route": "/api/soccer/fixtures",
+  "/api/soccer/h2h/route": "/api/soccer/h2h",
+  "/api/soccer/leagues/route": "/api/soccer/leagues",
+  "/api/soccer/patterns/route": "/api/soccer/patterns",
+  "/api/soccer/predict/route": "/api/soccer/predict",
+  "/api/soccer/results/route": "/api/soccer/results",
+  "/api/soccer/teams/route": "/api/soccer/teams",
+  "/page": "/"
+}
