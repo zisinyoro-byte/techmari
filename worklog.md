@@ -22,3 +22,26 @@ Stage Summary:
 - 10-check system: O2.5 Implied (CRITICAL), O3.5 (HIGH), BTTS (HIGH), O2.5 (HIGH), Rolling Scoring (HIGH), Draw Prob sweet spot (MEDIUM), HT Draw (MEDIUM), League Avg Goals (LOW), BTTS Checklist (LOW), O2.5 Implied elite 70%+ (CRITICAL)
 - Combo string updated: now includes `BH:Strong|Qualified|Borderline|Unlikely`
 - Build: `bun run build` → compiled successfully, all 14 routes generated
+
+---
+Task ID: 1
+Agent: main
+Task: Multi-league BTTS-BH threshold calibration backtest
+
+Work Log:
+- Built standalone backtest script (btts-bh-multi-league-backtest.ts) with CSV caching
+- Fetched 24,057 matches across 7 European leagues (EPL, La Liga, Bundesliga, Serie A, Ligue 1, Eredivisie, Primeira Liga) × 10 seasons (1516-2425)
+- Computed 8 BTTS-BH checks for every game with rolling 5-game team windows
+- Ran individual threshold sweeps for all 8 checks
+- Ran per-league O2.5 implied lift analysis
+- Ran 1,560-combo grid search across O2.5, elite, rolling, and required checks
+- Fixed per-league Map key bug (ld.code → ld.league)
+
+Stage Summary:
+- Base rate: 5.19% (1,249/24,057), range 3.92%-6.14% by league
+- Current config (65/72/3.0/req5) achieves 6.20% hit rate, 1.19x lift, 29.1% coverage
+- Grid search best: 6.29%, 1.21x, 34.3% — only marginal improvement (+0.09pp, +0.02x)
+- BTTS rolling rate confirmed DEAD (0.99-1.02x at all thresholds)
+- O2.5 implied is the only strong signal (1.39x at 64%), but varies wildly by league (La Liga 2.15x vs Eredivisie 1.02x at 70%)
+- Draw prob <25% is second-best (1.21x)
+- Recommendation: current thresholds are near-optimal, consider simplifying to 3-check system

@@ -1,24 +1,25 @@
 /**
- * BTTS Both Halves Detector — Multi-League Threshold Calibration Backtest
- * 
- * Fetches 5 top European leagues x 10 seasons from football-data.co.uk,
- * computes pre-match signals for every game, labels BTTS-BH outcomes,
- * then sweeps thresholds and grid-searches for optimal detector settings.
+ * BTTS Both Halves — Multi-League Threshold Calibration Backtest
  *
- * Matches the CURRENT 8-check system in BTTS_BOTH_HALVES_CONFIG:
- *   1. O2.5 Implied >= o25Implied (CRITICAL)
- *   2. O2.5 Implied >= o25ImpliedElite (CRITICAL)
- *   3. O2.5 Model >= o25Prob (HIGH)
- *   4. Rolling Scoring >= rollingScoring (HIGH)
- *   5. O3.5 Rate >= o35Prob (MEDIUM)
- *   6. BTTS Rate >= bttsProb (MEDIUM)
- *   7. Draw Prob < drawProbMax (MEDIUM) — INVERTED
- *   8. League Avg Goals >= leagueAvgGoals (LOW)
+ * Fetches historical data from football-data.co.uk for major European leagues,
+ * computes the 8 BTTS-BH checks for every game, sweeps key thresholds to find
+ * optimal calibration, and reports league-by-league and aggregate results.
+ *
+ * Standalone script (no project imports).
+ * Caches CSVs to /tmp/btts-bh-cache/ to avoid re-fetching.
+ *
+ * Usage: npx tsx scripts/btts-bh-multi-league-backtest.ts
  */
+
+import { parse } from 'csv-parse/sync';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as https from 'https';
 
 // ============================================================================
 // Types
 // ============================================================================
+
 interface MatchResult {
   date: string;
   homeTeam: string;
@@ -27,606 +28,531 @@ interface MatchResult {
   ftAwayGoals: number;
   htHomeGoals: number;
   htAwayGoals: number;
+  oddsAvgHome: number | null;
   oddsAvgDraw: number | null;
+  oddsAvgAway: number | null;
   oddsAvgOver25: number | null;
+  oddsOver25: number | null;
   season: string;
   league: string;
 }
 
-interface GameSignals {
+interface GameCheckData {
+  isBTTSBH: boolean;
   o25ImpliedProb: number | null;
-  rollingCombinedScoring: number;
-  bttsProb: number;
   o25Prob: number;
   o35Prob: number;
+  bttsProb: number;
+  rollingCombinedScoring: number;
   drawProb: number;
   avgGoalsPerGame: number;
+  checkResults: boolean[];
 }
 
 // ============================================================================
-// CSV Parsing
+// Config
 // ============================================================================
-function parseCSV(text: string, season: string, league: string): MatchResult[] {
-  const lines = text.trim().split('\n');
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',');
-  const col = (h: string) => headers.indexOf(h);
-  const pn = (val: string | undefined): number | null => {
-    if (!val || val === '' || val === '\\N/A') return null;
-    const n = parseFloat(val);
-    return isNaN(n) ? null : n;
-  };
 
-  const results: MatchResult[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const v = lines[i].split(',');
-    const ftH = parseInt(v[col('FTHG')] || '0', 10);
-    const ftA = parseInt(v[col('FTAG')] || '0', 10);
-    const htH = parseInt(v[col('HTHG')] || '0', 10);
-    const htA = parseInt(v[col('HTAG')] || '0', 10);
-    if (isNaN(ftH) || isNaN(ftA) || isNaN(htH) || isNaN(htA)) continue;
-    results.push({
-      date: v[col('Date')] || '',
-      homeTeam: (v[col('HomeTeam')] || '').trim(),
-      awayTeam: (v[col('AwayTeam')] || '').trim(),
-      ftHomeGoals: ftH, ftAwayGoals: ftA,
-      htHomeGoals: htH, htAwayGoals: htA,
-      oddsAvgDraw: pn(v[col('AvgD')]),
-      oddsAvgOver25: pn(v[col('Avg>2.5')]),
-      season, league,
+const LEAGUES = [
+  { code: 'E0', name: 'EPL' },
+  { code: 'SP1', name: 'La Liga' },
+  { code: 'D1', name: 'Bundesliga' },
+  { code: 'I1', name: 'Serie A' },
+  { code: 'F1', name: 'Ligue 1' },
+  { code: 'N1', name: 'Eredivisie' },
+  { code: 'P1', name: 'Primeira Liga' },
+];
+
+const SEASONS = ['1516', '1617', '1718', '1819', '1920', '2021', '2122', '2223', '2324', '2425'];
+const CACHE_DIR = '/tmp/btts-bh-cache';
+
+// ============================================================================
+// CSV Fetching with disk cache
+// ============================================================================
+
+function fetchCSV(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      timeout: 8000,
+    }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        if (res.headers.location) {
+          fetchCSV(res.headers.location).then(resolve).catch(reject);
+          return;
+        }
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+        return;
+      }
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      res.on('end', () => resolve(data));
     });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchLeagueSeasonCached(league: string, season: string): Promise<MatchResult[]> {
+  const cacheFile = path.join(CACHE_DIR, `${league}_${season}.json`);
+
+  // Check cache
+  if (fs.existsSync(cacheFile)) {
+    try {
+      const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+      return cached;
+    } catch {}
   }
+
+  const url = `https://www.football-data.co.uk/mmz4281/${season}/${league}.csv`;
+  try {
+    const csv = await fetchCSV(url);
+    const records: any[] = parse(csv, { columns: true, skip_empty_lines: true, relax_quotes: true, bom: true });
+    const matches = records.map((r: any) => ({
+      date: r.Date || '',
+      homeTeam: (r.HomeTeam || '').trim(),
+      awayTeam: (r.AwayTeam || '').trim(),
+      ftHomeGoals: parseInt(r.FTHG) || 0,
+      ftAwayGoals: parseInt(r.FTAG) || 0,
+      htHomeGoals: parseInt(r.HTHG) || 0,
+      htAwayGoals: parseInt(r.HTAG) || 0,
+      oddsAvgHome: parseFloat(r['AvgH']) || null,
+      oddsAvgDraw: parseFloat(r['AvgD']) || null,
+      oddsAvgAway: parseFloat(r['AvgA']) || null,
+      oddsAvgOver25: parseFloat(r['Avg>2.5']) || null,
+      oddsOver25: parseFloat(r['B365>2.5']) || null,
+      season,
+      league,
+    })).filter((m: MatchResult) => m.homeTeam && m.awayTeam);
+
+    // Save to cache
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify(matches));
+    return matches;
+  } catch (e: any) {
+    console.warn(`    WARN: ${league} ${season}: ${e.message}`);
+    return [];
+  }
+}
+
+async function fetchAllData(): Promise<{ league: string; name: string; matches: MatchResult[] }[]> {
+  if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+  const results: { league: string; name: string; matches: MatchResult[] }[] = [];
+
+  for (const lg of LEAGUES) {
+    console.log(`\nFetching ${lg.name} (${lg.code})...`);
+    let allMatches: MatchResult[] = [];
+
+    for (const season of SEASONS) {
+      process.stdout.write(`  ${season}... `);
+      const matches = await fetchLeagueSeasonCached(lg.code, season);
+      console.log(`${matches.length} matches`);
+      allMatches = allMatches.concat(matches);
+      await delay(300);
+    }
+
+    console.log(`  ${lg.name} total: ${allMatches.length} matches`);
+    results.push({ league: lg.code, name: lg.name, matches: allMatches });
+  }
+
   return results;
 }
 
 // ============================================================================
-// Data Fetching
+// BTTS-BH Detection & Check Computation
 // ============================================================================
-async function fetchSeason(league: string, season: string): Promise<MatchResult[]> {
-  const url = 'https://www.football-data.co.uk/mmz4281/' + season + '/' + league + '.csv';
-  try {
-    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/csv' } });
-    if (!resp.ok) return [];
-    return parseCSV(await resp.text(), season, league);
-  } catch { return []; }
+
+function isBTTSBothHalves(m: MatchResult): boolean {
+  const htBTTS = m.htHomeGoals > 0 && m.htAwayGoals > 0;
+  const shHomeGoals = m.ftHomeGoals - m.htHomeGoals;
+  const shAwayGoals = m.ftAwayGoals - m.htAwayGoals;
+  const shBTTS = shHomeGoals > 0 && shAwayGoals > 0;
+  return htBTTS && shBTTS;
 }
 
-// ============================================================================
-// Pre-match signal computation (no lookahead bias)
-// ============================================================================
-function computeRollingScored(results: MatchResult[], team: string, isHome: boolean, beforeDate: string, window = 5): number {
-  const relevant = results
-    .filter(m => (isHome ? m.homeTeam === team : m.awayTeam === team) && m.date < beforeDate)
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, window);
-  if (relevant.length === 0) return 1.2;
-  return relevant.reduce((s, m) => s + (isHome ? m.ftHomeGoals : m.ftAwayGoals), 0) / relevant.length;
+function computeO25ImpliedProb(m: MatchResult): number | null {
+  const odds = m.oddsAvgOver25 ?? m.oddsOver25;
+  if (!odds || odds <= 1.01) return null;
+  return (1 / odds) * 100;
 }
 
-function computeRollingBTTSRate(results: MatchResult[], team: string, beforeDate: string, window = 10): number {
-  const relevant = results
-    .filter(m => (m.homeTeam === team || m.awayTeam === team) && m.date < beforeDate)
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, window);
-  if (relevant.length < 3) return 0.45;
-  return relevant.filter(m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0).length / relevant.length;
+function computeDrawProb(m: MatchResult): number {
+  const h = m.oddsAvgHome, d = m.oddsAvgDraw, a = m.oddsAvgAway;
+  if (!h || !d || !a || h < 1.01 || d < 1.01 || a < 1.01) return 99;
+  const overround = (1 / h) + (1 / d) + (1 / a);
+  return (1 / d) / overround * 100;
 }
 
-function computeRollingRate(results: MatchResult[], beforeDate: string, window: number, predicate: (m: MatchResult) => boolean): number {
-  const relevant = results
-    .filter(m => m.date < beforeDate)
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, window);
-  if (relevant.length < 10) return 0.30;
-  return relevant.filter(predicate).length / relevant.length;
+interface TeamRolling {
+  avgScored: number;
+  avgConceded: number;
+  o25Rate: number;
+  bttsRate: number;
+  o35Rate: number;
 }
 
-function computeGameSignals(results: MatchResult[], match: MatchResult): GameSignals {
-  const o25ImpliedProb = match.oddsAvgOver25 && match.oddsAvgOver25 > 1.01
-    ? (1 / match.oddsAvgOver25) * 100 : null;
+function computeTeamRolling(matches: MatchResult[], team: string, upToIndex: number): TeamRolling {
+  const teamGames: { scored: number; conceded: number; totalGoals: number }[] = [];
 
-  const homeRolling = computeRollingScored(results, match.homeTeam, true, match.date, 5);
-  const awayRolling = computeRollingScored(results, match.awayTeam, false, match.date, 5);
+  for (let i = upToIndex - 1; i >= 0 && teamGames.length < 5; i--) {
+    const m = matches[i];
+    let scored = 0, conceded = 0;
+    if (m.homeTeam === team) {
+      scored = m.ftHomeGoals; conceded = m.ftAwayGoals;
+    } else if (m.awayTeam === team) {
+      scored = m.ftAwayGoals; conceded = m.ftHomeGoals;
+    } else {
+      continue;
+    }
+    teamGames.push({ scored, conceded, totalGoals: scored + conceded });
+  }
 
-  const homeBTTS = computeRollingBTTSRate(results, match.homeTeam, match.date, 10);
-  const awayBTTS = computeRollingBTTSRate(results, match.awayTeam, match.date, 10);
+  if (teamGames.length === 0) return { avgScored: 0, avgConceded: 0, o25Rate: 0, bttsRate: 0, o35Rate: 0 };
 
-  const drawProb = match.oddsAvgDraw && match.oddsAvgDraw > 1.01
-    ? Math.min(60, (1 / match.oddsAvgDraw) * 100) : 25;
-
-  const last50 = results.filter(m => m.date < match.date).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 50);
-  const avgGoals = last50.length >= 10
-    ? last50.reduce((s, m) => s + m.ftHomeGoals + m.ftAwayGoals, 0) / last50.length : 2.6;
+  const n = teamGames.length;
+  const avgScored = teamGames.reduce((s, g) => s + g.scored, 0) / n;
+  const o25Count = teamGames.filter(g => g.totalGoals > 2.5).length;
+  const o35Count = teamGames.filter(g => g.totalGoals > 3.5).length;
+  const bttsCount = teamGames.filter(g => g.scored > 0 && g.conceded > 0).length;
 
   return {
-    o25ImpliedProb,
-    rollingCombinedScoring: homeRolling + awayRolling,
-    bttsProb: ((homeBTTS + awayBTTS) / 2) * 100,
-    o25Prob: computeRollingRate(results, match.date, 30, m => m.ftHomeGoals + m.ftAwayGoals > 2.5) * 100,
-    o35Prob: computeRollingRate(results, match.date, 30, m => m.ftHomeGoals + m.ftAwayGoals > 3.5) * 100,
-    drawProb,
-    avgGoalsPerGame: avgGoals,
+    avgScored,
+    avgConceded: teamGames.reduce((s, g) => s + g.conceded, 0) / n,
+    o25Rate: (o25Count / n) * 100,
+    bttsRate: (bttsCount / n) * 100,
+    o35Rate: (o35Count / n) * 100,
   };
 }
 
-function isBTTSBothHalves(m: MatchResult): boolean {
-  const shHome = m.ftHomeGoals - m.htHomeGoals;
-  const shAway = m.ftAwayGoals - m.htAwayGoals;
-  return (m.htHomeGoals > 0 && m.htAwayGoals > 0) && (shHome > 0 && shAway > 0);
+function computeLeagueAvgGoals(matches: MatchResult[], upToIndex: number): number {
+ const count = Math.min(upToIndex, 50);
+  if (count < 5) return 2.6;
+  const slice = matches.slice(0, count);
+  return slice.reduce((s, m) => s + m.ftHomeGoals + m.ftAwayGoals, 0) / slice.length;
+}
+
+function computeGameChecks(m: MatchResult, matches: MatchResult[], index: number): GameCheckData {
+  const bttsBH = isBTTSBothHalves(m);
+  const o25Implied = computeO25ImpliedProb(m);
+  const drawProb = computeDrawProb(m);
+
+  const homeRolling = computeTeamRolling(matches, m.homeTeam, index);
+  const awayRolling = computeTeamRolling(matches, m.awayTeam, index);
+  const rollingCombinedScoring = homeRolling.avgScored + awayRolling.avgScored;
+
+  const o25Prob = (homeRolling.o25Rate + awayRolling.o25Rate) / 2;
+  const o35Prob = (homeRolling.o35Rate + awayRolling.o35Rate) / 2;
+  const bttsProb = (homeRolling.bttsRate + awayRolling.bttsRate) / 2;
+  const avgGoalsPerGame = computeLeagueAvgGoals(matches, index);
+
+  const CURRENT = { o25Implied: 65, o25ImpliedElite: 72, o25Prob: 55, rollingScoring: 3.0, o35Prob: 35, bttsProb: 45, drawProbMax: 25, leagueAvgGoals: 2.6 };
+
+  const checkResults = [
+    o25Implied !== null && o25Implied >= CURRENT.o25Implied,
+    o25Implied !== null && o25Implied >= CURRENT.o25ImpliedElite,
+    o25Prob >= CURRENT.o25Prob,
+    rollingCombinedScoring >= CURRENT.rollingScoring,
+    o35Prob >= CURRENT.o35Prob,
+    bttsProb >= CURRENT.bttsProb,
+    drawProb < CURRENT.drawProbMax,
+    avgGoalsPerGame >= CURRENT.leagueAvgGoals,
+  ];
+
+  return { isBTTSBH: bttsBH, o25ImpliedProb: o25Implied, o25Prob, o35Prob, bttsProb, rollingCombinedScoring, drawProb, avgGoalsPerGame, checkResults };
 }
 
 // ============================================================================
 // Threshold Sweep
 // ============================================================================
-interface SweepResult { threshold: number; triggered: number; bttsBHHit: number; hitRate: number; coverage: number; lift: number; }
 
-function sweepThreshold(games: { signals: GameSignals; isBH: boolean }[], getValue: (s: GameSignals) => number | null, min: number, max: number, step: number): SweepResult[] {
-  const baseRate = games.filter(g => g.isBH).length / games.length;
-  const results: SweepResult[] = [];
-  for (let t = min; t <= max; t += step) {
-    const triggered = games.filter(g => { const v = getValue(g.signals); return v !== null && v >= t; });
-    const bhHits = triggered.filter(g => g.isBH).length;
-    results.push({
-      threshold: Math.round(t * 10) / 10, triggered: triggered.length, bttsBHHit: bhHits,
-      hitRate: triggered.length > 0 ? bhHits / triggered.length : 0,
-      coverage: triggered.length / games.length,
-      lift: baseRate > 0 ? (triggered.length > 0 ? (bhHits / triggered.length) / baseRate : 0) : 0,
-    });
-  }
-  return results;
+interface SweepResult {
+  threshold: string; value: number; sampleSize: number; bttsBHCount: number;
+  passRate: number; bttsBHRate: number; baseRate: number; lift: number; coverage: number;
 }
 
-// ============================================================================
-// Formatting helper
-// ============================================================================
-function fmtRow(r: SweepResult, pct: boolean): string {
-  const c1 = (pct ? (r.threshold + '%') : String(r.threshold)).padEnd(8);
-  const c2 = String(r.triggered).padEnd(10);
-  const c3 = String(r.bttsBHHit).padEnd(8);
-  const c4 = ((r.hitRate * 100).toFixed(2) + '%').padEnd(8);
-  const c5 = ((r.coverage * 100).toFixed(1) + '%').padEnd(9);
-  const c6 = (r.lift.toFixed(2) + 'x').padEnd(6);
-  return [c1, c2, c3, c4, c5, c6].join(' | ');
-}
-
-// ============================================================================
-// 8-Check Combo Test (matches current BTTS_BOTH_HALVES_CONFIG)
-// ============================================================================
 interface ComboResult {
-  requiredChecks: number;
-  totalTriggered: number;
-  bttsBHHits: number;
-  hitRate: number;
-  coverage: number;
-  lift: number;
-  // Per-tier breakdown
-  strong: number; qualified: number; borderline: number; unlikely: number;
-  strongBH: number; qualifiedBH: number; borderlineBH: number;
+  thresholds: Record<string, number>; requiredChecks: number;
+  totalGames: number; passing: number; bttsBHAmongPassing: number;
+  bttsBHRate: number; baseRate: number; lift: number; coverage: number; score: number;
 }
 
-function testCombo8(
-  games: { signals: GameSignals; isBH: boolean }[],
-  t: {
-    o25Implied: number;
-    o25ImpliedElite: number;
-    rollingScoring: number;
-    o35Prob: number;
-    bttsProb: number;
-    o25Prob: number;
-    drawProbMax: number;
-    leagueAvgGoals: number;
-  },
-  requiredChecks: number
-): ComboResult {
-  const baseRate = games.filter(g => g.isBH).length / games.length;
-  let totalTriggered = 0, bttsBHHits = 0;
-  let strong = 0, qualified = 0, borderline = 0, unlikely = 0;
-  let strongBH = 0, qualifiedBH = 0, borderlineBH = 0;
+function sweepThreshold(games: GameCheckData[], field: string, label: string, values: number[], direction: 'above' | 'below', baseRate: number): SweepResult[] {
+  const totalBTTSBH = games.filter(g => g.isBTTSBH).length;
+  const total = games.length;
 
-  for (const g of games) {
-    const s = g.signals;
-    let score = 0;
-    // Check 1: O2.5 Implied >= threshold (CRITICAL)
-    if (s.o25ImpliedProb !== null && s.o25ImpliedProb >= t.o25Implied) score++;
-    // Check 2: O2.5 Implied elite (CRITICAL)
-    if (s.o25ImpliedProb !== null && s.o25ImpliedProb >= t.o25ImpliedElite) score++;
-    // Check 3: O2.5 Model prob (HIGH)
-    if (s.o25Prob >= t.o25Prob) score++;
-    // Check 4: Rolling combined scoring (HIGH)
-    if (s.rollingCombinedScoring >= t.rollingScoring) score++;
-    // Check 5: O3.5 rolling rate (MEDIUM)
-    if (s.o35Prob >= t.o35Prob) score++;
-    // Check 6: BTTS rolling rate (MEDIUM)
-    if (s.bttsProb >= t.bttsProb) score++;
-    // Check 7: Draw prob INVERTED — below max (MEDIUM)
-    if (s.drawProb < t.drawProbMax) score++;
-    // Check 8: League avg goals (LOW)
-    if (s.avgGoalsPerGame >= t.leagueAvgGoals) score++;
-
-    // Tier classification (matching current code)
-    if (score >= 7) strong++;
-    else if (score >= 5) qualified++;
-    else if (score >= 3) borderline++;
-    else unlikely++;
-
-    if (score >= requiredChecks) {
-      totalTriggered++;
-      if (g.isBH) bttsBHHits++;
+  return values.map(v => {
+    let passing: GameCheckData[];
+    if (field === 'o25ImpliedProb') {
+      passing = direction === 'above'
+        ? games.filter(g => g.o25ImpliedProb !== null && g.o25ImpliedProb >= v)
+        : games.filter(g => g.o25ImpliedProb !== null && g.o25ImpliedProb < v);
+    } else if (direction === 'below') {
+      passing = games.filter((g: any) => g[field] < v);
+    } else {
+      passing = games.filter((g: any) => g[field] >= v);
     }
-    if (score >= 7 && g.isBH) strongBH++;
-    if (score >= 5 && score < 7 && g.isBH) qualifiedBH++;
-    if (score >= 3 && score < 5 && g.isBH) borderlineBH++;
+
+    const bh = passing.filter(g => g.isBTTSBH).length;
+    const rate = passing.length > 0 ? (bh / passing.length) * 100 : 0;
+    const lift = baseRate > 0 ? rate / baseRate : 0;
+    const cov = totalBTTSBH > 0 ? (bh / totalBTTSBH) * 100 : 0;
+    return { threshold: label, value: v, sampleSize: passing.length, bttsBHCount: bh, passRate: (passing.length / total) * 100, bttsBHRate: rate, baseRate, lift, coverage: cov };
+  });
+}
+
+function evalCombo(games: GameCheckData[], o25Imp: number, o25Elite: number, o25P: number, roll: number, o35P: number, bttsP: number, drawMax: number, leagueAvg: number, req: number, baseRate: number): ComboResult {
+  const passing = games.filter(g => {
+    const checks = [
+      g.o25ImpliedProb !== null && g.o25ImpliedProb >= o25Imp,
+      g.o25ImpliedProb !== null && g.o25ImpliedProb >= o25Elite,
+      g.o25Prob >= o25P,
+      g.rollingCombinedScoring >= roll,
+      g.o35Prob >= o35P,
+      g.bttsProb >= bttsP,
+      g.drawProb < drawMax,
+      g.avgGoalsPerGame >= leagueAvg,
+    ];
+    return checks.filter(c => c).length >= req;
+  });
+
+  const totalBH = games.filter(g => g.isBTTSBH).length;
+  const bh = passing.filter(g => g.isBTTSBH).length;
+  const rate = passing.length > 0 ? (bh / passing.length) * 100 : 0;
+  const lift = baseRate > 0 ? rate / baseRate : 0;
+  const cov = totalBH > 0 ? (bh / totalBH) * 100 : 0;
+  return { thresholds: { o25Implied: o25Imp, o25ImpliedElite: o25Elite, o25Prob: o25P, rollingScoring: roll, o35Prob: o35P, bttsProb: bttsP, drawProbMax: drawMax, leagueAvgGoals: leagueAvg }, requiredChecks: req, totalGames: games.length, passing: passing.length, bttsBHAmongPassing: bh, bttsBHRate: rate, baseRate, lift, coverage: cov, score: lift * Math.sqrt(cov / 100) };
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+async function main() {
+  console.log('='.repeat(80));
+  console.log('BTTS BOTH HALVES — MULTI-LEAGUE THRESHOLD CALIBRATION');
+  console.log('='.repeat(80));
+
+  const leagueData = await fetchAllData();
+
+  // === Phase 1: Base rates ===
+  console.log('\n' + '='.repeat(80));
+  console.log('PHASE 1: BTTS-BH BASE RATES BY LEAGUE');
+  console.log('='.repeat(80));
+
+  let allGames: GameCheckData[] = [];
+  const leagueGameMap: Map<string, GameCheckData[]> = new Map();
+
+  for (const ld of leagueData) {
+    if (ld.matches.length === 0) continue;
+    ld.matches.sort((a, b) => a.date.localeCompare(b.date));
+    const games: GameCheckData[] = ld.matches.map((m, i) => computeGameChecks(m, ld.matches, i));
+    const bhCount = games.filter(g => g.isBTTSBH).length;
+    const rate = (bhCount / games.length) * 100;
+    console.log(`\n  ${ld.name.padEnd(20)} ${ld.matches.length} games, ${bhCount} BTTS-BH (${rate.toFixed(2)}%)`);
+
+    // Score distribution
+    const byScore: Record<number, { t: number; bh: number }> = {};
+    for (const g of games) {
+      const s = g.checkResults.filter(c => c).length;
+      if (!byScore[s]) byScore[s] = { t: 0, bh: 0 };
+      byScore[s].t++; if (g.isBTTSBH) byScore[s].bh++;
+    }
+    for (const [s, d] of Object.entries(byScore).sort((a, b) => Number(b[0]) - Number(a[0]))) {
+      console.log(`    Score ${s}: ${d.t} games, ${d.bh} BTTS-BH (${(d.bh/d.t*100).toFixed(1)}%)`);
+    }
+
+    allGames = allGames.concat(games);
+    leagueGameMap.set(ld.league, games);
   }
 
-  const hitRate = totalTriggered > 0 ? bttsBHHits / totalTriggered : 0;
-  return {
-    requiredChecks, totalTriggered, bttsBHHits, hitRate,
-    coverage: totalTriggered / games.length,
-    lift: baseRate > 0 ? hitRate / baseRate : 0,
-    strong, qualified, borderline, unlikely,
-    strongBH, qualifiedBH, borderlineBH,
-  };
-}
+  const totalAll = allGames.length;
+  const bhAll = allGames.filter(g => g.isBTTSBH).length;
+  const baseAll = (bhAll / totalAll) * 100;
+  console.log(`\n  AGGREGATE: ${totalAll} games, ${bhAll} BTTS-BH (${baseAll.toFixed(2)}%)`);
 
-// ============================================================================
-// Grid search (8-check system)
-// ============================================================================
-function gridSearch(games: { signals: GameSignals; isBH: boolean }[], label: string): void {
-  console.log('\n' + '='.repeat(90));
-  console.log('GRID SEARCH: ' + label);
-  console.log('='.repeat(90));
-  const baseRate = games.filter(g => g.isBH).length / games.length;
-  const bhCount = games.filter(g => g.isBH).length;
-  console.log('Base BTTS-BH rate: ' + (baseRate * 100).toFixed(2) + '% (' + bhCount + '/' + games.length + ')');
+  // === Phase 2: Individual threshold sweep ===
+  console.log('\n' + '='.repeat(80));
+  console.log('PHASE 2: INDIVIDUAL THRESHOLD SWEEP (ALL LEAGUES)');
+  console.log('='.repeat(80));
 
-  const header = 'Implied | Elite | Roll | O35 | BTTS | O25 | DrawMax | LgAvg | Req | Triggered | BH | HitRate | Cover | Lift';
-  console.log(header);
-  console.log('-'.repeat(header.length));
+  function printSweep(results: SweepResult[], minSample = 50) {
+    for (const r of results) {
+      if (r.sampleSize < minSample) continue;
+      const dir = r.threshold === 'drawProbMax' ? '<' : '>=';
+      console.log(`    ${r.threshold} ${dir} ${r.value}: ${r.sampleSize} games (${r.passRate.toFixed(1)}%), ${r.bttsBHCount} BTTS-BH (${r.bttsBHRate.toFixed(2)}%), lift ${r.lift.toFixed(2)}x, cov ${r.coverage.toFixed(1)}%`);
+    }
+  }
 
-  let bestLift = 0, bestCombo = '';
-  let bestBalanced = 0, bestBalancedCombo = '';
+  console.log('\n  --- O2.5 Implied Probability ---');
+  printSweep(sweepThreshold(allGames, 'o25ImpliedProb', 'o25Implied', [50, 55, 58, 60, 62, 63, 64, 65, 66, 67, 68, 70, 72, 75, 80], 'above', baseAll));
 
-  for (const imp of [60, 62, 64, 65, 66, 68, 70]) {
-    for (const elite of [imp + 4, imp + 5, imp + 7, 72, 75]) {
-      for (const roll of [2.5, 2.8, 3.0, 3.2, 3.5]) {
-        for (const req of [4, 5, 6, 7, 8]) {
-          const r = testCombo8(games, {
-            o25Implied: imp, o25ImpliedElite: elite,
-            rollingScoring: roll, o35Prob: 35, bttsProb: 45, o25Prob: 55,
-            drawProbMax: 25, leagueAvgGoals: 2.6,
-          }, req);
-          if (r.coverage > 0.005 && r.lift > 1.3 && r.totalTriggered >= 10) {
-            const c1 = (imp + '%').padEnd(7);
-            const c2 = (elite + '%').padEnd(6);
-            const c3 = String(roll).padEnd(5);
-            const c4 = '35%'.padEnd(5);
-            const c5 = '45%'.padEnd(6);
-            const c6 = '55%'.padEnd(5);
-            const c7 = '25%'.padEnd(8);
-            const c8 = '2.6'.padEnd(6);
-            const c9 = String(req).padEnd(4);
-            const c10 = String(r.totalTriggered).padEnd(10);
-            const c11 = String(r.bttsBHHits).padEnd(3);
-            const c12 = ((r.hitRate * 100).toFixed(1) + '%').padEnd(8);
-            const c13 = ((r.coverage * 100).toFixed(1) + '%').padEnd(7);
-            const c14 = (r.lift.toFixed(2) + 'x').padEnd(6);
-            console.log([c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14].join(' | '));
-            if (r.lift > bestLift && r.totalTriggered >= 15) {
-              bestLift = r.lift;
-              bestCombo = 'Imp>=' + imp + '%, Elite>=' + elite + '%, Roll>=' + roll + ', Req=' + req + ': ' + (r.hitRate * 100).toFixed(1) + '% hit, ' + r.lift.toFixed(2) + 'x lift (' + r.totalTriggered + ' trig, ' + r.bttsBHHits + ' hits)';
-            }
-            // Balanced: best lift * coverage product (practical utility)
-            const balance = r.lift * r.coverage;
-            if (balance > bestBalanced && r.totalTriggered >= 20) {
-              bestBalanced = balance;
-              bestBalancedCombo = 'Imp>=' + imp + '%, Elite>=' + elite + '%, Roll>=' + roll + ', Req=' + req + ': ' + (r.hitRate * 100).toFixed(1) + '% hit, ' + r.lift.toFixed(2) + 'x lift, ' + (r.coverage * 100).toFixed(1) + '% cov (' + r.totalTriggered + ' trig)';
-            }
+  console.log('\n  --- Rolling Combined Scoring ---');
+  printSweep(sweepThreshold(allGames, 'rollingCombinedScoring', 'rollingScoring', [1.5, 2.0, 2.5, 2.8, 3.0, 3.2, 3.5, 4.0], 'above', baseAll));
+
+  console.log('\n  --- O3.5 Rolling Rate ---');
+  printSweep(sweepThreshold(allGames, 'o35Prob', 'o35Prob', [10, 15, 20, 25, 30, 35, 40, 45, 50], 'above', baseAll));
+
+  console.log('\n  --- BTTS Rolling Rate ---');
+  printSweep(sweepThreshold(allGames, 'bttsProb', 'bttsProb', [20, 25, 30, 35, 40, 45, 50, 55, 60], 'above', baseAll));
+
+  console.log('\n  --- Draw Probability (INVERTED: below = better) ---');
+  printSweep(sweepThreshold(allGames, 'drawProb', 'drawProbMax', [15, 18, 20, 22, 25, 27, 28, 30, 35], 'below', baseAll));
+
+  console.log('\n  --- O2.5 Rolling Rate ---');
+  printSweep(sweepThreshold(allGames, 'o25Prob', 'o25Prob', [30, 35, 40, 45, 50, 55, 60, 65], 'above', baseAll));
+
+  // === Phase 3: Per-league O2.5 implied lift ===
+  console.log('\n' + '='.repeat(80));
+  console.log('PHASE 3: O2.5 IMPLIED LIFT BY LEAGUE');
+  console.log('='.repeat(80));
+
+  for (const ld of leagueData) {
+    if (ld.matches.length === 0) continue;
+    const games = leagueGameMap.get(ld.league)!;
+    const localBH = games.filter(g => g.isBTTSBH).length;
+    const localBase = (localBH / games.length) * 100;
+    let line = `  ${ld.name.padEnd(20)} base=${localBase.toFixed(2)}% (${games.length} games)`;
+    for (const t of [60, 65, 70, 75]) {
+      const p = games.filter(g => g.o25ImpliedProb !== null && g.o25ImpliedProb >= t);
+      const bh = p.filter(g => g.isBTTSBH).length;
+      const rate = p.length > 0 ? (bh / p.length) * 100 : 0;
+      const lift = localBase > 0 ? rate / localBase : 0;
+      line += ` | ${t}%: ${lift.toFixed(2)}x (${p.length})`;
+    }
+    console.log(line);
+  }
+
+  // === Phase 4: Required checks sweep ===
+  console.log('\n' + '='.repeat(80));
+  console.log('PHASE 4: REQUIRED CHECKS SWEEP (current thresholds)');
+  console.log('='.repeat(80));
+
+  for (const req of [3, 4, 5, 6, 7, 8]) {
+    const c = evalCombo(allGames, 65, 72, 55, 3.0, 35, 45, 25, 2.6, req, baseAll);
+    console.log(`  Req=${req}: ${c.passing} pass (${(c.passing/c.totalGames*100).toFixed(1)}%), ${c.bttsBHAmongPassing} BTTS-BH (${c.bttsBHRate.toFixed(2)}%), lift ${c.lift.toFixed(2)}x, cov ${c.coverage.toFixed(1)}%, score ${c.score.toFixed(3)}`);
+  }
+
+  // === Phase 5: Grid search ===
+  console.log('\n' + '='.repeat(80));
+  console.log('PHASE 5: COMBO GRID SEARCH');
+  console.log('='.repeat(80));
+
+  let best: ComboResult | null = null;
+  const topN: ComboResult[] = [];
+  let iters = 0;
+
+  const o25Vals = [58, 60, 62, 63, 64, 65, 66, 67, 68, 70];
+  const eliteVals = [65, 68, 70, 72, 75, 78];
+  const rollVals = [2.0, 2.5, 2.8, 3.0, 3.2, 3.5];
+  const reqVals = [3, 4, 5, 6, 7];
+
+  for (const o25 of o25Vals) {
+    for (const elite of eliteVals) {
+      if (elite <= o25) continue;
+      for (const roll of rollVals) {
+        for (const req of reqVals) {
+          iters++;
+          const c = evalCombo(allGames, o25, elite, 55, roll, 35, 45, 25, 2.6, req, baseAll);
+          if (c.passing >= 50 && c.lift >= 1.2 && c.bttsBHRate >= 5) {
+            topN.push(c);
+            if (!best || c.score > best.score) best = c;
           }
         }
       }
     }
   }
-  console.log('\n>>> BEST LIFT: ' + bestCombo);
-  console.log('>>> BEST BALANCED (lift x coverage): ' + bestBalancedCombo);
+
+  console.log(`\n  Searched ${iters} combinations, ${topN.length} viable`);
+
+  topN.sort((a, b) => b.score - a.score);
+  console.log('\n  --- TOP 15 COMBOS ---');
+  console.log(`  ${'#'.padEnd(4)} ${'O2.5'.padEnd(5)} ${'Elite'.padEnd(6)} ${'Roll'.padEnd(6)} ${'Req'.padEnd(4)} ${'Pass'.padEnd(6)} ${'BH'.padEnd(5)} ${'Rate'.padEnd(8)} ${'Lift'.padEnd(6)} ${'Cov'.padEnd(6)} ${'Score'.padEnd(7)}`);
+
+  for (let i = 0; i < Math.min(15, topN.length); i++) {
+    const c = topN[i];
+    console.log(`  ${(i+1).toString().padEnd(4)} ${c.thresholds.o25Implied.toString().padEnd(5)} ${c.thresholds.o25ImpliedElite.toString().padEnd(6)} ${c.thresholds.rollingScoring.toFixed(1).padEnd(6)} ${c.requiredChecks.toString().padEnd(4)} ${c.passing.toString().padEnd(6)} ${c.bttsBHAmongPassing.toString().padEnd(5)} ${c.bttsBHRate.toFixed(2)}%`.padEnd(8) + ` ${c.lift.toFixed(2)}x`.padEnd(6) + ` ${c.coverage.toFixed(1)}%`.padEnd(6) + ` ${c.score.toFixed(3)}`.padEnd(7));
+  }
+
+  // === Phase 6: League-by-league validation of best ===
+  console.log('\n' + '='.repeat(80));
+  console.log('PHASE 6: LEAGUE VALIDATION (best combo)');
+  console.log('='.repeat(80));
+
+  if (best) {
+    const t = best.thresholds;
+    const req = best.requiredChecks;
+    console.log(`\n  Best: O2.5>=${t.o25Implied}%, Elite>=${t.o25ImpliedElite}%, Roll>=${t.rollingScoring}, Req=${req}`);
+    console.log(`  Aggregate: ${best.passing} games, ${best.bttsBHAmongPassing} BTTS-BH (${best.bttsBHRate.toFixed(2)}%), lift ${best.lift.toFixed(2)}x`);
+    console.log(`\n  ${'League'.padEnd(20)} ${'Total'.padEnd(6)} ${'Pass'.padEnd(6)} ${'BH'.padEnd(5)} ${'Rate'.padEnd(8)} ${'Lift'.padEnd(6)} ${'Base'.padEnd(7)}`);
+
+    for (const ld of leagueData) {
+      if (ld.matches.length === 0) continue;
+      const games = leagueGameMap.get(ld.league)!;
+      const localBH = games.filter(g => g.isBTTSBH).length;
+      const localBase = (localBH / games.length) * 100;
+      const passing = games.filter(g => {
+        const checks = [
+          g.o25ImpliedProb !== null && g.o25ImpliedProb >= t.o25Implied,
+          g.o25ImpliedProb !== null && g.o25ImpliedProb >= t.o25ImpliedElite,
+          g.o25Prob >= 55, g.rollingCombinedScoring >= t.rollingScoring,
+          g.o35Prob >= 35, g.bttsProb >= 45, g.drawProb < 25, g.avgGoalsPerGame >= 2.6,
+        ];
+        return checks.filter(c => c).length >= req;
+      });
+      const bh = passing.filter(g => g.isBTTSBH).length;
+      const rate = passing.length > 0 ? (bh / passing.length) * 100 : 0;
+      const lift = localBase > 0 ? rate / localBase : 0;
+      console.log(`  ${ld.name.padEnd(20)} ${games.length.toString().padEnd(6)} ${passing.length.toString().padEnd(6)} ${bh.toString().padEnd(5)} ${rate.toFixed(2)}%`.padEnd(8) + ` ${lift.toFixed(2)}x`.padEnd(6) + ` ${localBase.toFixed(2)}%`.padEnd(7));
+    }
+
+    // === Phase 7: Current vs Optimal ===
+    console.log('\n' + '='.repeat(80));
+    console.log('PHASE 7: CURRENT vs OPTIMAL');
+    console.log('='.repeat(80));
+
+    const cur = evalCombo(allGames, 65, 72, 55, 3.0, 35, 45, 25, 2.6, 5, baseAll);
+    console.log(`\n  CURRENT (o25>=65%, elite>=72%, roll>=3.0, req=5):`);
+    console.log(`    ${cur.passing} games (${(cur.passing/cur.totalGames*100).toFixed(1)}%), ${cur.bttsBHAmongPassing} BTTS-BH (${cur.bttsBHRate.toFixed(2)}%), lift ${cur.lift.toFixed(2)}x, cov ${cur.coverage.toFixed(1)}%`);
+
+    console.log(`\n  OPTIMAL (o25>=${t.o25Implied}%, elite>=${t.o25ImpliedElite}%, roll>=${t.rollingScoring}, req=${req}):`);
+    console.log(`    ${best.passing} games (${(best.passing/best.totalGames*100).toFixed(1)}%), ${best.bttsBHAmongPassing} BTTS-BH (${best.bttsBHRate.toFixed(2)}%), lift ${best.lift.toFixed(2)}x, cov ${best.coverage.toFixed(1)}%`);
+
+    const rateDelta = best.bttsBHRate - cur.bttsBHRate;
+    const liftDelta = best.lift - cur.lift;
+    console.log(`\n  DELTA: Rate ${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}pp, Lift ${liftDelta >= 0 ? '+' : ''}${liftDelta.toFixed(2)}x, Cov ${best.coverage - cur.coverage >= 0 ? '+' : ''}${(best.coverage - cur.coverage).toFixed(1)}pp`);
+  }
+
+  // === Summary ===
+  console.log('\n' + '='.repeat(80));
+  console.log('SUMMARY');
+  console.log('='.repeat(80));
+  console.log(`  ${totalAll} games, ${bhAll} BTTS-BH (${baseAll.toFixed(2)}% base rate)`);
+
+  if (best) {
+    console.log(`  Best combo: O2.5>=${best.thresholds.o25Implied}%, Elite>=${best.thresholds.o25ImpliedElite}%, Roll>=${best.thresholds.rollingScoring}, Req=${best.requiredChecks}`);
+    console.log(`  Hit rate: ${best.bttsBHRate.toFixed(2)}% (${best.lift.toFixed(2)}x lift), Coverage: ${best.coverage.toFixed(1)}%`);
+  }
+
+  // Per-league base rates
+  console.log('\n  Per-league base rates:');
+  for (const ld of leagueData) {
+    if (ld.matches.length === 0) continue;
+    const games = leagueGameMap.get(ld.league)!;
+    const bh = games.filter(g => g.isBTTSBH).length;
+    console.log(`    ${ld.name.padEnd(20)} ${(bh/games.length*100).toFixed(2)}% (${bh}/${games.length})`);
+  }
+
+  console.log('\n' + '='.repeat(80));
+  console.log('DONE');
+  console.log('='.repeat(80));
 }
 
-// ============================================================================
-// Per-league analysis
-// ============================================================================
-function perLeagueAnalysis(games: { signals: GameSignals; isBH: boolean; league: string }[], name: string, code: string): void {
-  const lg = games.filter(g => g.league === code);
-  if (lg.length < 200) { console.log('\nSkipping ' + name + ' — only ' + lg.length + ' games'); return; }
-
-  console.log('\n' + '#'.repeat(80));
-  console.log('LEAGUE: ' + name + ' (' + lg.length + ' games)');
-  console.log('#'.repeat(80));
-  const bhCount = lg.filter(g => g.isBH).length;
-  const baseRate = bhCount / lg.length;
-  console.log('BTTS-BH: ' + bhCount + '/' + lg.length + ' (' + (baseRate * 100).toFixed(2) + '%)');
-
-  // Individual signal sweeps
-  console.log('\n--- O2.5 Implied Probability ---');
-  const is_ = sweepThreshold(lg, s => s.o25ImpliedProb, 50, 80, 1);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of is_.filter(r => r.triggered >= 5)) {
-    console.log(fmtRow(r, true));
-  }
-
-  console.log('\n--- Rolling Combined Scoring ---');
-  const rs_ = sweepThreshold(lg, s => s.rollingCombinedScoring, 1.5, 4.5, 0.1);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of rs_.filter(r => r.triggered >= 5 && r.threshold >= 2.0 && r.threshold <= 4.0)) {
-    console.log(fmtRow(r, false));
-  }
-
-  console.log('\n--- Draw Probability (INVERTED: below = good) ---');
-  const ds_ = sweepThreshold(lg, s => 100 - s.drawProb, 50, 85, 1);
-  console.log('(Showing 100 - drawProb, i.e. NOT-draw probability)');
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of ds_.filter(r => r.triggered >= 5)) {
-    console.log(fmtRow(r, true));
-  }
-
-  // Test current config on this league
-  console.log('\n--- Current Config (Imp>=65%, Elite>=72%, Roll>=3.0, O35>=35%, BTTS>=45%, O25>=55%, Draw<25%, LgAvg>=2.6) ---');
-  for (const req of [3, 4, 5, 6, 7, 8]) {
-    const r = testCombo8(lg, {
-      o25Implied: 65, o25ImpliedElite: 72, rollingScoring: 3.0,
-      o35Prob: 35, bttsProb: 45, o25Prob: 55, drawProbMax: 25, leagueAvgGoals: 2.6,
-    }, req);
-    const tierInfo = r.totalTriggered > 0
-      ? ' [S:' + r.strongBH + '/' + r.strong + ' Q:' + r.qualifiedBH + '/' + r.qualified + ' B:' + r.borderlineBH + '/' + r.borderline + ']'
-      : '';
-    console.log('  Req=' + req + ': ' + r.totalTriggered + ' triggered, ' + r.bttsBHHits + ' BH, ' + (r.hitRate * 100).toFixed(2) + '% hit, ' + (r.coverage * 100).toFixed(1) + '% cov, ' + r.lift.toFixed(2) + 'x lift' + tierInfo);
-  }
-
-  // Mini grid search per league
-  console.log('\n--- Per-League Grid Search (top 5 by lift, min 5 triggered) ---');
-  const results: { params: string; r: ComboResult }[] = [];
-  for (const imp of [60, 63, 65, 68, 70]) {
-    for (const roll of [2.5, 3.0, 3.5]) {
-      for (const req of [4, 5, 6, 7]) {
-        const r = testCombo8(lg, {
-          o25Implied: imp, o25ImpliedElite: Math.max(imp + 5, 72),
-          rollingScoring: roll, o35Prob: 35, bttsProb: 45, o25Prob: 55,
-          drawProbMax: 25, leagueAvgGoals: 2.6,
-        }, req);
-        if (r.totalTriggered >= 5) {
-          results.push({
-            params: 'Imp>=' + imp + '%, Roll>=' + roll + ', Req=' + req,
-            r,
-          });
-        }
-      }
-    }
-  }
-  results.sort((a, b) => b.r.lift - a.r.lift);
-  for (const { params, r } of results.slice(0, 5)) {
-    console.log('  ' + params + ': ' + r.totalTriggered + ' trig, ' + r.bttsBHHits + ' BH, ' + (r.hitRate * 100).toFixed(1) + '%, ' + r.lift.toFixed(2) + 'x lift, ' + (r.coverage * 100).toFixed(1) + '% cov');
-  }
-}
-
-// ============================================================================
-// MAIN
-// ============================================================================
-async function main() {
-  const LEAGUES = [
-    { code: 'E0', name: 'Premier League' },
-    { code: 'SP1', name: 'La Liga' },
-    { code: 'I1', name: 'Serie A' },
-    { code: 'D1', name: 'Bundesliga' },
-    { code: 'F1', name: 'Ligue 1' },
-  ];
-  const SEASONS = ['2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
-
-  // 1. Fetch
-  console.log('=== Fetching 5 leagues x 10 seasons ===');
-  const allResults: MatchResult[] = [];
-  for (const league of LEAGUES) {
-    console.log('\n--- ' + league.name + ' (' + league.code + ') ---');
-    for (const season of SEASONS) {
-      const data = await fetchSeason(league.code, season);
-      allResults.push(...data);
-      console.log('  ' + season + ': ' + data.length + ' matches');
-      await new Promise(r => setTimeout(r, 400));
-    }
-  }
-  console.log('\nTotal matches fetched: ' + allResults.length);
-
-  // Sort per league (needed for rolling computations)
-  const byLeague = new Map<string, MatchResult[]>();
-  for (const m of allResults) { const lg = byLeague.get(m.league) || []; lg.push(m); byLeague.set(m.league, lg); }
-  for (const [, matches] of byLeague) matches.sort((a, b) => a.date.localeCompare(b.date));
-
-  // 2. Compute signals & label
-  console.log('\n=== Computing signals for every game ===');
-  type LabeledGame = { signals: GameSignals; isBH: boolean; league: string };
-  const labeled: LabeledGame[] = [];
-  for (const [league, leagueResults] of byLeague) {
-    for (const match of leagueResults) {
-      labeled.push({ signals: computeGameSignals(leagueResults, match), isBH: isBTTSBothHalves(match), league });
-    }
-  }
-  const totalBH = labeled.filter(g => g.isBH).length;
-  console.log('Total: ' + labeled.length + ' games, BTTS-BH: ' + totalBH + ' (' + (totalBH / labeled.length * 100).toFixed(2) + '%)');
-
-  // BTTS-BH distribution by score
-  console.log('\n--- BTTS-BH Score Distribution ---');
-  const bhGames = labeled.filter(g => g.isBH);
-  const scoreDist: Record<string, number> = {};
-  for (const g of bhGames) {
-    // We need the actual match — re-derive from league data
-    const lgMatches = byLeague.get(g.league)!;
-    const idx = labeled.indexOf(g);
-    // Find the match
-  }
-  // Simpler: compute from allResults
-  const bhScores: Record<string, number> = {};
-  for (const m of allResults) {
-    if (isBTTSBothHalves(m)) {
-      const key = m.ftHomeGoals + '-' + m.ftAwayGoals;
-      bhScores[key] = (bhScores[key] || 0) + 1;
-    }
-  }
-  const sortedScores = Object.entries(bhScores).sort((a, b) => b[1] - a[1]);
-  console.log('Top 15 BTTS-BH scorelines:');
-  for (const [score, count] of sortedScores.slice(0, 15)) {
-    console.log('  ' + score + ': ' + count + ' (' + (count / totalBH * 100).toFixed(1) + '%)');
-  }
-
-  // 3. Overall individual signal sweeps
-  console.log('\n' + '='.repeat(80));
-  console.log('OVERALL SIGNAL SWEEPS (all leagues)');
-  console.log('='.repeat(80));
-
-  console.log('\n--- O2.5 Implied Probability ---');
-  const impliedSweep = sweepThreshold(labeled, s => s.o25ImpliedProb, 50, 80, 1);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of impliedSweep) { if (r.triggered >= 10) console.log(fmtRow(r, true)); }
-
-  console.log('\n--- Rolling Combined Scoring ---');
-  const rollingSweep = sweepThreshold(labeled, s => s.rollingCombinedScoring, 1.5, 4.5, 0.1);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of rollingSweep) { if (r.triggered >= 10) console.log(fmtRow(r, false)); }
-
-  console.log('\n--- BTTS Rolling Rate ---');
-  const bttsSweep = sweepThreshold(labeled, s => s.bttsProb, 20, 80, 2);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of bttsSweep) { if (r.triggered >= 10) console.log(fmtRow(r, true)); }
-
-  console.log('\n--- O3.5 Rolling Rate ---');
-  const o35Sweep = sweepThreshold(labeled, s => s.o35Prob, 15, 60, 2);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of o35Sweep) { if (r.triggered >= 10) console.log(fmtRow(r, true)); }
-
-  console.log('\n--- O2.5 Rolling Rate ---');
-  const o25Sweep = sweepThreshold(labeled, s => s.o25Prob, 30, 80, 2);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of o25Sweep) { if (r.triggered >= 10) console.log(fmtRow(r, true)); }
-
-  console.log('\n--- Draw Probability (INVERTED: 100 - drawProb) ---');
-  const drawSweep = sweepThreshold(labeled, s => 100 - s.drawProb, 50, 85, 1);
-  console.log('Thresh   | Triggered | BH_Hits | HitRate | Coverage  | Lift');
-  for (const r of drawSweep) { if (r.triggered >= 10) console.log(fmtRow(r, true)); }
-
-  // 4. Test CURRENT CONFIG (matching BTTS_BOTH_HALVES_CONFIG in code)
-  console.log('\n' + '='.repeat(80));
-  console.log('CURRENT CONFIG TEST (8-check system)');
-  console.log('Config: Imp>=65%, Elite>=72%, Roll>=3.0, O35>=35%, BTTS>=45%, O25>=55%, Draw<25%, LgAvg>=2.6');
-  console.log('='.repeat(80));
-  const currentConfig = {
-    o25Implied: 65, o25ImpliedElite: 72, rollingScoring: 3.0,
-    o35Prob: 35, bttsProb: 45, o25Prob: 55, drawProbMax: 25, leagueAvgGoals: 2.6,
-  };
-  console.log('\nCurrent config at each required-checks level:');
-  for (const req of [3, 4, 5, 6, 7, 8]) {
-    const r = testCombo8(labeled, currentConfig, req);
-    const tierInfo = '  Tiers → S:' + r.strong + ' (BH:' + r.strongBH + ') Q:' + r.qualified + ' (BH:' + r.qualifiedBH + ') B:' + r.borderline + ' (BH:' + r.borderlineBH + ') U:' + r.unlikely;
-    console.log('  Req=' + req + ': ' + r.totalTriggered + ' triggered, ' + r.bttsBHHits + ' BH, ' + (r.hitRate * 100).toFixed(2) + '% hit, ' + (r.coverage * 100).toFixed(1) + '% cov, ' + r.lift.toFixed(2) + 'x lift');
-    console.log(tierInfo);
-  }
-
-  // Per-tier hit rates (using current tier boundaries)
-  console.log('\n--- Per-Tier Hit Rates (current tier boundaries) ---');
-  const tiers = testCombo8(labeled, currentConfig, 0); // req=0 to get all tier counts
-  const tierData = [
-    { name: 'STRONG (7-8)', count: tiers.strong, bh: tiers.strongBH },
-    { name: 'QUALIFIED (5-6)', count: tiers.qualified, bh: tiers.qualifiedBH },
-    { name: 'BORDERLINE (3-4)', count: tiers.borderline, bh: tiers.borderlineBH },
-  ];
-  for (const t of tierData) {
-    const rate = t.count > 0 ? (t.bh / t.count * 100).toFixed(2) : 'N/A';
-    console.log('  ' + t.name + ': ' + t.count + ' games, ' + t.bh + ' BH (' + rate + '%)');
-  }
-
-  // 5. Grid search
-  gridSearch(labeled, 'ALL LEAGUES COMBINED');
-
-  // 6. Per-league analysis
-  for (const league of LEAGUES) perLeagueAnalysis(labeled, league.name, league.code);
-
-  // 7. Cross-validation: Season-by-season consistency
-  console.log('\n' + '='.repeat(80));
-  console.log('SEASON-BY-SEASON CONSISTENCY CHECK');
-  console.log('='.repeat(80));
-  for (const season of SEASONS) {
-    const sg = labeled.filter(g => {
-      // Find match result to get season
-      const lgMatches = byLeague.get(g.league)!;
-      const idx = labeled.indexOf(g);
-      return false; // Can't easily get season from labeled, skip
-    });
-  }
-  // Simpler: use allResults
-  console.log('\nSeason-by-season BTTS-BH rates and detector performance (Req=5):');
-  console.log('Season | Games | BH | BH%  | Triggered | BH | Hit%  | Lift');
-  console.log('-'.repeat(70));
-  for (const season of SEASONS) {
-    const seasonMatches = allResults.filter(m => m.season === season);
-    if (seasonMatches.length === 0) continue;
-    const seasonBH = seasonMatches.filter(m => isBTTSBothHalves(m)).length;
-    const seasonBase = seasonBH / seasonMatches.length;
-
-    // Compute signals for this season's games using that league's data
-    const seasonLabeled: { signals: GameSignals; isBH: boolean }[] = [];
-    for (const league of LEAGUES) {
-      const lgData = byLeague.get(league.code);
-      if (!lgData) continue;
-      const lgSeason = lgData.filter(m => m.season === season);
-      for (const match of lgSeason) {
-        seasonLabeled.push({
-          signals: computeGameSignals(lgData, match),
-          isBH: isBTTSBothHalves(match),
-        });
-      }
-    }
-    if (seasonLabeled.length === 0) continue;
-    const r = testCombo8(seasonLabeled, currentConfig, 5);
-    const s1 = season.padEnd(6);
-    const s2 = String(seasonMatches.length).padEnd(6);
-    const s3 = String(seasonBH).padEnd(3);
-    const s4 = (seasonBase * 100).toFixed(1) + '%'.padEnd(5);
-    const s5 = String(r.totalTriggered).padEnd(10);
-    const s6 = String(r.bttsBHHits).padEnd(3);
-    const s7 = (r.hitRate * 100).toFixed(1) + '%'.padEnd(5);
-    const s8 = (r.lift.toFixed(2) + 'x').padEnd(6);
-    console.log(s1 + ' | ' + s2 + ' | ' + s3 + ' | ' + s4 + ' | ' + s5 + ' | ' + s6 + ' | ' + s7 + ' | ' + s8);
-  }
-
-  // 8. FINAL SUMMARY
-  console.log('\n' + '='.repeat(80));
-  console.log('CALIBRATION SUMMARY & RECOMMENDATIONS');
-  console.log('='.repeat(80));
-
-  const bestImplied = impliedSweep.filter(r => r.coverage >= 0.05 && r.triggered >= 20).sort((a, b) => b.lift - a.lift)[0];
-  const bestRolling = rollingSweep.filter(r => r.coverage >= 0.10 && r.triggered >= 20).sort((a, b) => b.lift - a.lift)[0];
-
-  console.log('\n1. BEST INDIVIDUAL SIGNALS:');
-  console.log('   O2.5 Implied: ' + bestImplied?.threshold + '% (lift: ' + bestImplied?.lift.toFixed(2) + 'x, coverage: ' + ((bestImplied?.coverage || 0) * 100).toFixed(1) + '%)');
-  console.log('   Rolling Scoring: ' + bestRolling?.threshold + ' (lift: ' + bestRolling?.lift.toFixed(2) + 'x, coverage: ' + ((bestRolling?.coverage || 0) * 100).toFixed(1) + '%)');
-
-  // Test if lowering drawProbMax helps
-  console.log('\n2. DRAW PROB MAX SWEEP:');
-  for (const dpm of [20, 22, 25, 28, 30, 35]) {
-    const r = testCombo8(labeled, { ...currentConfig, drawProbMax: dpm }, 5);
-    console.log('   drawProbMax=' + dpm + '%: ' + r.totalTriggered + ' trig, ' + (r.hitRate * 100).toFixed(2) + '% hit, ' + r.lift.toFixed(2) + 'x lift');
-  }
-
-  // Test if lowering bttsProb helps
-  console.log('\n3. BTTS PROB FLOOR SWEEP:');
-  for (const bp of [35, 40, 45, 50, 55]) {
-    const r = testCombo8(labeled, { ...currentConfig, bttsProb: bp }, 5);
-    console.log('   bttsProb>=' + bp + '%: ' + r.totalTriggered + ' trig, ' + (r.hitRate * 100).toFixed(2) + '% hit, ' + r.lift.toFixed(2) + 'x lift');
-  }
-
-  // Test o25Prob floor
-  console.log('\n4. O2.5 MODEL PROB FLOOR SWEEP:');
-  for (const op of [45, 50, 55, 60, 65]) {
-    const r = testCombo8(labeled, { ...currentConfig, o25Prob: op }, 5);
-    console.log('   o25Prob>=' + op + '%: ' + r.totalTriggered + ' trig, ' + (r.hitRate * 100).toFixed(2) + '% hit, ' + r.lift.toFixed(2) + 'x lift');
-  }
-
-  console.log('\n=== CALIBRATION COMPLETE ===');
-}
-
-main().catch(console.error);
+main().catch(e => { console.error(e); process.exit(1); });
