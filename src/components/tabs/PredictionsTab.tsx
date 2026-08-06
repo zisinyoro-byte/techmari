@@ -920,7 +920,6 @@ export default function PredictionsTab({
                   // BTTS BOTH HALVES — Dedicated O2.5 implied + rolling scoring detector
                   // ============================================================
                   const drawProbValue = prediction.prediction.calibrated?.draw ?? prediction.prediction.draw;
-                  const htDrawProbValue = prediction.prediction.htDraw;
                   const bttsBHResult = computeBTTSBothHalves({
                     o25Prob: o25ProbValue,
                     o35Prob: o35ProbValue,
@@ -928,11 +927,7 @@ export default function PredictionsTab({
                     rollingCombinedScoring: bttsChecklistInput.rollingCombinedScoring,
                     o25ImpliedProb: o25ImpliedProb,
                     drawProb: drawProbValue,
-                    htDrawProb: htDrawProbValue,
                     avgGoalsPerGame: analytics.avgGoalsPerGame,
-                    resolvedO35Prob: resolved.over35.modelO35Prob,
-                    resolvedBttsProb: resolved.btts.modelBttsProb,
-                    resolvedO25Prob: resolved.strongBet.o25Prob,
                   });
                   const isBTTSBothHalves = bttsBHResult.isBTTSBothHalves;
 
@@ -1478,8 +1473,8 @@ export default function PredictionsTab({
                             </p>
                           </div>
 
-                          {/* 10-check breakdown grid */}
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5 text-xs">
+                          {/* 8-check breakdown grid */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 text-xs">
                             {bttsBHResult.breakdown.map((check, i) => (
                               <div key={i} className={`p-1.5 rounded text-center ${check.passed
                                 ? (check.weight === 'CRITICAL' ? 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 font-medium'

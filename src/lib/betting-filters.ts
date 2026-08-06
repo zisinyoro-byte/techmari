@@ -330,27 +330,29 @@ export const GOAL_FEST_CONFIG = {
 
 // ---- BTTS BOTH HALVES — Dedicated detector for BTTS in both halves ----
 // BTTS-BH requires BOTH teams to score in EACH half (minimum 4 goals).
-// Base rate: ~5.3% of EPL games (223/4180). Average 5.52 goals when it hits.
+// Base rate: ~5.3% across top 5 European leagues (952/18013). Average 5.52 goals.
 //
-// Key findings from EPL analysis:
-//   - O2.5 implied >= 65% covers 90% of BTTS-BH games (strongest predictor)
-//   - Draw probability doubles for BTTS-BH (34% vs 17% base)
-//   - 2-2 is the most common scoreline
-//   - All raw model signals (BTTS%, O2.5%, xG) are essentially flat
-//   - O3.5 probability and rolling scoring add marginal discrimination
+// Calibrated on 18,013 matches (EPL, La Liga, Serie A, Bundesliga, Ligue 1) x 10 seasons.
+// Key calibration findings:
+//   - O2.5 implied >= 65%: 1.41x lift, 7.47% hit rate, 9.8% coverage (ONLY strong predictor)
+//   - O2.5 implied >= 72%: 1.45x lift, 7.68% hit rate, 3.1% coverage (elite tier)
+//   - Rolling scoring >= 3.0: 1.09x lift (marginal but independent signal)
+//   - Draw probability: NEGATIVE predictor (higher draw = LOWER BTTS-BH! Removed)
+//   - BTTS rate, O3.5 rate: completely flat across all thresholds
+//   - Best achievable combo: ~1.9x lift at Req=8, but only 1.2% coverage
 //
-// Design: 10-check system, need 7 of 10 to qualify.
-// Heavily weights O2.5 implied + rolling scoring (the two strongest discriminators),
-// and includes draw probability as a structural signal.
+// Design: 8-check system, need 5 of 8 to qualify.
+// Honesty-first: O2.5 implied is the primary signal. Other checks add context.
 export const BTTS_BOTH_HALVES_CONFIG = {
-  o25Implied: 65,        // O2.5 implied probability — strongest single predictor
-  o35Prob: { floor: 38, multiplier: 1.25 },  // O3.5 model prob (4+ goals needed)
-  bttsProb: { floor: 55, multiplier: 1.12 },  // BTTS model prob (both must score)
-  rollingScoring: 3.0,   // Rolling combined scoring (recent hot form)
-  drawProbLower: 20,     // Draw prob lower bound (BTTS-BH draws at 34%)
-  drawProbUpper: 40,     // Draw prob upper bound (not too draw-heavy)
-  o25Prob: { floor: 68, multiplier: 1.10 },  // O2.5 model prob (high goals expected)
-  requiredChecks: 7,     // 7 of 10 must pass
+  o25Implied: 65,        // O2.5 implied probability — THE strongest predictor (1.41x lift)
+  o25ImpliedElite: 72,   // Elite tier — bookies very confident (1.45x lift)
+  rollingScoring: 3.0,   // Rolling combined scoring (marginal, 1.09x lift)
+  o35Prob: 35,           // O3.5 rolling rate (BTTS-BH needs 4+ goals)
+  bttsProb: 45,          // BTTS rolling rate (lowered — flat but sets floor)
+  o25Prob: 55,           // O2.5 rolling rate (corroborates implied)
+  drawProbMax: 25,       // INVERTED: draw prob BELOW this (higher draw hurts BTTS-BH)
+  leagueAvgGoals: 2.6,   // League goal environment
+  requiredChecks: 5,     // 5 of 8 must pass (lowered from 7 — checks are more independent now)
 } as const;
 
 /** Resolved GOAL FEST thresholds */
@@ -2087,20 +2089,13 @@ export type BTTSBothHalvesTier =
   | 'BTTS-BH UNLIKELY';
 
 export interface BTTSBothHalvesInput {
-  // From ChecklistInput
-  o25Prob: number;
-  o35Prob: number;
-  bttsProb: number;
+  o25Prob: number;              // O2.5 model/rolling probability
+  o35Prob: number;              // O3.5 rolling rate
+  bttsProb: number;             // BTTS rolling rate
   rollingCombinedScoring: number;
-  o25ImpliedProb: number | null;
-  // Additional signals specific to BTTS-BH
-  drawProb: number;           // model draw probability (calibrated if available)
-  htDrawProb: number;         // HT draw probability (from HT predictions)
-  avgGoalsPerGame: number;    // league average goals
-  // Resolved thresholds
-  resolvedO35Prob: number;    // resolved O3.5 threshold
-  resolvedBttsProb: number;   // resolved BTTS threshold
-  resolvedO25Prob: number;    // resolved O2.5 threshold
+  o25ImpliedProb: number | null; // from bookmaker O2.5 odds
+  drawProb: number;             // draw probability from odds
+  avgGoalsPerGame: number;      // league average goals
 }
 
 export interface BTTSBothHalvesResult {
@@ -2115,125 +2110,110 @@ export interface BTTSBothHalvesResult {
 /**
  * Compute BTTS Both Halves indicator.
  *
+ * Calibrated on 18,013 matches across 5 European leagues (10 seasons each).
+ * 952 BTTS-BH games (5.29% base rate).
+ *
+ * 8-check system based on calibration findings:
+ *   - O2.5 implied >= 65% is the ONLY strong individual predictor (1.41x lift)
+ *   - Draw probability is NEGATIVE — higher draw = lower BTTS-BH (removed)
+ *   - BTTS rate, O3.5 rate are completely flat
+ *   - Rolling scoring adds marginal but independent signal
+ *
  * Tier system:
- *   STRONG (9-10): All signals align — extremely rare, highest confidence
- *   QUALIFIED (7-8): Core checks pass — actionable signal
- *   BORDERLINE (5-6): Some signals present — watch list
- *   UNLIKELY (0-4): Insufficient evidence
+ *   STRONG (7-8): Both O2.5 implied tiers + most supporting checks
+ *   QUALIFIED (5-6): Core O2.5 implied check passes with some support
+ *   BORDERLINE (3-4): Partial signal alignment
+ *   UNLIKELY (0-2): Insufficient evidence
  */
 export function computeBTTSBothHalves(input: BTTSBothHalvesInput): BTTSBothHalvesResult {
   const cfg = BTTS_BOTH_HALVES_CONFIG;
   const reasoning: string[] = [];
 
   const checks: { check: string; passed: boolean; weight: string }[] = [
-    // CHECK 1: O2.5 implied probability — THE strongest predictor
-    // 90% of BTTS-BH games have O2.5 odds < 2.0 (implied > 50%)
-    // 65%+ implied is the high-confidence bar
+    // CHECK 1: O2.5 implied probability — THE strongest predictor (1.41x lift at 65%)
     {
-      check: `O2.5 Implied >= ${cfg.o25Implied}%`,
+      check: 'O2.5 Implied >= ' + cfg.o25Implied + '%',
       passed: input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25Implied,
       weight: 'CRITICAL',
     },
 
-    // CHECK 2: O3.5 model probability — BTTS-BH requires 4+ goals
-    // Use resolved threshold with a floor of 38%
+    // CHECK 2: O2.5 implied elite — bookies very confident (1.45x lift at 72%)
     {
-      check: `O3.5 >= ${input.resolvedO35Prob.toFixed(0)}%`,
-      passed: input.o35Prob >= input.resolvedO35Prob,
+      check: 'O2.5 Implied >= ' + cfg.o25ImpliedElite + '% (elite)',
+      passed: input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25ImpliedElite,
+      weight: 'CRITICAL',
+    },
+
+    // CHECK 3: O2.5 model probability — corroborates implied (correlated but independent source)
+    {
+      check: 'O2.5 Model >= ' + cfg.o25Prob + '%',
+      passed: input.o25Prob >= cfg.o25Prob,
       weight: 'HIGH',
     },
 
-    // CHECK 3: BTTS model probability — both teams must score
+    // CHECK 4: Rolling combined scoring — recent hot form (1.09x lift at 3.0+)
     {
-      check: `BTTS >= ${input.resolvedBttsProb.toFixed(0)}%`,
-      passed: input.bttsProb >= input.resolvedBttsProb,
-      weight: 'HIGH',
-    },
-
-    // CHECK 4: O2.5 model probability — model expects goals
-    {
-      check: `O2.5 >= ${input.resolvedO25Prob.toFixed(0)}%`,
-      passed: input.o25Prob >= input.resolvedO25Prob,
-      weight: 'HIGH',
-    },
-
-    // CHECK 5: Rolling combined scoring — recent hot form from both teams
-    // 3.0+ means each team averaging ~1.5 goals/game recently
-    {
-      check: `Rolling Scoring >= ${cfg.rollingScoring}`,
+      check: 'Rolling Scoring >= ' + cfg.rollingScoring,
       passed: input.rollingCombinedScoring >= cfg.rollingScoring,
       weight: 'HIGH',
     },
 
-    // CHECK 6: Draw probability in the BTTS-BH sweet spot
-    // BTTS-BH games draw at 34% vs 17% base rate — 2x lift
-    // Sweet spot: 20-40% (excludes heavy favorites and coin-flip draws)
+    // CHECK 5: O3.5 rolling rate — BTTS-BH requires 4+ goals
     {
-      check: `Draw Prob ${cfg.drawProbLower}-${cfg.drawProbUpper}%`,
-      passed: input.drawProb >= cfg.drawProbLower && input.drawProb <= cfg.drawProbUpper,
+      check: 'O3.5 Rate >= ' + cfg.o35Prob + '%',
+      passed: input.o35Prob >= cfg.o35Prob,
       weight: 'MEDIUM',
     },
 
-    // CHECK 7: HT draw probability — scoring patterns start level
-    // HT draws transition to FT draws at higher rates for BTTS-BH
+    // CHECK 6: BTTS rolling rate — both teams must score at all
     {
-      check: `HT Draw >= 25%`,
-      passed: input.htDrawProb >= 25,
+      check: 'BTTS Rate >= ' + cfg.bttsProb + '%',
+      passed: input.bttsProb >= cfg.bttsProb,
       weight: 'MEDIUM',
     },
 
-    // CHECK 8: League goal environment — high-scoring leagues more likely
+    // CHECK 7: Draw probability INVERTED — lower draw = better for BTTS-BH
+    // Calibration showed draw >= 26% DECREASES BTTS-BH (0.90x lift)
     {
-      check: `League Avg Goals >= 2.7`,
-      passed: input.avgGoalsPerGame >= 2.7,
-      weight: 'LOW',
+      check: 'Draw Prob < ' + cfg.drawProbMax + '%',
+      passed: input.drawProb < cfg.drawProbMax,
+      weight: 'MEDIUM',
     },
 
-    // CHECK 9: BTTS checklist score — broader BTTS signal confirmation
-    // (Checked via BTTS prob + rolling scoring already, but league context helps)
+    // CHECK 8: League goal environment
     {
-      check: `BTTS Checklist >= 6/9`,
-      passed: input.bttsProb >= input.resolvedBttsProb && input.rollingCombinedScoring >= ROLLING_SCORING_THRESHOLDS.bttsBothHalves,
+      check: 'League Avg Goals >= ' + cfg.leagueAvgGoals,
+      passed: input.avgGoalsPerGame >= cfg.leagueAvgGoals,
       weight: 'LOW',
-    },
-
-    // CHECK 10: O2.5 implied very high — elite tier (>70% = bookies very confident)
-    {
-      check: `O2.5 Implied >= 70% (elite)`,
-      passed: input.o25ImpliedProb !== null && input.o25ImpliedProb >= 70,
-      weight: 'CRITICAL',
     },
   ];
 
   const score = checks.filter(c => c.passed).length;
 
   // Build reasoning
-  const passedCritical = checks.filter(c => c.passed && c.weight === 'CRITICAL').length;
-  const passedHigh = checks.filter(c => c.passed && c.weight === 'HIGH').length;
-
-  if (passedCritical >= 2 && passedHigh >= 2) {
-    reasoning.push('O2.5 implied and model probabilities strongly align for a high-scoring game.');
+  if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25Implied) {
+    reasoning.push('Bookmakers imply high goal expectation (' + input.o25ImpliedProb.toFixed(0) + '% O2.5). This is the strongest BTTS-BH predictor (1.41x lift).');
   }
-  if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= 70) {
-    reasoning.push('Bookmakers show very high confidence in Over 2.5 goals.');
-  }
-  if (input.drawProb >= cfg.drawProbLower && input.drawProb <= cfg.drawProbUpper) {
-    reasoning.push('Draw probability in BTTS-BH sweet spot (34% of BTTS-BH are draws).');
+  if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25ImpliedElite) {
+    reasoning.push('Elite tier — bookies show very high confidence (' + input.o25ImpliedProb.toFixed(0) + '% implied).');
   }
   if (input.rollingCombinedScoring >= cfg.rollingScoring) {
-    reasoning.push('Both teams showing strong recent scoring form.');
+    reasoning.push('Both teams showing recent scoring form (' + input.rollingCombinedScoring.toFixed(1) + ' combined goals last 5).');
+  }
+  if (input.drawProb < cfg.drawProbMax) {
+    reasoning.push('Low draw probability (' + input.drawProb.toFixed(0) + '%) — balanced matchup favors open play over defensive draws.');
   }
   if (reasoning.length === 0) {
-    reasoning.push('Insufficient signal alignment for BTTS in both halves.');
+    reasoning.push('Insufficient signal alignment for BTTS in both halves. O2.5 implied probability is the primary gate.');
   }
 
-  // Determine tier
+  // Determine tier (adjusted for 8-check system)
   let tier: BTTSBothHalvesTier;
-  if (score >= 9) {
+  if (score >= 7) {
     tier = 'BTTS-BH STRONG';
-  } else if (score >= 7) {
-    tier = 'BTTS-BH QUALIFIED';
   } else if (score >= 5) {
+    tier = 'BTTS-BH QUALIFIED';
+  } else if (score >= 3) {
     tier = 'BTTS-BH BORDERLINE';
   } else {
     tier = 'BTTS-BH UNLIKELY';
