@@ -1,0 +1,650 @@
+     1→import { NextRequest, NextResponse } from 'next/server';
+     2→import { fetchSeasonData } from '@/lib/data-cache';
+     3→import type {
+     4→  BacktestConfig,
+     5→  PredictionRecord,
+     6→  ModelAccuracy,
+     7→  BacktestResult,
+     8→  LeagueAverages,
+     9→} from '@/lib/types';
+    10→import { EUROPEAN_SEASONS } from '@/lib/constants';
+    11→import { calculateSeasonWeights } from '@/lib/models/season-weighting';
+    12→import { calculateLeagueAverages, generateBacktestPredictions } from '@/lib/models/predictions';
+    13→import { saveCalibration } from '@/lib/models/calibration-store';
+    14→import {
+    15→  deriveThresholdsFromBacktest,
+    16→  registerBacktestThresholds,
+    17→} from '@/lib/betting-filters';
+    18→import { persistThreshold } from '@/lib/models/threshold-store';
+    19→import { initializeThresholds } from '@/lib/models/threshold-init';
+    20→
+    21→// Find the last H2H match before a given date
+    22→function findLastH2H(
+    23→  allData: { homeTeam: string; awayTeam: string; date: string; season: string; ftHomeGoals: number; ftAwayGoals: number; ftResult: 'H' | 'D' | 'A' }[],
+    24→  homeTeam: string,
+    25→  awayTeam: string,
+    26→  beforeDate: string,
+    27→  currentSeason: string
+    28→): { found: boolean; date?: string; season?: string; homeGoals?: number; awayGoals?: number; result?: 'H' | 'D' | 'A'; scoreline?: string } | null {
+    29→  // Parse date for comparison (DD/MM/YYYY format)
+    30→  const parseDate = (dateStr: string): Date => {
+    31→    if (!dateStr) return new Date(0);
+    32→    const parts = dateStr.split('/');
+    33→    if (parts.length === 3) {
+    34→      let year = parseInt(parts[2], 10);
+    35→      if (year < 100) {
+    36→        year += year < 50 ? 2000 : 1900;
+    37→      }
+    38→      return new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]));
+    39→    }
+    40→    return new Date(dateStr);
+    41→  };
+    42→
+    43→  const matchDate = parseDate(beforeDate);
+    44→
+    45→  // Find all matches between these two teams before this date
+    46→  const h2hMatches = allData.filter(m => {
+    47→    const isSameTeams = (m.homeTeam === homeTeam && m.awayTeam === awayTeam) ||
+    48→                        (m.homeTeam === awayTeam && m.awayTeam === homeTeam);
+    49→    const matchDateM = parseDate(m.date);
+    50→    const isBefore = matchDateM < matchDate;
+    51→    return isSameTeams && isBefore;
+    52→  });
+    53→
+    54→  if (h2hMatches.length === 0) {
+    55→    return { found: false };
+    56→  }
+    57→
+    58→  // Sort by date descending to get the most recent
+    59→  h2hMatches.sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
+    60→
+    61→  const lastMatch = h2hMatches[0];
+    62→
+    63→  // Determine the result from perspective of the current home team
+    64→  // If the current home team was home in the H2H match, use the result as is
+    65→  // If the current home team was away, flip the result
+    66→  const currentHomeWasHome = lastMatch.homeTeam === homeTeam;
+    67→
+    68→  let h2hResult: 'H' | 'D' | 'A';
+    69→  let h2hHomeGoals: number;
+    70→  let h2hAwayGoals: number;
+    71→
+    72→  if (currentHomeWasHome) {
+    73→    h2hResult = lastMatch.ftResult;
+    74→    h2hHomeGoals = lastMatch.ftHomeGoals;
+    75→    h2hAwayGoals = lastMatch.ftAwayGoals;
+    76→  } else {
+    77→    // Flip the result - if original was H (home win), that's now an A (away win) from current home team's perspective
+    78→    h2hResult = lastMatch.ftResult === 'H' ? 'A' : lastMatch.ftResult === 'A' ? 'H' : 'D';
+    79→    h2hHomeGoals = lastMatch.ftAwayGoals;
+    80→    h2hAwayGoals = lastMatch.ftHomeGoals;
+    81→  }
+    82→
+    83→  return {
+    84→    found: true,
+    85→    date: lastMatch.date,
+    86→    season: lastMatch.season,
+    87→    homeGoals: h2hHomeGoals,
+    88→    awayGoals: h2hAwayGoals,
+    89→    result: h2hResult,
+    90→    scoreline: `${h2hHomeGoals}-${h2hAwayGoals}`
+    91→  };
+    92→}
+    93→
+    94→// Calculate accuracy metrics and per-market calibration ratios
+    95→function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccuracy; calibrationRatios: { over25: number; over15: number; over35: number; bttsYes: number; homeWin: number; draw: number; awayWin: number } } {
+    96→  const emptyRatios = { over25: 1, over15: 1, over35: 1, bttsYes: 1, homeWin: 1, draw: 1, awayWin: 1 };
+    97→
+    98→  if (predictions.length === 0) {
+    99→    return {
+   100→      metrics: {
+   101→        model: 'ensemble',
+   102→        matches: 0,
+   103→        homeWinAccuracy: 0, drawAccuracy: 0, awayWinAccuracy: 0, overallAccuracy: 0,
+   104→        over15Accuracy: 0, over25Accuracy: 0, under25Accuracy: 0,
+   105→        bttsYesAccuracy: 0, bttsNoAccuracy: 0,
+   106→        avgPredictedProb: 0, avgActualRate: 0, calibration: 0,
+   107→        valueBetsFound: 0, valueBetWinRate: 0, roi: 0,
+   108→        brierScore: 0,
+   109→      },
+   110→      calibrationRatios: emptyRatios,
+   111→    };
+   112→  }
+   113→
+   114→  let homeWinCorrect = 0, drawCorrect = 0, awayWinCorrect = 0;
+   115→  let over15Correct = 0, over25Correct = 0;
+   116→  let bttsYesCorrect = 0, bttsNoCorrect = 0;
+   117→  let totalBrier = 0;
+   118→  let valueBetsFound = 0, valueBetsWon = 0;
+   119→
+   120→  // Accumulators for per-market calibration ratio calculation
+   121→  let sumPredictedO25 = 0, sumPredictedO15 = 0, sumPredictedO35 = 0, sumPredictedBtts = 0;
+   122→  let sumPredictedHomeWin = 0, sumPredictedDraw = 0, sumPredictedAwayWin = 0;
+   123→
+   124→  for (const pred of predictions) {
+   125→    // 1X2
+   126→    const predictedResult = pred.predicted.homeWin > pred.predicted.draw && pred.predicted.homeWin > pred.predicted.awayWin ? 'H' :
+   127→                           pred.predicted.awayWin > pred.predicted.draw ? 'A' : 'D';
+   128→
+   129→    if (predictedResult === pred.actual.result) {
+   130→      if (pred.actual.result === 'H') homeWinCorrect++;
+   131→      else if (pred.actual.result === 'D') drawCorrect++;
+   132→      else awayWinCorrect++;
+   133→    }
+   134→
+   135→    // Goals markets
+   136→    if (pred.predicted.over15 >= 50 && pred.actual.over15) over15Correct++;
+   137→    else if (pred.predicted.over15 < 50 && !pred.actual.over15) over15Correct++;
+   138→
+   139→    if (pred.predicted.over25 >= 50 && pred.actual.over25) over25Correct++;
+   140→    else if (pred.predicted.over25 < 50 && !pred.actual.over25) over25Correct++;
+   141→
+   142→    // BTTS
+   143→    if (pred.predicted.btts >= 50 && pred.actual.btts) bttsYesCorrect++;
+   144→    else if (pred.predicted.btts < 50 && !pred.actual.btts) bttsNoCorrect++;
+   145→
+   146→    // Brier score (for result prediction)
+   147→    const actualH = pred.actual.result === 'H' ? 1 : 0;
+   148→    const actualD = pred.actual.result === 'D' ? 1 : 0;
+   149→    const actualA = pred.actual.result === 'A' ? 1 : 0;
+   150→    totalBrier += Math.pow(pred.predicted.homeWin / 100 - actualH, 2) +
+   151→                  Math.pow(pred.predicted.draw / 100 - actualD, 2) +
+   152→                  Math.pow(pred.predicted.awayWin / 100 - actualA, 2);
+   153→
+   154→    // Value bets (predicted prob > implied prob at odds 1.85)
+   155→    if (pred.predicted.over25 > 60) {
+   156→      valueBetsFound++;
+   157→      if (pred.actual.over25) valueBetsWon++;
+   158→    }
+   159→
+   160→    // Calibration accumulators
+   161→    sumPredictedO25 += pred.predicted.over25;
+   162→    sumPredictedO15 += pred.predicted.over15;
+   163→    sumPredictedBtts += pred.predicted.btts;
+   164→    sumPredictedHomeWin += pred.predicted.homeWin;
+   165→    sumPredictedDraw += pred.predicted.draw;
+   166→    sumPredictedAwayWin += pred.predicted.awayWin;
+   167→
+   168→    // O3.5 predicted: compute from totalXg using Poisson CDF complement
+   169→    // P(total > 3) = 1 - P(0) - P(1) - P(2) - P(3)
+   170→    const txg = pred.predicted.totalXg;
+   171→    if (txg > 0) {
+   172→      const p0 = Math.exp(-txg);
+   173→      const p1 = txg * Math.exp(-txg);
+   174→      const p2 = (txg * txg / 2) * Math.exp(-txg);
+   175→      const p3 = (txg * txg * txg / 6) * Math.exp(-txg);
+   176→      sumPredictedO35 += (1 - p0 - p1 - p2 - p3) * 100;
+   177→    }
+   178→  }
+   179→
+   180→  const n = predictions.length;
+   181→  const homeWinTotal = predictions.filter(p => p.actual.result === 'H').length;
+   182→  const drawTotal = predictions.filter(p => p.actual.result === 'D').length;
+   183→  const awayWinTotal = predictions.filter(p => p.actual.result === 'A').length;
+   184→  const bttsYesTotal = predictions.filter(p => p.actual.btts).length;
+   185→  const bttsNoTotal = n - bttsYesTotal;
+   186→
+   187→  const overallCorrect = homeWinCorrect + drawCorrect + awayWinCorrect;
+   188→  const avgPredictedProb = Math.round(sumPredictedO25 / n * 10) / 10;
+   189→  const avgActualRateO25 = (predictions.filter(p => p.actual.over25).length / n) * 100;
+   190→  const avgActualRate = Math.round(avgActualRateO25 * 10) / 10;
+   191→  const calibration = avgPredictedProb > 0 ? Math.round(avgActualRateO25 / avgPredictedProb * 1000) / 1000 : 1;
+   192→
+   193→  // Per-market calibration ratios: actual_rate / avg_predicted_rate
+   194→  // Ratio > 1 means model underestimates, < 1 means overestimates
+   195→  const avgPredO25 = sumPredictedO25 / n;
+   196→  const avgPredO15 = sumPredictedO15 / n;
+   197→  const avgPredO35 = sumPredictedO35 / n;
+   198→  const avgPredBtts = sumPredictedBtts / n;
+   199→  const avgPredHomeWin = sumPredictedHomeWin / n;
+   200→  const avgPredDraw = sumPredictedDraw / n;
+   201→  const avgPredAwayWin = sumPredictedAwayWin / n;
+   202→
+   203→  const over35ActualRate = (predictions.filter(p => p.actual.homeGoals + p.actual.awayGoals > 3.5).length / n * 100);
+   204→
+   205→  const calibrationRatios = {
+   206→    over25: avgPredO25 > 0 ? Math.round((avgActualRateO25 / avgPredO25) * 1000) / 1000 : 1,
+   207→    over15: avgPredO15 > 0 ? Math.round(((predictions.filter(p => p.actual.over15).length / n * 100) / avgPredO15) * 1000) / 1000 : 1,
+   208→    over35: avgPredO35 > 0 ? Math.round((over35ActualRate / avgPredO35) * 1000) / 1000 : 1,
+   209→    bttsYes: avgPredBtts > 0 ? Math.round(((bttsYesTotal / n * 100) / avgPredBtts) * 1000) / 1000 : 1,
+   210→    homeWin: avgPredHomeWin > 0 ? Math.round(((homeWinTotal / n * 100) / avgPredHomeWin) * 1000) / 1000 : 1,
+   211→    draw: avgPredDraw > 0 ? Math.round(((drawTotal / n * 100) / avgPredDraw) * 1000) / 1000 : 1,
+   212→    awayWin: avgPredAwayWin > 0 ? Math.round(((awayWinTotal / n * 100) / avgPredAwayWin) * 1000) / 1000 : 1,
+   213→  };
+   214→
+   215→  const metrics: ModelAccuracy = {
+   216→    model: 'ensemble',
+   217→    matches: n,
+   218→    homeWinAccuracy: homeWinTotal > 0 ? Math.round(homeWinCorrect / homeWinTotal * 1000) / 10 : 0,
+   219→    drawAccuracy: drawTotal > 0 ? Math.round(drawCorrect / drawTotal * 1000) / 10 : 0,
+   220→    awayWinAccuracy: awayWinTotal > 0 ? Math.round(awayWinCorrect / awayWinTotal * 1000) / 10 : 0,
+   221→    overallAccuracy: Math.round(overallCorrect / n * 1000) / 10,
+   222→    over15Accuracy: Math.round(over15Correct / n * 1000) / 10,
+   223→    over25Accuracy: Math.round(over25Correct / n * 1000) / 10,
+   224→    under25Accuracy: Math.round(over25Correct / n * 1000) / 10,
+   225→    bttsYesAccuracy: bttsYesTotal > 0 ? Math.round(bttsYesCorrect / bttsYesTotal * 1000) / 10 : 0,
+   226→    bttsNoAccuracy: bttsNoTotal > 0 ? Math.round(bttsNoCorrect / bttsNoTotal * 1000) / 10 : 0,
+   227→    avgPredictedProb,
+   228→    avgActualRate,
+   229→    calibration,
+   230→    valueBetsFound,
+   231→    valueBetWinRate: valueBetsFound > 0 ? Math.round(valueBetsWon / valueBetsFound * 1000) / 10 : 0,
+   232→    roi: valueBetsFound > 0 ? Math.round((valueBetsWon * 1.85 - valueBetsFound) / valueBetsFound * 1000) / 10 : 0,
+   233→    brierScore: Math.round(totalBrier / n * 1000) / 1000,
+   234→  };
+   235→
+   236→  return { metrics, calibrationRatios };
+   237→}
+   238→
+   239→export async function GET(request: NextRequest) {
+   240→  // Ensure persisted thresholds are loaded into memory
+   241→  initializeThresholds();
+   242→
+   243→  const searchParams = request.nextUrl.searchParams;
+   244→  const league = searchParams.get('league');
+   245→  const testSeason = searchParams.get('testSeason');
+   246→  const trainingSeasons = searchParams.get('trainingSeasons');
+   247→
+   248→  console.log(`[Backtest API] Request: league=${league}, testSeason=${testSeason}`);
+   249→
+   250→  if (!league || !testSeason) {
+   251→    return NextResponse.json(
+   252→      { error: 'Missing required parameters: league and testSeason' },
+   253→      { status: 400 }
+   254→    );
+   255→  }
+   256→
+   257→  // Parse training seasons
+   258→  const training = trainingSeasons ? trainingSeasons.split(',') :
+   259→    EUROPEAN_SEASONS.filter(s => s < testSeason).slice(-5); // Default: 5 seasons before test
+   260→
+   261→  const config: BacktestConfig = {
+   262→    trainingSeasons: training,
+   263→    testSeason,
+   264→    league,
+   265→  };
+   266→
+   267→  try {
+   268→    // Fetch training data — each season separately for weighting
+   269→    console.log(`[Backtest API] Fetching training data: ${training.join(', ')}`);
+   270→    const trainingPromises = training.map(s => fetchSeasonData(league, s));
+   271→    const trainingResults = await Promise.all(trainingPromises);
+   272→    const trainingData = trainingResults.flat();
+   273→    console.log(`[Backtest API] Training data: ${trainingData.length} matches`);
+   274→
+   275→    // Apply season weights to training data
+   276→    const seasonWeights = calculateSeasonWeights(training);
+   277→    console.log(`[Backtest API] Season weights: ${JSON.stringify(Array.from(seasonWeights.entries()))}`);
+   278→
+   279→    // Fetch test data
+   280→    console.log(`[Backtest API] Fetching test data: ${testSeason}`);
+   281→    const testData = await fetchSeasonData(league, testSeason);
+   282→    console.log(`[Backtest API] Test data: ${testData.length} matches`);
+   283→
+   284→    if (testData.length === 0) {
+   285→      return NextResponse.json({
+   286→        success: false,
+   287→        error: 'No test data available for this season',
+   288→        config,
+   289→      });
+   290→    }
+   291→
+   292→    // Calculate league averages from training data
+   293→    const leagueAvgs: LeagueAverages = calculateLeagueAverages(trainingData);
+   294→
+   295→    // Combine all data for H2H lookup (training + test data before current match)
+   296→    const allData = [...trainingData, ...testData];
+   297→
+   298→    // Generate predictions for each test match
+   299→    const predictions: PredictionRecord[] = [];
+   300→
+   301→    for (const match of testData) {
+   302→      // Only predict if both teams have historical data
+   303→      const homeTeamInTraining = trainingData.some(m => m.homeTeam === match.homeTeam || m.awayTeam === match.homeTeam);
+   304→      const awayTeamInTraining = trainingData.some(m => m.homeTeam === match.awayTeam || m.awayTeam === match.awayTeam);
+   305→
+   306→      if (!homeTeamInTraining || !awayTeamInTraining) continue;
+   307→
+   308→      // Pass season weights for recency-weighted training stats
+   309→      const predicted = generateBacktestPredictions(trainingData, match.homeTeam, match.awayTeam, leagueAvgs, seasonWeights);
+   310→
+   311→      // Calculate 2nd half result
+   312→      const shHomeGoals = match.ftHomeGoals - match.htHomeGoals;
+   313→      const shAwayGoals = match.ftAwayGoals - match.htAwayGoals;
+   314→      const shResult: 'H' | 'D' | 'A' = shHomeGoals > shAwayGoals ? 'H' : shHomeGoals < shAwayGoals ? 'A' : 'D';
+   315→
+   316→      const actual = {
+   317→        homeGoals: match.ftHomeGoals,
+   318→        awayGoals: match.ftAwayGoals,
+   319→        result: match.ftResult,
+   320→        totalGoals: match.ftHomeGoals + match.ftAwayGoals,
+   321→        btts: match.ftHomeGoals > 0 && match.ftAwayGoals > 0,
+   322→        over15: match.ftHomeGoals + match.ftAwayGoals > 1.5,
+   323→        over25: match.ftHomeGoals + match.ftAwayGoals > 2.5,
+   324→        // New fields
+   325→        htResult: match.htResult,
+   326→        htHomeGoals: match.htHomeGoals,
+   327→        htAwayGoals: match.htAwayGoals,
+   328→        shResult,
+   329→        shHomeGoals,
+   330→        shAwayGoals,
+   331→      };
+   332→
+   333→      // Find last H2H before this match
+   334→      const lastH2H = findLastH2H(allData, match.homeTeam, match.awayTeam, match.date, testSeason);
+   335→
+   336→      // Determine if predictions were correct
+   337→      const predictedResult = predicted.homeWin > predicted.draw && predicted.homeWin > predicted.awayWin ? 'H' :
+   338→                             predicted.awayWin > predicted.draw ? 'A' : 'D';
+   339→
+   340→      predictions.push({
+   341→        match: {
+   342→          date: match.date,
+   343→          homeTeam: match.homeTeam,
+   344→          awayTeam: match.awayTeam,
+   345→        },
+   346→        predicted,
+   347→        actual,
+   348→        odds: {
+   349→          home: match.oddsB365Home,
+   350→          draw: match.oddsB365Draw,
+   351→          away: match.oddsB365Away,
+   352→        },
+   353→        lastH2H,
+   354→        correct: {
+   355→          result: predictedResult === actual.result,
+   356→          over15: (predicted.over15 >= 50) === actual.over15,
+   357→          over25: (predicted.over25 >= 50) === actual.over25,
+   358→          btts: (predicted.btts >= 50) === actual.btts,
+   359→        },
+   360→      });
+   361→    }
+   362→
+   363→    console.log(`[Backtest API] Generated ${predictions.length} predictions`);
+   364→
+   365→    // Calculate metrics
+   366→    const { metrics: ensembleMetrics, calibrationRatios } = calculateMetrics(predictions);
+   367→
+   368→    // Save calibration ratios to the in-memory store for the predict route to use
+   369→    saveCalibration(league, {
+   370→      ...calibrationRatios,
+   371→      league,
+   372→      testSeason,
+   373→      matches: predictions.length,
+   374→      brierScore: ensembleMetrics.brierScore,
+   375→      timestamp: Date.now(),
+   376→    });
+   377→
+   378→    // ── Derive and register backtest-based thresholds for this league ──
+   379→    let derivedThresholds: typeof import('@/lib/betting-filters').LeagueBacktestThresholds | null = null;
+   380→    try {
+   381→      // Build BacktestMatch[] from predictions + testData for threshold derivation
+   382→      const testMatchMap = new Map<string, typeof testData[0]>();
+   383→      for (const m of testData) {
+   384→        testMatchMap.set(`${m.homeTeam}-${m.awayTeam}-${m.date}`, m);
+   385→      }
+   386→
+   387→      const backtestMatches = predictions.map(pred => {
+   388→        const matchKey = `${pred.match.homeTeam}-${pred.match.awayTeam}-${pred.match.date}`;
+   389→        const matchData = testMatchMap.get(matchKey);
+   390→
+   391→        // Compute per-match shot conversion: goals / shots (both teams)
+   392→        const totalShots = matchData
+   393→          ? (matchData.homeShots + matchData.awayShots)
+   394→          : 0;
+   395→        const shotConv = totalShots > 0
+   396→          ? ((matchData!.ftHomeGoals + matchData!.ftAwayGoals) / totalShots) * 100
+   397→          : undefined;
+   398→
+   399→        // Compute over35 probability from Poisson using totalXg
+   400→        // over35 = 1 - P(0 goals) - P(1) - P(2) - P(3)
+   401→        const totalXg = pred.predicted.totalXg;
+   402→        let over35Prob: number | undefined;
+   403→        if (totalXg > 0) {
+   404→          const p0 = Math.exp(-totalXg);
+   405→          const p1 = totalXg * Math.exp(-totalXg);
+   406→          const p2 = (totalXg * totalXg / 2) * Math.exp(-totalXg);
+   407→          const p3 = (totalXg * totalXg * totalXg / 6) * Math.exp(-totalXg);
+   408→          over35Prob = (1 - p0 - p1 - p2 - p3) * 100;
+   409→        }
+   410→
+   411→        return {
+   412→          ftHomeGoals: pred.actual.homeGoals,
+   413→          ftAwayGoals: pred.actual.awayGoals,
+   414→          predictedBtts: pred.predicted.btts,
+   415→          predictedO25: pred.predicted.over25,
+   416→          predictedO35: over35Prob,
+   417→          avgHomeGoals: leagueAvgs.avgHomeGoals,
+   418→          avgAwayGoals: leagueAvgs.avgAwayGoals,
+   419→          shotConversion: shotConv,
+   420→        };
+   421→      }).filter(m => m.predictedBtts !== undefined && m.predictedO25 !== undefined);
+   422→
+   423→      // Compute league baselines from test data for the derivation
+   424→      const totalGoals = testData.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0);
+   425→      const bttsCount = testData.filter(m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0).length;
+   426→      const over25Count = testData.filter(m => m.ftHomeGoals + m.ftAwayGoals > 2.5).length;
+   427→      const over35Count = testData.filter(m => m.ftHomeGoals + m.ftAwayGoals > 3.5).length;
+   428→      const totalShotsAll = testData.reduce((sum, m) => sum + m.homeShots + m.awayShots, 0);
+   429→
+   430→      const baselines = {
+   431→        avgGoalsPerGame: totalGoals / (testData.length || 1),
+   432→        over25Rate: (over25Count / (testData.length || 1)) * 100,
+   433→        bttsRate: (bttsCount / (testData.length || 1)) * 100,
+   434→        over35Rate: (over35Count / (testData.length || 1)) * 100,
+   435→        avgHomeGoals: leagueAvgs.avgHomeGoals,
+   436→        avgAwayGoals: leagueAvgs.avgAwayGoals,
+   437→        shotConversion: totalShotsAll > 0 ? (totalGoals / totalShotsAll) * 100 : 10,
+   438→      };
+   439→
+   440→      derivedThresholds = deriveThresholdsFromBacktest(
+   441→        league,
+   442→        backtestMatches,
+   443→        baselines,
+   444→        { minSampleSize: 80 } // Use 80 for backtest since it's per-season
+   445→      );
+   446→
+   447→      if (derivedThresholds) {
+   448→        registerBacktestThresholds(derivedThresholds);
+   449→        persistThreshold(derivedThresholds); // Save to disk for server-side use
+   450→        console.log(`[Backtest API] Derived & persisted thresholds for ${league}: ${derivedThresholds.sampleSize} matches`);
+   451→      } else {
+   452→        console.log(`[Backtest API] Insufficient data for threshold derivation (${backtestMatches.length} matches, need 80+)`);
+   453→      }
+   454→    } catch (thresholdError) {
+   455→      console.error('[Backtest API] Threshold derivation failed (non-fatal):', thresholdError);
+   456→    }
+   457→
+   458→    // Create calibration data
+   459→    const calibrationBuckets: { [key: string]: { predicted: number[]; actual: number[] } } = {};
+   460→    for (const pred of predictions) {
+   461→      const bucket = Math.floor(pred.predicted.over25 / 10) * 10;
+   462→      if (!calibrationBuckets[bucket]) {
+   463→        calibrationBuckets[bucket] = { predicted: [], actual: [] };
+   464→      }
+   465→      calibrationBuckets[bucket].predicted.push(pred.predicted.over25);
+   466→      calibrationBuckets[bucket].actual.push(pred.actual.over25 ? 100 : 0);
+   467→    }
+   468→
+   469→    const calibrationData = Object.entries(calibrationBuckets)
+   470→      .map(([bucket, data]) => ({
+   471→        predicted: Math.round(data.predicted.reduce((a, b) => a + b, 0) / data.predicted.length),
+   472→        actual: Math.round(data.actual.reduce((a, b) => a + b, 0) / data.actual.length),
+   473→        count: data.predicted.length,
+   474→      }))
+   475→      .sort((a, b) => a.predicted - b.predicted);
+   476→
+   477→    // Calculate BTTS patterns based on last H2H, HT result, and SH result
+   478→    const bttsMatches = predictions.filter(p => p.actual.btts);
+   479→    const totalBttsMatches = bttsMatches.length;
+   480→
+   481→    // H2H patterns
+   482→    const lastH2HHomeWin = predictions.filter(p => p.lastH2H?.found && p.lastH2H.result === 'H');
+   483→    const lastH2HAwayWin = predictions.filter(p => p.lastH2H?.found && p.lastH2H.result === 'A');
+   484→    const lastH2HDraw = predictions.filter(p => p.lastH2H?.found && p.lastH2H.result === 'D');
+   485→    const noH2H = predictions.filter(p => !p.lastH2H?.found);
+   486→
+   487→    // HT result patterns
+   488→    const htHomeWin = predictions.filter(p => p.actual.htResult === 'H');
+   489→    const htAwayWin = predictions.filter(p => p.actual.htResult === 'A');
+   490→    const htDraw = predictions.filter(p => p.actual.htResult === 'D');
+   491→
+   492→    // SH result patterns
+   493→    const shHomeWin = predictions.filter(p => p.actual.shResult === 'H');
+   494→    const shAwayWin = predictions.filter(p => p.actual.shResult === 'A');
+   495→    const shDraw = predictions.filter(p => p.actual.shResult === 'D');
+   496→
+   497→    // Generate insights
+   498→    const insights: string[] = [];
+   499→
+   500→    // H2H insights
+   501→    if (lastH2HHomeWin.length > 0) {
+   502→      const bttsRate = lastH2HHomeWin.filter(p => p.actual.btts).length / lastH2HHomeWin.length * 100;
+   503→      if (bttsRate > 55) {
+   504→        insights.push(`When last H2H was home win, BTTS rate is ${bttsRate.toFixed(1)}% (above average)`);
+   505→      }
+   506→    }
+   507→    if (lastH2HAwayWin.length > 0) {
+   508→      const bttsRate = lastH2HAwayWin.filter(p => p.actual.btts).length / lastH2HAwayWin.length * 100;
+   509→      if (bttsRate > 55) {
+   510→        insights.push(`When last H2H was away win, BTTS rate is ${bttsRate.toFixed(1)}% (above average)`);
+   511→      }
+   512→    }
+   513→    if (lastH2HDraw.length > 0) {
+   514→      const bttsRate = lastH2HDraw.filter(p => p.actual.btts).length / lastH2HDraw.length * 100;
+   515→      if (bttsRate > 55) {
+   516→        insights.push(`When last H2H was draw, BTTS rate is ${bttsRate.toFixed(1)}% (above average)`);
+   517→      }
+   518→    }
+   519→
+   520→    // HT result insights
+   521→    const htDrawBttsRate = htDraw.length > 0 ? htDraw.filter(p => p.actual.btts).length / htDraw.length * 100 : 0;
+   522→    if (htDrawBttsRate > 60) {
+   523→      insights.push(`HT draws have ${htDrawBttsRate.toFixed(1)}% BTTS rate - strong indicator`);
+   524→    }
+   525→
+   526→    // SH result insights
+   527→    const shDrawBttsRate = shDraw.length > 0 ? shDraw.filter(p => p.actual.btts).length / shDraw.length * 100 : 0;
+   528→    if (shDrawBttsRate > 60) {
+   529→      insights.push(`SH draws have ${shDrawBttsRate.toFixed(1)}% BTTS rate`);
+   530→    }
+   531→
+   532→    // Overall BTTS rate
+   533→    const overallBttsRate = predictions.length > 0 ? totalBttsMatches / predictions.length * 100 : 0;
+   534→    insights.push(`Overall BTTS rate: ${overallBttsRate.toFixed(1)}% across ${predictions.length} matches`);
+   535→
+   536→    // Calculate H2H scoreline patterns leading to BTTS
+   537→    const scorelineMap = new Map<string, { count: number; bttsCount: number }>();
+   538→    for (const pred of predictions) {
+   539→      if (pred.lastH2H?.found && pred.lastH2H.scoreline) {
+   540→        const current = scorelineMap.get(pred.lastH2H.scoreline) || { count: 0, bttsCount: 0 };
+   541→        current.count++;
+   542→        if (pred.actual.btts) current.bttsCount++;
+   543→        scorelineMap.set(pred.lastH2H.scoreline, current);
+   544→      }
+   545→    }
+   546→
+   547→    // Sort by BTTS count (most BTTS outcomes) and get top 10
+   548→    const h2hScorelines = Array.from(scorelineMap.entries())
+   549→      .map(([scoreline, data]) => ({
+   550→        scoreline,
+   551→        count: data.count,
+   552→        bttsCount: data.bttsCount,
+   553→        bttsRate: data.count > 0 ? (data.bttsCount / data.count) * 100 : 0,
+   554→      }))
+   555→      .sort((a, b) => b.bttsCount - a.bttsCount)
+   556→      .slice(0, 10);
+   557→
+   558→    // Add insight for top scoreline
+   559→    if (h2hScorelines.length > 0 && h2hScorelines[0].count >= 3) {
+   560→      const top = h2hScorelines[0];
+   561→      insights.push(`Most BTTS after H2H scoreline ${top.scoreline}: ${top.bttsCount}/${top.count} (${top.bttsRate.toFixed(0)}%)`);
+   562→    }
+   563→
+   564→    const bttsPatterns = {
+   565→      totalBttsMatches,
+   566→      h2hPatterns: {
+   567→        lastH2HHomeWin: {
+   568→          count: lastH2HHomeWin.length,
+   569→          bttsRate: lastH2HHomeWin.length > 0 ? lastH2HHomeWin.filter(p => p.actual.btts).length / lastH2HHomeWin.length * 100 : 0,
+   570→          avgGoals: lastH2HHomeWin.length > 0 ? lastH2HHomeWin.reduce((sum, p) => sum + p.actual.totalGoals, 0) / lastH2HHomeWin.length : 0,
+   571→        },
+   572→        lastH2HAwayWin: {
+   573→          count: lastH2HAwayWin.length,
+   574→          bttsRate: lastH2HAwayWin.length > 0 ? lastH2HAwayWin.filter(p => p.actual.btts).length / lastH2HAwayWin.length * 100 : 0,
+   575→          avgGoals: lastH2HAwayWin.length > 0 ? lastH2HAwayWin.reduce((sum, p) => sum + p.actual.totalGoals, 0) / lastH2HAwayWin.length : 0,
+   576→        },
+   577→        lastH2HDraw: {
+   578→          count: lastH2HDraw.length,
+   579→          bttsRate: lastH2HDraw.length > 0 ? lastH2HDraw.filter(p => p.actual.btts).length / lastH2HDraw.length * 100 : 0,
+   580→          avgGoals: lastH2HDraw.length > 0 ? lastH2HDraw.reduce((sum, p) => sum + p.actual.totalGoals, 0) / lastH2HDraw.length : 0,
+   581→        },
+   582→        noH2H: {
+   583→          count: noH2H.length,
+   584→          bttsRate: noH2H.length > 0 ? noH2H.filter(p => p.actual.btts).length / noH2H.length * 100 : 0,
+   585→          avgGoals: noH2H.length > 0 ? noH2H.reduce((sum, p) => sum + p.actual.totalGoals, 0) / noH2H.length : 0,
+   586→        },
+   587→      },
+   588→      h2hScorelines,
+   589→      htResultPatterns: {
+   590→        htHomeWin: {
+   591→          count: htHomeWin.length,
+   592→          bttsRate: htHomeWin.length > 0 ? htHomeWin.filter(p => p.actual.btts).length / htHomeWin.length * 100 : 0,
+   593→        },
+   594→        htAwayWin: {
+   595→          count: htAwayWin.length,
+   596→          bttsRate: htAwayWin.length > 0 ? htAwayWin.filter(p => p.actual.btts).length / htAwayWin.length * 100 : 0,
+   597→        },
+   598→        htDraw: {
+   599→          count: htDraw.length,
+   600→          bttsRate: htDrawBttsRate,
+   601→        },
+   602→      },
+   603→      shResultPatterns: {
+   604→        shHomeWin: {
+   605→          count: shHomeWin.length,
+   606→          bttsRate: shHomeWin.length > 0 ? shHomeWin.filter(p => p.actual.btts).length / shHomeWin.length * 100 : 0,
+   607→        },
+   608→        shAwayWin: {
+   609→          count: shAwayWin.length,
+   610→          bttsRate: shAwayWin.length > 0 ? shAwayWin.filter(p => p.actual.btts).length / shAwayWin.length * 100 : 0,
+   611→        },
+   612→        shDraw: {
+   613→          count: shDraw.length,
+   614→          bttsRate: shDrawBttsRate,
+   615→        },
+   616→      },
+   617→      insights,
+   618→    };
+   619→
+   620→    // Build result
+   621→    const result: BacktestResult = {
+   622→      success: true,
+   623→      config,
+   624→      totalMatches: predictions.length,
+   625→      models: [ensembleMetrics], // Can be extended for multiple models
+   626→      ensemble: ensembleMetrics,
+   627→      predictions: predictions.slice(0, 100), // Return first 100 for UI
+   628→      calibrationData,
+   629→      calibrationRatios, // Include ratios so the UI can display them
+   630→      bttsPatterns,
+   631→      summary: {
+   632→        bestModel1X2: `ensemble (${ensembleMetrics.overallAccuracy}%)`,
+   633→        bestModelO25: `ensemble (${ensembleMetrics.over25Accuracy}%)`,
+   634→        bestModelBTTS: `ensemble (${ensembleMetrics.bttsYesAccuracy}%)`,
+   635→        bestOverallROI: `ensemble (${ensembleMetrics.roi > 0 ? '+' : ''}${ensembleMetrics.roi}%)`,
+   636→      },
+   637→      // Include derived thresholds so the client can register them for filter use
+   638→      derivedThresholds: derivedThresholds ?? undefined,
+   639→    };
+   640→
+   641→    return NextResponse.json(result);
+   642→  } catch (error) {
+   643→    console.error('Backtest error:', error);
+   644→    return NextResponse.json(
+   645→      { success: false, error: 'Backtest failed', details: String(error) },
+   646→      { status: 500 }
+   647→    );
+   648→  }
+   649→}
+   650→
