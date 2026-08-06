@@ -328,31 +328,36 @@ export const GOAL_FEST_CONFIG = {
   requiredChecks: 5, // 5 of 6 must pass
 } as const;
 
-// ---- BTTS BOTH HALVES — Dedicated detector for BTTS in both halves ----
+// ---- BTTS BOTH HALVES — Lean 3-check detector ----
 // BTTS-BH requires BOTH teams to score in EACH half (minimum 4 goals).
-// Base rate: ~5.3% across top 5 European leagues (952/18013). Average 5.52 goals.
+// Base rate: ~5.2% across 7 European leagues (1,249/24,057). Average 5.5 goals.
 //
-// Calibrated on 18,013 matches (EPL, La Liga, Serie A, Bundesliga, Ligue 1) x 10 seasons.
-// Key calibration findings:
-//   - O2.5 implied >= 65%: 1.41x lift, 7.47% hit rate, 9.8% coverage (ONLY strong predictor)
-//   - O2.5 implied >= 72%: 1.45x lift, 7.68% hit rate, 3.1% coverage (elite tier)
-//   - Rolling scoring >= 3.0: 1.09x lift (marginal but independent signal)
-//   - Draw probability: NEGATIVE predictor (higher draw = LOWER BTTS-BH! Removed)
-//   - BTTS rate, O3.5 rate: completely flat across all thresholds
-//   - Best achievable combo: ~1.9x lift at Req=8, but only 1.2% coverage
+// Calibrated on 24,057 matches (EPL, La Liga, Serie A, Bundesliga, Ligue 1,
+// Eredivisie, Primeira Liga) × 10 seasons (2015-16 → 2024-25).
 //
-// Design: 8-check system, need 5 of 8 to qualify.
-// Honesty-first: O2.5 implied is the primary signal. Other checks add context.
+// Multi-league sweep confirmed only 3 of 8 original checks have discriminative
+// power. The other 5 (BTTS rolling, O3.5 rolling, O2.5 rolling, league avg,
+// elite O2.5) are flat (0.99-1.06x lift) across 24K games.
+//
+// Surviving checks (individual lift at stated threshold):
+//   1. O2.5 implied >= 65%: 1.38x lift — bookmaker odds, THE primary signal
+//   2. Draw prob < 25%:      1.21x lift — structural: low draw = open play
+//   3. Rolling scoring >= 3.0: 1.10x lift — recent form, marginal but independent
+//
+// Tier system (3 checks, need 2 to qualify):
+//   STRONG (3/3):    All signals aligned — rare, highest confidence
+//   QUALIFIED (2/3): Core checks pass — actionable signal
+//   BORDERLINE (1/3): Weak — one indicator only, watch list
+//   UNLIKELY (0/3):  Insufficient evidence
+//
+// Current config achieves 6.20% hit rate (1.19x lift) at req=5/8.
+// The 3-check system with req=2/3 achieves comparable discrimination
+// with less noise and a cleaner mental model.
 export const BTTS_BOTH_HALVES_CONFIG = {
-  o25Implied: 65,        // O2.5 implied probability — THE strongest predictor (1.41x lift)
-  o25ImpliedElite: 72,   // Elite tier — bookies very confident (1.45x lift)
-  rollingScoring: 3.0,   // Rolling combined scoring (marginal, 1.09x lift)
-  o35Prob: 35,           // O3.5 rolling rate (BTTS-BH needs 4+ goals)
-  bttsProb: 45,          // BTTS rolling rate (lowered — flat but sets floor)
-  o25Prob: 55,           // O2.5 rolling rate (corroborates implied)
-  drawProbMax: 25,       // INVERTED: draw prob BELOW this (higher draw hurts BTTS-BH)
-  leagueAvgGoals: 2.6,   // League goal environment
-  requiredChecks: 5,     // 5 of 8 must pass (lowered from 7 — checks are more independent now)
+  o25Implied: 65,        // O2.5 implied probability — PRIMARY signal (1.38x lift at 65%)
+  drawProbMax: 25,       // Draw prob BELOW this — low draw = open play (1.21x lift)
+  rollingScoring: 3.0,   // Rolling combined scoring — recent form (1.10x lift)
+  requiredChecks: 2,     // 2 of 3 must pass to qualify
 } as const;
 
 /** Resolved GOAL FEST thresholds */
@@ -2067,19 +2072,19 @@ export function computeDominantTeamQualifier(input: DominantTeamInput): Dominant
 // BTTS BOTH HALVES DETECTOR
 // ============================================================================
 // Dedicated detector for "Both Teams Score in Both Halves" (BTTS-BH).
-// This is the rarest and most profitable goal pattern — ~5.3% base rate in EPL.
+// This is the rarest and most profitable goal pattern — ~5.2% base rate.
 //
-// Design philosophy:
-//   Unlike other indicators that rely on model signals (xG, regression, Z-Score),
-//   BTTS-BH analysis showed ALL model signals are flat for this pattern.
-//   The only discriminators are:
-//     1. O2.5 implied probability (bookmaker odds) — strongest single predictor
-//     2. Rolling combined scoring (recent form) — adds ~20pp discrimination
-//     3. Draw probability — structural signal (BTTS-BH doubles at 34% draws)
-//     4. O3.5 probability — minimum 4 goals needed for BTTS-BH
-//     5. BTTS probability — both teams must score at all
+// Design: Lean 3-check system, calibrated on 24,057 matches across 7 leagues.
+// Only signals with proven discriminative power survive:
+//   1. O2.5 implied probability (bookmaker odds) — 1.38x lift, PRIMARY
+//   2. Draw probability < 25% — 1.21x lift, SECONDARY
+//   3. Rolling combined scoring >= 3.0 — 1.10x lift, TERTIARY
 //
-// 10 checks, need 7 of 10 to qualify.
+// All other model-derived signals (BTTS rate, O3.5 rate, O2.5 model rate,
+// league avg goals, elite O2.5) were tested and found flat (0.99-1.06x)
+// across 24K games. They were removed to reduce noise.
+//
+// Need 2 of 3 checks to qualify.
 // ============================================================================
 
 export type BTTSBothHalvesTier =
@@ -2089,13 +2094,13 @@ export type BTTSBothHalvesTier =
   | 'BTTS-BH UNLIKELY';
 
 export interface BTTSBothHalvesInput {
-  o25Prob: number;              // O2.5 model/rolling probability
-  o35Prob: number;              // O3.5 rolling rate
-  bttsProb: number;             // BTTS rolling rate
+  o25Prob: number;              // O2.5 model/rolling probability (unused — kept for interface compat)
+  o35Prob: number;              // O3.5 rolling rate (unused — kept for interface compat)
+  bttsProb: number;             // BTTS rolling rate (unused — kept for interface compat)
   rollingCombinedScoring: number;
   o25ImpliedProb: number | null; // from bookmaker O2.5 odds
   drawProb: number;             // draw probability from odds
-  avgGoalsPerGame: number;      // league average goals
+  avgGoalsPerGame: number;      // league average goals (unused — kept for interface compat)
 }
 
 export interface BTTSBothHalvesResult {
@@ -2110,81 +2115,46 @@ export interface BTTSBothHalvesResult {
 /**
  * Compute BTTS Both Halves indicator.
  *
- * Calibrated on 18,013 matches across 5 European leagues (10 seasons each).
- * 952 BTTS-BH games (5.29% base rate).
+ * Calibrated on 24,057 matches across 7 European leagues (10 seasons each).
+ * 1,249 BTTS-BH games (5.19% base rate).
  *
- * 8-check system based on calibration findings:
- *   - O2.5 implied >= 65% is the ONLY strong individual predictor (1.41x lift)
- *   - Draw probability is NEGATIVE — higher draw = lower BTTS-BH (removed)
- *   - BTTS rate, O3.5 rate are completely flat
- *   - Rolling scoring adds marginal but independent signal
+ * 3-check system — only signals with proven lift survive:
+ *   - O2.5 implied >= 65%: 1.38x lift (strongest single predictor)
+ *   - Draw prob < 25%:      1.21x lift (low draw = open, balanced play)
+ *   - Rolling scoring >= 3.0: 1.10x lift (recent form, independent)
  *
  * Tier system:
- *   STRONG (7-8): Both O2.5 implied tiers + most supporting checks
- *   QUALIFIED (5-6): Core O2.5 implied check passes with some support
- *   BORDERLINE (3-4): Partial signal alignment
- *   UNLIKELY (0-2): Insufficient evidence
+ *   STRONG (3/3):    All signals aligned — rare, highest confidence
+ *   QUALIFIED (2/3): Core checks pass — actionable signal
+ *   BORDERLINE (1/3): One indicator only — watch list
+ *   UNLIKELY (0/3):  Insufficient evidence
  */
 export function computeBTTSBothHalves(input: BTTSBothHalvesInput): BTTSBothHalvesResult {
   const cfg = BTTS_BOTH_HALVES_CONFIG;
   const reasoning: string[] = [];
 
   const checks: { check: string; passed: boolean; weight: string }[] = [
-    // CHECK 1: O2.5 implied probability — THE strongest predictor (1.41x lift at 65%)
+    // CHECK 1: O2.5 implied probability — THE strongest predictor (1.38x lift at 65%)
     {
       check: 'O2.5 Implied >= ' + cfg.o25Implied + '%',
       passed: input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25Implied,
       weight: 'CRITICAL',
     },
 
-    // CHECK 2: O2.5 implied elite — bookies very confident (1.45x lift at 72%)
-    {
-      check: 'O2.5 Implied >= ' + cfg.o25ImpliedElite + '% (elite)',
-      passed: input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25ImpliedElite,
-      weight: 'CRITICAL',
-    },
-
-    // CHECK 3: O2.5 model probability — corroborates implied (correlated but independent source)
-    {
-      check: 'O2.5 Model >= ' + cfg.o25Prob + '%',
-      passed: input.o25Prob >= cfg.o25Prob,
-      weight: 'HIGH',
-    },
-
-    // CHECK 4: Rolling combined scoring — recent hot form (1.09x lift at 3.0+)
-    {
-      check: 'Rolling Scoring >= ' + cfg.rollingScoring,
-      passed: input.rollingCombinedScoring >= cfg.rollingScoring,
-      weight: 'HIGH',
-    },
-
-    // CHECK 5: O3.5 rolling rate — BTTS-BH requires 4+ goals
-    {
-      check: 'O3.5 Rate >= ' + cfg.o35Prob + '%',
-      passed: input.o35Prob >= cfg.o35Prob,
-      weight: 'MEDIUM',
-    },
-
-    // CHECK 6: BTTS rolling rate — both teams must score at all
-    {
-      check: 'BTTS Rate >= ' + cfg.bttsProb + '%',
-      passed: input.bttsProb >= cfg.bttsProb,
-      weight: 'MEDIUM',
-    },
-
-    // CHECK 7: Draw probability INVERTED — lower draw = better for BTTS-BH
-    // Calibration showed draw >= 26% DECREASES BTTS-BH (0.90x lift)
+    // CHECK 2: Draw probability INVERTED — lower draw = better for BTTS-BH
+    // Multi-league calibration: draw < 25% gives 1.21x lift
     {
       check: 'Draw Prob < ' + cfg.drawProbMax + '%',
       passed: input.drawProb < cfg.drawProbMax,
-      weight: 'MEDIUM',
+      weight: 'HIGH',
     },
 
-    // CHECK 8: League goal environment
+    // CHECK 3: Rolling combined scoring — both teams scoring recently
+    // 1.10x lift at 3.0, marginal but independent of bookmaker signals
     {
-      check: 'League Avg Goals >= ' + cfg.leagueAvgGoals,
-      passed: input.avgGoalsPerGame >= cfg.leagueAvgGoals,
-      weight: 'LOW',
+      check: 'Rolling Scoring >= ' + cfg.rollingScoring,
+      passed: input.rollingCombinedScoring >= cfg.rollingScoring,
+      weight: 'MEDIUM',
     },
   ];
 
@@ -2192,28 +2162,25 @@ export function computeBTTSBothHalves(input: BTTSBothHalvesInput): BTTSBothHalve
 
   // Build reasoning
   if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25Implied) {
-    reasoning.push('Bookmakers imply high goal expectation (' + input.o25ImpliedProb.toFixed(0) + '% O2.5). This is the strongest BTTS-BH predictor (1.41x lift).');
+    reasoning.push('Bookmakers imply high goal expectation (' + input.o25ImpliedProb.toFixed(0) + '% O2.5). This is the strongest BTTS-BH predictor (1.38x lift across 24K games).');
   }
-  if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25ImpliedElite) {
-    reasoning.push('Elite tier — bookies show very high confidence (' + input.o25ImpliedProb.toFixed(0) + '% implied).');
+  if (input.drawProb < cfg.drawProbMax) {
+    reasoning.push('Low draw probability (' + input.drawProb.toFixed(0) + '%) — balanced matchup favors open play over defensive draws (1.21x lift).');
   }
   if (input.rollingCombinedScoring >= cfg.rollingScoring) {
     reasoning.push('Both teams showing recent scoring form (' + input.rollingCombinedScoring.toFixed(1) + ' combined goals last 5).');
-  }
-  if (input.drawProb < cfg.drawProbMax) {
-    reasoning.push('Low draw probability (' + input.drawProb.toFixed(0) + '%) — balanced matchup favors open play over defensive draws.');
   }
   if (reasoning.length === 0) {
     reasoning.push('Insufficient signal alignment for BTTS in both halves. O2.5 implied probability is the primary gate.');
   }
 
-  // Determine tier (adjusted for 8-check system)
+  // Determine tier
   let tier: BTTSBothHalvesTier;
-  if (score >= 7) {
+  if (score >= 3) {
     tier = 'BTTS-BH STRONG';
-  } else if (score >= 5) {
+  } else if (score >= 2) {
     tier = 'BTTS-BH QUALIFIED';
-  } else if (score >= 3) {
+  } else if (score >= 1) {
     tier = 'BTTS-BH BORDERLINE';
   } else {
     tier = 'BTTS-BH UNLIKELY';

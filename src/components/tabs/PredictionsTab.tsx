@@ -1473,16 +1473,16 @@ export default function PredictionsTab({
                             </p>
                           </div>
 
-                          {/* 8-check breakdown grid */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 text-xs">
+                          {/* 3-check breakdown — O2.5 implied, draw prob, rolling scoring */}
+                          <div className="space-y-1.5 text-xs">
                             {bttsBHResult.breakdown.map((check, i) => (
-                              <div key={i} className={`p-1.5 rounded text-center ${check.passed
+                              <div key={i} className={`p-2 rounded flex items-center justify-between ${check.passed
                                 ? (check.weight === 'CRITICAL' ? 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 font-medium'
                                   : check.weight === 'HIGH' ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700'
                                   : 'bg-gray-100 dark:bg-gray-800/50 text-gray-600')
-                                : 'bg-gray-50 dark:bg-gray-800/30 text-gray-400 line-through'}`}>
-                                {check.passed ? '✅' : '❌'} {check.check}
-                                <span className="block text-[10px] opacity-60">{check.weight}</span>
+                                : 'bg-gray-50 dark:bg-gray-800/30 text-gray-400 line-through'}">
+                                <span>{check.passed ? '✅' : '❌'} {check.check}</span>
+                                <span className="text-[10px] opacity-60">{check.weight}</span>
                               </div>
                             ))}
                           </div>

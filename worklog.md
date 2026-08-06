@@ -45,3 +45,24 @@ Stage Summary:
 - O2.5 implied is the only strong signal (1.39x at 64%), but varies wildly by league (La Liga 2.15x vs Eredivisie 1.02x at 70%)
 - Draw prob <25% is second-best (1.21x)
 - Recommendation: current thresholds are near-optimal, consider simplifying to 3-check system
+
+---
+Task ID: 2
+Agent: main
+Task: Refactor BTTS-BH detector from 8-check to lean 3-check system
+
+Work Log:
+- Updated BTTS_BOTH_HALVES_CONFIG: removed o25ImpliedElite, o35Prob, bttsProb, o25Prob, leagueAvgGoals
+- Kept only 3 proven checks: O2.5 implied >= 65%, Draw prob < 25%, Rolling scoring >= 3.0
+- Changed requiredChecks from 5/8 to 2/3
+- Refactored computeBTTSBothHalves() to 3-check logic with updated tier thresholds (3/3=STRONG, 2/3=QUALIFIED, 1/3=BORDERLINE, 0/3=UNLIKELY)
+- Kept BTTSBothHalvesInput interface unchanged for backward compat (unused fields documented)
+- Updated PredictionsTab.tsx grid from 4-col to stacked layout for 3 checks
+- Verified no other files reference removed config fields
+- Type-check passes (pre-existing TSX error at line 1540 unrelated)
+
+Stage Summary:
+- Detector simplified from 8 checks to 3 (removed 5 flat checks)
+- Same output interface (BTTSBothHalvesResult) — no breaking changes
+- UI now shows 3 clean rows instead of 8 tiny grid cells
+- Config: { o25Implied: 65, drawProbMax: 25, rollingScoring: 3.0, requiredChecks: 2 }
