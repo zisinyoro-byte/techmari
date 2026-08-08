@@ -105,3 +105,24 @@ Stage Summary:
 - BTTS-BH 2/3 too loose (32.6% fire rate, 1.15x). 3/3 tier much better (14.1% fire, 1.34x)
 - Strong Bet points distribution is clean: 0pts=52%, 8pts=69%, confirming 7-point threshold is well-calibrated
 - Key recommendations: (1) BTTS Checklist needs structural rethinking, (2) Consider BTTS-BH 3/3 as qualification bar, (3) All goal-oriented detectors (O3.5, StrongBet, GoalFest, GreyResult) are working well
+
+---
+Task ID: 1
+Agent: main
+Task: BTTS Checklist restructuring (4→5 checks) + BTTS-BH tightening
+
+Work Log:
+- Analyzed previous backtest: BTTS ≥3/4 had 0.99x lift (no discrimination), BTTS-BH 2/3 had 1.15x lift with 32.6% fire rate
+- Added draw probability < 26% as 5th BTTS check (proven 1.21x lift from 24K-match BTTS-BH calibration)
+- Added BttsChecklistTier type and BttsChecklistResult interface with count + tier + breakdown
+- Created computeBttsChecklistFull() for rich output, kept computeBttsChecklist() for backward compat
+- Updated StrongBet bttsChecklistCount 3/4→4/5, GreyResult 3/4→4/5 to match new 5-check max
+- Added drawProb field to ChecklistInput interface
+- Updated BttsCheckTab: 5 checklist items, tier badges, draw probability computation from odds
+- Updated PredictionsTab: compute draw probability from match odds, pass to ChecklistInput
+- BTTS-BH: tightened rolling scoring 3.0→3.2, kept O2.5 implied at 65%
+- Updated validate-lean-detectors.ts for 5-check BTTS and new thresholds
+- Ran fresh backtest (3,526 matches, 7 leagues)
+- Results: STRONG BET 1.24x, GREY RESULT 1.17x, GOAL FEST 1.53x, O3.5 1.26x, BTTS-BH 1.20x
+- Committed as 3bc2aaf and pushed to GitHub
+
