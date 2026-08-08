@@ -66,3 +66,42 @@ Stage Summary:
 - Same output interface (BTTSBothHalvesResult) — no breaking changes
 - UI now shows 3 clean rows instead of 8 tiny grid cells
 - Config: { o25Implied: 65, drawProbMax: 25, rollingScoring: 3.0, requiredChecks: 2 }
+
+---
+Task ID: 3
+Agent: main
+Task: Full indicator audit + noise removal across all 6 detectors
+
+Work Log:
+- Audited all 6 detector systems: BTTS Checklist (9→4), O3.5 Checklist (9→4), Strong Bet (14pts→13pts/6 checks), Grey Result (10→7), Goal Fest (8→6), BTTS-BH (3, already lean)
+- Identified 3 tiers of noise: genuinely useless (60-90% fire rate), redundant (overlapping signals), unverified (no backtest lift)
+- Removed Tier 1 (league constants, mild xG/Z-Score/Regression), Tier 2 (redundant BTTS/O2.5/season avg), Tier 3 (shot conversion, rolling scoring in BTTS-BH marginal)
+- Fixed broken `deriveSimpleThresholdsFromBacktest()` which still referenced deleted constants
+- Turbopack build verified clean
+- Committed dc71387 and pushed to GitHub
+
+Stage Summary:
+- All detectors now lean: BTTS 4-check, O3.5 4-check, StrongBet 6-point, GreyResult 7-check, GoalFest 6-check, BTTS-BH 3-check
+- Removed ~15 noise criteria that fired 60-90% with no discrimination
+- Thresholds proportionally adjusted to maintain similar selectivity
+
+---
+Task ID: 4
+Agent: main
+Task: Validate lean detectors with multi-league backtest (3,526 matches)
+
+Work Log:
+- Wrote comprehensive validation script (validate-lean-detectors.ts)
+- Fetched 3,526 matches across 7 leagues × 2 test seasons (2324, 2425)
+- For each match: generated predictions, computed rolling stats, signals, O2.5 implied, draw prob
+- Ran all 6 detectors on every match, measured lift against correct outcomes
+- Fixed BTTS-BH outcome measurement (was measuring vs BTTS 55% base, corrected to BTTS-BH 6% base)
+- Analyzed threshold sensitivity for BTTS and O3.5 checklists
+- Analyzed Strong Bet points distribution
+
+Stage Summary:
+- GOOD performers: GOAL FEST 1.53x (O3.5), O3.5 ≥3/4 1.26x, STRONG BET 1.23x (3+ goals), GREY RESULT 1.33x (4+ goals), BTTS-BH 3/3 1.34x
+- PROBLEMATIC: BTTS Checklist ≥3/4 = 0.99x lift (structural issue: all 4 checks measure goal volume, not BTTS specifically)
+- BTTS-BH 2/3 too loose (32.6% fire rate, 1.15x). 3/3 tier much better (14.1% fire, 1.34x)
+- Strong Bet points distribution is clean: 0pts=52%, 8pts=69%, confirming 7-point threshold is well-calibrated
+- Key recommendations: (1) BTTS Checklist needs structural rethinking, (2) Consider BTTS-BH 3/3 as qualification bar, (3) All goal-oriented detectors (O3.5, StrongBet, GoalFest, GreyResult) are working well

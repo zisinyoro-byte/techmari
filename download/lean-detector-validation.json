@@ -1,0 +1,198 @@
+{
+  "timestamp": "2026-08-08T08:10:51.359Z",
+  "totalMatches": 3526,
+  "leagues": [
+    {
+      "code": "E0",
+      "name": "Premier League",
+      "matches": 544
+    },
+    {
+      "code": "D1",
+      "name": "Bundesliga",
+      "matches": 422
+    },
+    {
+      "code": "I1",
+      "name": "Serie A",
+      "matches": 578
+    },
+    {
+      "code": "SP1",
+      "name": "La Liga",
+      "matches": 686
+    },
+    {
+      "code": "F1",
+      "name": "Ligue 1",
+      "matches": 420
+    },
+    {
+      "code": "N1",
+      "name": "Eredivisie",
+      "matches": 512
+    },
+    {
+      "code": "P1",
+      "name": "Primeira Liga",
+      "matches": 364
+    }
+  ],
+  "globalMetrics": [
+    {
+      "detector": "BTTS Checklist ≥2/4",
+      "outcome": "btts",
+      "totalMatches": 3526,
+      "fired": 1584,
+      "fireRate": 0.4492342597844583,
+      "hitRate": 0.57260101010101,
+      "baseRate": 0.55218377765173,
+      "lift": 1.0369754296949982
+    },
+    {
+      "detector": "BTTS Checklist ≥3/4",
+      "outcome": "btts",
+      "totalMatches": 3526,
+      "fired": 265,
+      "fireRate": 0.07515598411798072,
+      "hitRate": 0.5471698113207547,
+      "baseRate": 0.55218377765173,
+      "lift": 0.9909197507534572
+    },
+    {
+      "detector": "BTTS Checklist 4/4",
+      "outcome": "btts",
+      "totalMatches": 3526,
+      "fired": 0,
+      "fireRate": 0,
+      "hitRate": 0,
+      "baseRate": 0.55218377765173,
+      "lift": 0
+    },
+    {
+      "detector": "O3.5 Checklist ≥2/4",
+      "outcome": "over35",
+      "totalMatches": 3526,
+      "fired": 1607,
+      "fireRate": 0.45575723199092455,
+      "hitRate": 0.388301182327318,
+      "baseRate": 0.33238797504254114,
+      "lift": 1.1682166970018115
+    },
+    {
+      "detector": "O3.5 Checklist ≥3/4",
+      "outcome": "over35",
+      "totalMatches": 3526,
+      "fired": 787,
+      "fireRate": 0.22319909245604083,
+      "hitRate": 0.41804320203303685,
+      "baseRate": 0.33238797504254114,
+      "lift": 1.2576965276181638
+    },
+    {
+      "detector": "O3.5 Checklist 4/4",
+      "outcome": "over35",
+      "totalMatches": 3526,
+      "fired": 201,
+      "fireRate": 0.057005104934770276,
+      "hitRate": 0.5024875621890548,
+      "baseRate": 0.33238797504254114,
+      "lift": 1.5117501231046135
+    },
+    {
+      "detector": "STRONG BET",
+      "outcome": "o3goals",
+      "totalMatches": 3526,
+      "fired": 253,
+      "fireRate": 0.07175269427112876,
+      "hitRate": 0.6798418972332015,
+      "baseRate": 0.5541690300623936,
+      "lift": 1.226777139019585
+    },
+    {
+      "detector": "STRONG BET",
+      "outcome": "over25",
+      "totalMatches": 3526,
+      "fired": 253,
+      "fireRate": 0.07175269427112876,
+      "hitRate": 0.6798418972332015,
+      "baseRate": 0.5541690300623936,
+      "lift": 1.226777139019585
+    },
+    {
+      "detector": "GREY RESULT",
+      "outcome": "grey4goals",
+      "totalMatches": 3526,
+      "fired": 706,
+      "fireRate": 0.20022688598979013,
+      "hitRate": 0.44192634560906513,
+      "baseRate": 0.33238797504254114,
+      "lift": 1.3295497394347813
+    },
+    {
+      "detector": "GREY RESULT",
+      "outcome": "over25",
+      "totalMatches": 3526,
+      "fired": 706,
+      "fireRate": 0.20022688598979013,
+      "hitRate": 0.6458923512747875,
+      "baseRate": 0.5541690300623936,
+      "lift": 1.16551506171694
+    },
+    {
+      "detector": "GOAL FEST",
+      "outcome": "over35",
+      "totalMatches": 3526,
+      "fired": 65,
+      "fireRate": 0.0184344866704481,
+      "hitRate": 0.5076923076923077,
+      "baseRate": 0.33238797504254114,
+      "lift": 1.527408768705697
+    },
+    {
+      "detector": "GOAL FEST",
+      "outcome": "over25",
+      "totalMatches": 3526,
+      "fired": 65,
+      "fireRate": 0.0184344866704481,
+      "hitRate": 0.6153846153846154,
+      "baseRate": 0.5541690300623936,
+      "lift": 1.1104637430123614
+    },
+    {
+      "detector": "BTTS-BH (≥2/3)",
+      "outcome": "bttsBH",
+      "totalMatches": 3526,
+      "fired": 1149,
+      "fireRate": 0.3258650028360749,
+      "hitRate": 0.06875543951261967,
+      "baseRate": 0.059841179807146906,
+      "lift": 1.1489653067369525
+    },
+    {
+      "detector": "BTTS-BH QUALIFIED",
+      "outcome": "bttsBH",
+      "totalMatches": 3526,
+      "fired": 1149,
+      "fireRate": 0.3258650028360749,
+      "hitRate": 0.06875543951261967,
+      "baseRate": 0.059841179807146906,
+      "lift": 1.1489653067369525
+    },
+    {
+      "detector": "BTTS-BH STRONG (3/3)",
+      "outcome": "bttsBH",
+      "totalMatches": 3526,
+      "fired": 498,
+      "fireRate": 0.1412365286443562,
+      "hitRate": 0.08032128514056225,
+      "baseRate": 0.059841179807146906,
+      "lift": 1.3422410019223816
+    }
+  ],
+  "baseRates": {
+    "btts": 0.55218377765173,
+    "over25": 0.5541690300623936,
+    "over35": 0.33238797504254114
+  }
+}
