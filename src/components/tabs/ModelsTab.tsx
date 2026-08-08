@@ -15,7 +15,7 @@ import {
   computeBttsChecklistLabels, computeOver35ChecklistLabels,
   computeStrongBet, computeGreyResult, computeGoalFest,
   applyBlowoutQualifier, computeTeamAvgOdds,
-  computeBTTSQualification, computeThirdGoalQualifier,
+  computeBTTSQualification, computeThirdGoalQualifier, computeBTTSBothHalves,
   computeMomentumSignal, computeDominantTeamQualifier,
   classifyPerTeamRegressionSignal, classifyPerTeamXgSignal, classifyPerTeamZScoreSignal,
   type ChecklistInput, type SignalInput,
@@ -602,13 +602,11 @@ export default function ModelsTab({
                               rollingAwayScored: mRolling?.awayRollingScored ?? analytics.avgAwayGoals,
                               rollingCombinedScoring: mRolling?.rollingCombinedScoring ?? (analytics.avgHomeGoals + analytics.avgAwayGoals),
                               o25ImpliedProb: mO25ImpliedProb,
+                              drawProb: prediction.prediction.calibrated?.draw ?? prediction.prediction.draw,
                             };
                             const over35Checks = computeOver35ChecklistLabels(checklistInput, resolved);
-                            const over35Checklist = `${over35Checks.length} of 9`
-
                             // BTTS Check items (9 criteria) using shared utility
                             const bttsChecks = computeBttsChecklistLabels(checklistInput, resolved);
-                            const bttsChecklist = `${bttsChecks.length} of 9`
 
                             // Z-Score Analysis Overall Signal - computed independently using Z-Score methodology
                             // matching the detailed Z-Score Analysis & Confidence Intervals card
@@ -862,6 +860,15 @@ export default function ModelsTab({
                               homeSotConversion: csvHomeSotConv,
                               awaySotConversion: csvAwaySotConv,
                             });
+                            const csvBttsBH = computeBTTSBothHalves({
+                              o25Prob: checklistInput.o25Prob,
+                              o35Prob: checklistInput.o35Prob,
+                              bttsProb: checklistInput.bttsProb,
+                              rollingCombinedScoring: checklistInput.rollingCombinedScoring,
+                              o25ImpliedProb: checklistInput.o25ImpliedProb,
+                              drawProb: checklistInput.drawProb,
+                              avgGoalsPerGame: checklistInput.avgGoalsPerGame,
+                            });
 
                             // Build CSV row with exact headers
                             const headers = [
@@ -899,11 +906,13 @@ export default function ModelsTab({
                               'Dominant Team Score',
                               'Dominant Over 2.5 Rec',
                               'Dominant BTTS Rec',
+                              'BTTS-BH Tier',
+                              'BTTS-BH Score',
                             ]
 
                             // Format check lists for export - matching display exactly
-                            const bttsChecklistExport = `${bttsChecks.length} of 7`;
-                            const over35ChecklistExport = `${over35Checks.length} of 7`;
+                            const bttsChecklistExport = `${bttsChecks.length} of 9`;
+                            const over35ChecklistExport = `${over35Checks.length} of 9`;
                             
                             const row = [
                               `"${selectedLeague}"`,
@@ -940,6 +949,8 @@ export default function ModelsTab({
                               `${csvDominantResult.score}`,
                               `"${csvDominantResult.over25Rec}"`,
                               `"${csvDominantResult.bttsRec}"`,
+                              `"${csvBttsBH.tier}"`,
+                              `${csvBttsBH.score}`,
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')
