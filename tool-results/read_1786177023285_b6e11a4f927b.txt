@@ -1,0 +1,665 @@
+     1→/**
+     2→ * Lean Detector Validation Backtest
+     3→ * ================================
+     4→ * Validates all 6 lean detectors after noise removal:
+     5→ *   1. BTTS Checklist (4 checks, need threshold)
+     6→ *   2. Over 3.5 Checklist (4 checks, need threshold)
+     7→ *   3. STRONG BET (6 checks, 13pts, need 7+)
+     8→ *   4. GREY RESULT (7 checks, need 5+)
+     9→ *   5. GOAL FEST (6 checks, need 5+)
+    10→ *   6. BTTS-BH (3 checks, need 2+)
+    11→ *
+    12→ * For each detector measures:
+    13→ *   - Fire rate (% of matches where detector triggers)
+    14→ *   - Hit rate (P(outcome | detector fires))
+    15→ *   - Base rate (P(outcome) unconditional)
+    16→ *   - Lift (hit rate / base rate)
+    17→ *   - Sample size
+    18→ *
+    19→ * Uses the same data pipeline as the app: fetchSeasonData + generateBacktestPredictions.
+    20→ */
+    21→
+    22→import { fetchSeasonData } from '../src/lib/data-cache';
+    23→import { calculateLeagueAverages, generateBacktestPredictions } from '../src/lib/models/predictions';
+    24→import { calculateSeasonWeights } from '../src/lib/models/season-weighting';
+    25→import {
+    26→  computeBttsChecklist, computeOver35Checklist,
+    27→  computeStrongBet, computeGreyResult, computeGoalFest,
+    28→  computeBTTSBothHalves, resolveAllThresholds, computeLeagueBaselines,
+    29→  BTTS_HYBRID_THRESHOLDS, OVER35_HYBRID_THRESHOLDS,
+    30→  STRONG_BET_HYBRID, GREY_RESULT_CONFIG, GOAL_FEST_CONFIG,
+    31→  BTTS_BOTH_HALVES_CONFIG, O25_IMPLIED_THRESHOLDS, ROLLING_SCORING_THRESHOLDS,
+    32→} from '../src/lib/betting-filters';
+    33→import type { ChecklistInput, SignalInput } from '../src/lib/betting-filters';
+    34→import type { MatchResult } from '../src/lib/types';
+    35→import { goalProb } from '../src/lib/models/poisson';
+    36→
+    37→// --- Config ---
+    38→const EUROPEAN_SEASONS = ['2526', '2425', '2324', '2223', '2122', '2021', '1920', '1819', '1718', '1617', '1516'];
+    39→
+    40→const LEAGUES = [
+    41→  { code: 'E0', name: 'Premier League' },
+    42→  { code: 'D1', name: 'Bundesliga' },
+    43→  { code: 'I1', name: 'Serie A' },
+    44→  { code: 'SP1', name: 'La Liga' },
+    45→  { code: 'F1', name: 'Ligue 1' },
+    46→  { code: 'N1', name: 'Eredivisie' },
+    47→  { code: 'P1', name: 'Primeira Liga' },
+    48→];
+    49→
+    50→const TEST_SEASONS = ['2324', '2425'];
+    51→
+    52→// --- Helper: compute O3.5 probability from total xG ---
+    53→function computeO35Prob(totalXg: number): number {
+    54→  const p0 = Math.exp(-totalXg);
+    55→  const p1 = totalXg * p0;
+    56→  const p2 = (totalXg * totalXg / 2) * p0;
+    57→  const p3 = (totalXg ** 3 / 6) * p0;
+    58→  return Math.round((1 - p0 - p1 - p2 - p3) * 100);
+    59→}
+    60→
+    61→// --- Helper: compute rolling 5-game combined scoring ---
+    62→function getRollingCombinedScoring(results: MatchResult[], team: string, isHome: boolean, beforeDate: string): number {
+    63→  const teamMatches = results
+    64→    .filter(r => r.date < beforeDate && (isHome ? r.homeTeam === team : r.awayTeam === team))
+    65→    .sort((a, b) => b.date.localeCompare(a.date))
+    66→    .slice(0, 5);
+    67→  
+    68→  if (teamMatches.length === 0) return 0;
+    69→  return teamMatches.reduce((sum, m) => sum + (isHome ? m.ftHomeGoals : m.ftAwayGoals), 0) / teamMatches.length;
+    70→}
+    71→
+    72→// --- Helper: compute xG signal (same logic as PredictionsTab) ---
+    73→function computeXGSignal(results: MatchResult[], homeTeam: string, awayTeam: string): string {
+    74→  const teamXgStats = new Map<string, { matches: number; totalXg: number; actualGoals: number }>();
+    75→  
+    76→  results.forEach(r => {
+    77→    const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+    78→    const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+    79→    const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+    80→    const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+    81→    
+    82→    for (const [team, xg, goals] of [[r.homeTeam, homeXg, r.ftHomeGoals], [r.awayTeam, awayXg, r.ftAwayGoals]] as const) {
+    83→      const s = teamXgStats.get(team) || { matches: 0, totalXg: 0, actualGoals: 0 };
+    84→      s.matches++; s.totalXg += xg; s.actualGoals += goals;
+    85→      teamXgStats.set(team, s);
+    86→    }
+    87→  });
+    88→  
+    89→  const hd = teamXgStats.get(homeTeam);
+    90→  const ad = teamXgStats.get(awayTeam);
+    91→  if (!hd || !ad || hd.matches < 5 || ad.matches < 5) return 'Neutral';
+    92→  
+    93→  const homeDiff = (hd.actualGoals / hd.matches) - (hd.totalXg / hd.matches);
+    94→  const awayDiff = (ad.actualGoals / ad.matches) - (ad.totalXg / ad.matches);
+    95→  const total = homeDiff + awayDiff;
+    96→  
+    97→  if (total <= -1.0) return 'Strong Over';
+    98→  if (total <= -0.5) return 'Over';
+    99→  if (total >= 1.0) return 'Strong Under';
+   100→  if (total >= 0.5) return 'Under';
+   101→  return 'Neutral';
+   102→}
+   103→
+   104→// --- Helper: compute regression signal (same logic as PredictionsTab) ---
+   105→function computeRegressionSignal(results: MatchResult[], homeTeam: string, awayTeam: string): string {
+   106→  const getTeamReg = (team: string): number => {
+   107→    const matches = results.filter(r => r.homeTeam === team || r.awayTeam === team)
+   108→      .sort((a, b) => b.date.localeCompare(a.date));
+   109→    if (matches.length < 5) return 0;
+   110→    const last3 = matches.slice(0, 3);
+   111→    const seasonAvg = matches.reduce((s, m) => {
+   112→      const g = m.homeTeam === team ? m.ftHomeGoals : m.ftAwayGoals;
+   113→      return s + g;
+   114→    }, 0) / matches.length;
+   115→    const last3Avg = last3.reduce((s, m) => {
+   116→      const g = m.homeTeam === team ? m.ftHomeGoals : m.ftAwayGoals;
+   117→      return s + g;
+   118→    }, 0) / last3.length;
+   119→    return last3Avg - seasonAvg;
+   120→  };
+   121→  
+   122→  const homeReg = getTeamReg(homeTeam);
+   123→  const awayReg = getTeamReg(awayTeam);
+   124→  const totalReg = homeReg + awayReg;
+   125→  
+   126→  if (totalReg <= -0.5) return 'Under';
+   127→  if (totalReg <= -0.3) return 'Strong Under';
+   128→  if (totalReg >= 0.5) return 'Over';
+   129→  if (totalReg >= 0.3) return 'Strong Over';
+   130→  return 'Neutral';
+   131→}
+   132→
+   133→// --- Helper: compute Z-Score signal (same logic as PredictionsTab) ---
+   134→function computeZScoreSignal(results: MatchResult[], homeTeam: string, awayTeam: string): string {
+   135→  const zTeamStats = new Map<string, { matches: number; goals: number[]; totalGoals: number; mean: number; stdDev: number; last3Avg: number }>();
+   136→  
+   137→  results.forEach(r => {
+   138→    for (const [team] of [[r.homeTeam], [r.awayTeam]] as const) {
+   139→      const totalGoals = r.ftHomeGoals + r.ftAwayGoals;
+   140→      const s = zTeamStats.get(team) || { matches: 0, goals: [] as number[], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   141→      s.matches++; s.goals.push(totalGoals); s.totalGoals += totalGoals;
+   142→      zTeamStats.set(team, s);
+   143→    }
+   144→  });
+   145→  
+   146→  zTeamStats.forEach(stats => {
+   147→    stats.mean = stats.totalGoals / stats.matches;
+   148→    const last3 = stats.goals.slice(0, 3);
+   149→    stats.last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+   150→    const sqDiffs = stats.goals.map(g => (g - stats.mean) ** 2);
+   151→    stats.stdDev = Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / stats.matches);
+   152→  });
+   153→  
+   154→  const hz = zTeamStats.get(homeTeam);
+   155→  const az = zTeamStats.get(awayTeam);
+   156→  if (!hz || !az || hz.matches < 3 || az.matches < 3) return 'Neutral';
+   157→  
+   158→  const homeZ = hz.stdDev > 0 ? (hz.last3Avg - hz.mean) / hz.stdDev : 0;
+   159→  const awayZ = az.stdDev > 0 ? (az.last3Avg - az.mean) / az.stdDev : 0;
+   160→  
+   161→  let score = 0;
+   162→  if (homeZ <= -1.5) score += 2; else if (homeZ <= -1.0) score += 1;
+   163→  if (awayZ <= -1.5) score += 2; else if (awayZ <= -1.0) score += 1;
+   164→  if (homeZ >= 1.5) score -= 2; else if (homeZ >= 1.0) score -= 1;
+   165→  if (awayZ >= 1.5) score -= 2; else if (awayZ >= 1.0) score -= 1;
+   166→  
+   167→  if (score >= 4) return 'Strong Over';
+   168→  if (score >= 2.5) return 'Over';
+   169→  if (score <= -3) return 'Strong Under';
+   170→  if (score <= -1.5) return 'Under';
+   171→  return 'Neutral';
+   172→}
+   173→
+   174→// --- Helper: draw probability from odds ---
+   175→function drawProbFromOdds(oddsAvgHome: number | null, oddsAvgDraw: number | null, oddsAvgAway: number | null): number {
+   176→  if (!oddsAvgHome || !oddsAvgDraw || !oddsAvgAway) return 50;
+   177→  const impliedHome = 1 / oddsAvgHome;
+   178→  const impliedDraw = 1 / oddsAvgDraw;
+   179→  const impliedAway = 1 / oddsAvgAway;
+   180→  const total = impliedHome + impliedDraw + impliedAway;
+   181→  return Math.round((impliedDraw / total) * 100);
+   182→}
+   183→
+   184→// --- Per-match record ---
+   185→interface MatchRecord {
+   186→  league: string;
+   187→  season: string;
+   188→  homeTeam: string;
+   189→  awayTeam: string;
+   190→  date: string;
+   191→  // Actual outcomes
+   192→  totalGoals: number;
+   193→  btts: boolean;
+   194→  over25: boolean;
+   195→  over35: boolean;
+   196→  // Detector results
+   197→  bttsChecklistScore: number;
+   198→  over35ChecklistScore: number;
+   199→  isStrongBet: boolean;
+   200→  strongBetPoints: number;
+   201→  isGreyResult: boolean;
+   202→  greyResultScore: number;
+   203→  isGoalFest: boolean;
+   204→  goalFestScore: number;
+   205→  isBttsBH: boolean;
+   206→  bttsBHScore: number;
+   207→  bttsBH_actual: boolean;
+   208→}
+   209→
+   210→async function runLeagueBacktest(leagueCode: string, testSeason: string): Promise<MatchRecord[]> {
+   211→  const training = EUROPEAN_SEASONS.filter(s => s < testSeason).slice(-5);
+   212→  
+   213→  // Fetch data
+   214→  const trainingResults = await Promise.all(training.map(s => fetchSeasonData(leagueCode, s)));
+   215→  const trainingData = trainingResults.flat();
+   216→  const testData = await fetchSeasonData(leagueCode, testSeason);
+   217→  
+   218→  if (testData.length === 0) return [];
+   219→  
+   220→  // Combine for signal computation (signals need full history)
+   221→  const allData = [...trainingData, ...testData].sort((a, b) => a.date.localeCompare(b.date));
+   222→  
+   223→  const seasonWeights = calculateSeasonWeights(training);
+   224→  const leagueAvgs = calculateLeagueAverages(trainingData);
+   225→  
+   226→  // Compute league baselines for threshold resolution
+   227→  const analyticsForBaseline = {
+   228→    avgGoalsPerGame: leagueAvgs.avgTotalGoals,
+   229→    over25Percent: leagueAvgs.over25Rate * 100,
+   230→    avgHomeGoals: leagueAvgs.avgHomeGoals,
+   231→    avgAwayGoals: leagueAvgs.avgAwayGoals,
+   232→    overallShotConversion: '10',
+   233→  };
+   234→  const baselines = computeLeagueBaselines(trainingData, analyticsForBaseline);
+   235→  const resolved = resolveAllThresholds(leagueCode, baselines);
+   236→  
+   237→  const records: MatchRecord[] = [];
+   238→  
+   239→  for (const match of testData) {
+   240→    // Skip if either team lacks training history
+   241→    const homeInTraining = trainingData.some(m => m.homeTeam === match.homeTeam || m.awayTeam === match.homeTeam);
+   242→    const awayInTraining = trainingData.some(m => m.homeTeam === match.awayTeam || m.awayTeam === match.awayTeam);
+   243→    if (!homeInTraining || !awayInTraining) continue;
+   244→    
+   245→    // Generate predictions
+   246→    const pred = generateBacktestPredictions(trainingData, match.homeTeam, match.awayTeam, leagueAvgs, seasonWeights);
+   247→    const o35Prob = computeO35Prob(pred.totalXg);
+   248→    
+   249→    // Compute detector inputs
+   250→    const homeRollingScored = getRollingCombinedScoring(allData, match.homeTeam, true, match.date);
+   251→    const awayRollingScored = getRollingCombinedScoring(allData, match.awayTeam, false, match.date);
+   252→    const rollingCombined = homeRollingScored + awayRollingScored;
+   253→    const o25ImpliedProb = match.oddsAvgOver25 ? (1 / match.oddsAvgOver25) * 100 : null;
+   254→    
+   255→    // Compute signals (using all data before this match for Z-Score/regression)
+   256→    const beforeThisMatch = allData.filter(r => r.date < match.date);
+   257→    const xgSignal = computeXGSignal(beforeThisMatch, match.homeTeam, match.awayTeam);
+   258→    const regressionSignal = computeRegressionSignal(beforeThisMatch, match.homeTeam, match.awayTeam);
+   259→    const zScoreSignal = computeZScoreSignal(beforeThisMatch, match.homeTeam, match.awayTeam);
+   260→    
+   261→    const signalInput: SignalInput = { xgSignal, regressionSignal, zScoreSignal };
+   262→    
+   263→    const bttsChecklistInput: ChecklistInput = {
+   264→      avgGoalsPerGame: leagueAvgs.avgTotalGoals,
+   265→      over25Percent: leagueAvgs.over25Rate * 100,
+   266→      bttsProb: pred.btts,
+   267→      avgHomeGoals: leagueAvgs.avgHomeGoals,
+   268→      avgAwayGoals: leagueAvgs.avgAwayGoals,
+   269→      o25Prob: pred.over25,
+   270→      o35Prob: o35Prob,
+   271→      overallShotConversion: 10,
+   272→      rollingHomeScored: homeRollingScored,
+   273→      rollingAwayScored: awayRollingScored,
+   274→      rollingCombinedScoring: rollingCombined,
+   275→      o25ImpliedProb,
+   276→    };
+   277→    
+   278→    // Run all detectors
+   279→    const bttsScore = computeBttsChecklist(bttsChecklistInput, resolved);
+   280→    const o35Score = computeOver35Checklist(bttsChecklistInput, resolved);
+   281→    const strongBet = computeStrongBet(bttsChecklistInput, signalInput, resolved);
+   282→    const greyResult = computeGreyResult(bttsChecklistInput, signalInput, resolved);
+   283→    const goalFest = computeGoalFest(bttsChecklistInput, signalInput, resolved);
+   284→    const drawProb = drawProbFromOdds(match.oddsAvgHome, match.oddsAvgDraw, match.oddsAvgAway);
+   285→    const bttsBH = computeBTTSBothHalves({
+   286→      o25Prob: pred.over25,
+   287→      o35Prob,
+   288→      bttsProb: pred.btts,
+   289→      rollingCombinedScoring: rollingCombined,
+   290→      o25ImpliedProb,
+   291→      drawProb,
+   292→      avgGoalsPerGame: leagueAvgs.avgTotalGoals,
+   293→    });
+   294→    
+   295→    // Actual outcomes
+   296→    const totalGoals = match.ftHomeGoals + match.ftAwayGoals;
+   297→    const btts = match.ftHomeGoals > 0 && match.ftAwayGoals > 0;
+   298→    const over25 = totalGoals > 2.5;
+   299→    const over35 = totalGoals > 3.5;
+   300→    // BTTS-BH: both teams score in EACH half
+   301→    const shHomeGoals = match.ftHomeGoals - match.htHomeGoals;
+   302→    const shAwayGoals = match.ftAwayGoals - match.htAwayGoals;
+   303→    const bttsBH_actual = match.htHomeGoals > 0 && match.htAwayGoals > 0 && shHomeGoals > 0 && shAwayGoals > 0;
+   304→
+   305→    records.push({
+   306→      league: leagueCode,
+   307→      season: testSeason,
+   308→      homeTeam: match.homeTeam,
+   309→      awayTeam: match.awayTeam,
+   310→      date: match.date,
+   311→      totalGoals,
+   312→      btts,
+   313→      over25,
+   314→      over35,
+   315→      bttsChecklistScore: bttsScore,
+   316→      over35ChecklistScore: o35Score,
+   317→      isStrongBet: strongBet.isStrongBet,
+   318→      strongBetPoints: strongBet.points,
+   319→      isGreyResult: greyResult.isGreyResult,
+   320→      greyResultScore: greyResult.score,
+   321→      isGoalFest: goalFest.isGoalFest,
+   322→      goalFestScore: goalFest.score,
+   323→      isBttsBH: bttsBH.isBTTSBothHalves,
+   324→      bttsBHScore: bttsBH.score,
+   325→      bttsBH_actual,
+   326→    });
+   327→  }
+   328→  
+   329→  return records;
+   330→}
+   331→
+   332→// --- Analysis ---
+   333→interface DetectorMetrics {
+   334→  detector: string;
+   335→  outcome: string;
+   336→  totalMatches: number;
+   337→  fired: number;
+   338→  fireRate: number;
+   339→  hits: number;
+   340→  hitRate: number;
+   341→  baseRate: number;
+   342→  lift: number;
+   343→}
+   344→
+   345→function analyzeDetector(records: MatchRecord[], detector: string, outcome: 'btts' | 'over25' | 'over35' | 'o3goals' | 'grey4goals', filterFn: (r: MatchRecord) => boolean): DetectorMetrics {
+   346→  const total = records.length;
+   347→  const fired = records.filter(filterFn);
+   348→  
+   349→  let baseRate: number;
+   350→  let hits: number;
+   351→  
+   352→  switch (outcome) {
+   353→    case 'btts':
+   354→      baseRate = records.filter(r => r.btts).length / total;
+   355→      hits = fired.filter(r => r.btts).length;
+   356→      break;
+   357→    case 'over25':
+   358→      baseRate = records.filter(r => r.over25).length / total;
+   359→      hits = fired.filter(r => r.over25).length;
+   360→      break;
+   361→    case 'over35':
+   362→      baseRate = records.filter(r => r.over35).length / total;
+   363→      hits = fired.filter(r => r.over35).length;
+   364→      break;
+   365→    case 'o3goals':
+   366→      baseRate = records.filter(r => r.totalGoals >= 3).length / total;
+   367→      hits = fired.filter(r => r.totalGoals >= 3).length;
+   368→      break;
+   369→    case 'grey4goals':
+   370→      baseRate = records.filter(r => r.totalGoals >= 4).length / total;
+   371→      hits = fired.filter(r => r.totalGoals >= 4).length;
+   372→      break;
+   373→    case 'bttsBH':
+   374→      baseRate = records.filter(r => r.bttsBH_actual).length / total;
+   375→      hits = fired.filter(r => r.bttsBH_actual).length;
+   376→      break;
+   377→  }
+   378→  
+   379→  return {
+   380→    detector,
+   381→    outcome,
+   382→    totalMatches: total,
+   383→    fired: fired.length,
+   384→    fireRate: fired.length / total,
+   385→    hitRate: fired.length > 0 ? hits / fired.length : 0,
+   386→    baseRate: baseRate!,
+   387→    lift: fired.length > 0 ? (hits / fired.length) / baseRate! : 0,
+   388→  };
+   389→}
+   390→
+   391→// --- Formatting ---
+   392→function fmtPct(n: number): string {
+   393→  return (n * 100).toFixed(1) + '%';
+   394→}
+   395→
+   396→function fmtLift(n: number): string {
+   397→  const color = n >= 1.15 ? '✅' : n >= 1.05 ? '🟢' : n >= 0.95 ? '🟡' : '🔴';
+   398→  return `${n.toFixed(2)}x ${color}`;
+   399→}
+   400→
+   401→// --- Main ---
+   402→async function main() {
+   403→  console.log('\n' + '='.repeat(110));
+   404→  console.log('LEAN DETECTOR VALIDATION BACKTEST');
+   405→  console.log('Validating all 6 detectors after noise removal');
+   406→  console.log(`Leagues: ${LEAGUES.map(l => l.name).join(', ')}`);
+   407→  console.log(`Test seasons: ${TEST_SEASONS.join(', ')}`);
+   408→  console.log('Training: 5 most recent prior seasons with exponential decay');
+   409→  console.log('='.repeat(110));
+   410→  
+   411→  // Collect all records
+   412→  const allRecords: MatchRecord[] = [];
+   413→  const leagueRecords: Map<string, MatchRecord[]> = new Map();
+   414→  
+   415→  for (const lg of LEAGUES) {
+   416→    console.log(`\n[${lg.code}] ${lg.name}...`);
+   417→    const leagueRecs: MatchRecord[] = [];
+   418→    
+   419→    for (const season of TEST_SEASONS) {
+   420→      try {
+   421→        const recs = await runLeagueBacktest(lg.code, season);
+   422→        if (recs.length > 0) {
+   423→          console.log(`  ${season}: ${recs.length} matches`);
+   424→          leagueRecs.push(...recs);
+   425→        }
+   426→      } catch (e: any) {
+   427→        console.log(`  ${season}: Skipped (${e?.message?.substring(0, 50)})`);
+   428→      }
+   429→    }
+   430→    
+   431→    if (leagueRecs.length > 0) {
+   432→      leagueRecords.set(lg.code, leagueRecs);
+   433→      allRecords.push(...leagueRecs);
+   434→      console.log(`  Total: ${leagueRecs.length} matches`);
+   435→    }
+   436→  }
+   437→  
+   438→  if (allRecords.length === 0) {
+   439→    console.log('\n❌ No matches found. Check API access.');
+   440→    return;
+   441→  }
+   442→  
+   443→  // ================================================================
+   444→  // SECTION 1: GLOBAL DETECTOR PERFORMANCE
+   445→  // ================================================================
+   446→  console.log('\n' + '═'.repeat(110));
+   447→  console.log('SECTION 1: GLOBAL DETECTOR PERFORMANCE (all leagues combined)');
+   448→  console.log('═'.repeat(110));
+   449→  
+   450→  const globalMetrics: DetectorMetrics[] = [
+   451→    // BTTS Checklist at different thresholds
+   452→    analyzeDetector(allRecords, 'BTTS Checklist ≥2/4', 'btts', r => r.bttsChecklistScore >= 2),
+   453→    analyzeDetector(allRecords, 'BTTS Checklist ≥3/4', 'btts', r => r.bttsChecklistScore >= 3),
+   454→    analyzeDetector(allRecords, 'BTTS Checklist 4/4', 'btts', r => r.bttsChecklistScore >= 4),
+   455→    // O3.5 Checklist
+   456→    analyzeDetector(allRecords, 'O3.5 Checklist ≥2/4', 'over35', r => r.over35ChecklistScore >= 2),
+   457→    analyzeDetector(allRecords, 'O3.5 Checklist ≥3/4', 'over35', r => r.over35ChecklistScore >= 3),
+   458→    analyzeDetector(allRecords, 'O3.5 Checklist 4/4', 'over35', r => r.over35ChecklistScore >= 4),
+   459→    // Strong Bet
+   460→    analyzeDetector(allRecords, 'STRONG BET', 'o3goals', r => r.isStrongBet),
+   461→    analyzeDetector(allRecords, 'STRONG BET', 'over25', r => r.isStrongBet),
+   462→    // Grey Result
+   463→    analyzeDetector(allRecords, 'GREY RESULT', 'grey4goals', r => r.isGreyResult),
+   464→    analyzeDetector(allRecords, 'GREY RESULT', 'over25', r => r.isGreyResult),
+   465→    // Goal Fest
+   466→    analyzeDetector(allRecords, 'GOAL FEST', 'over35', r => r.isGoalFest),
+   467→    analyzeDetector(allRecords, 'GOAL FEST', 'over25', r => r.isGoalFest),
+   468→    // BTTS-BH (measured against actual BTTS-BH outcome)
+   469→    analyzeDetector(allRecords, 'BTTS-BH (≥2/3)', 'bttsBH', r => r.isBttsBH),
+   470→    analyzeDetector(allRecords, 'BTTS-BH QUALIFIED', 'bttsBH', r => r.bttsBHScore >= 2),
+   471→    analyzeDetector(allRecords, 'BTTS-BH STRONG (3/3)', 'bttsBH', r => r.bttsBHScore >= 3),
+   472→  ];
+   473→  
+   474→  console.log(`
+   475→${'Detector'.padEnd(30)} ${'Outcome'.padEnd(10)} ${'Matches'.padEnd(8)} ${'Fired'.padEnd(7)} ${'Fire%'.padEnd(8)} ${'Hit%'.padEnd(8)} ${'Base%'.padEnd(8)} ${'Lift'.padEnd(10)} ${'Grade'.padEnd(6)}`);
+   476→  console.log('─'.repeat(110));
+   477→  
+   478→  for (const m of globalMetrics) {
+   479→    const grade = m.lift >= 1.20 ? 'A' : m.lift >= 1.10 ? 'B+' : m.lift >= 1.05 ? 'B' : m.lift >= 0.98 ? 'C' : 'D';
+   480→    console.log(
+   481→      `${m.detector.padEnd(30)} ${m.outcome.padEnd(10)} ${String(m.totalMatches).padEnd(8)} ${String(m.fired).padEnd(7)} ${fmtPct(m.fireRate).padEnd(8)} ${fmtPct(m.hitRate).padEnd(8)} ${fmtPct(m.baseRate).padEnd(8)} ${fmtLift(m.lift).padEnd(10)} ${grade.padEnd(6)}`
+   482→    );
+   483→  }
+   484→  
+   485→  // ================================================================
+   486→  // SECTION 2: PER-LEAGUE BREAKDOWN
+   487→  // ================================================================
+   488→  console.log('\n' + '═'.repeat(110));
+   489→  console.log('SECTION 2: PER-LEAGUE BREAKDOWN (key detectors)');
+   490→  console.log('═'.repeat(110));
+   491→  
+   492→  const keyDetectors = [
+   493→    { name: 'BTTS ≥3/4', outcome: 'btts' as const, fn: (r: MatchRecord) => r.bttsChecklistScore >= 3 },
+   494→    { name: 'O3.5 ≥3/4', outcome: 'over35' as const, fn: (r: MatchRecord) => r.over35ChecklistScore >= 3 },
+   495→    { name: 'STRONG BET', outcome: 'o3goals' as const, fn: (r: MatchRecord) => r.isStrongBet },
+   496→    { name: 'GREY RESULT', outcome: 'over25' as const, fn: (r: MatchRecord) => r.isGreyResult },
+   497→    { name: 'GOAL FEST', outcome: 'over35' as const, fn: (r: MatchRecord) => r.isGoalFest },
+   498→    { name: 'BTTS-BH ≥2/3', outcome: 'bttsBH' as const, fn: (r: MatchRecord) => r.isBttsBH },
+   499→  ];
+   500→  
+   501→  for (const lg of LEAGUES) {
+   502→    const recs = leagueRecords.get(lg.code);
+   503→    if (!recs || recs.length === 0) continue;
+   504→    
+   505→    console.log(`\n  ${lg.name} (${lg.code}) — ${recs.length} matches`);
+   506→    console.log(`  ${'Detector'.padEnd(20)} ${'Fired'.padEnd(7)} ${'Fire%'.padEnd(8)} ${'Hit%'.padEnd(8)} ${'Base%'.padEnd(8)} ${'Lift'.padEnd(10)}`);
+   507→    console.log('  ' + '─'.repeat(60));
+   508→    
+   509→    for (const det of keyDetectors) {
+   510→      const m = analyzeDetector(recs, det.name, det.outcome, det.fn);
+   511→      console.log(`  ${det.name.padEnd(20)} ${String(m.fired).padEnd(7)} ${fmtPct(m.fireRate).padEnd(8)} ${fmtPct(m.hitRate).padEnd(8)} ${fmtPct(m.baseRate).padEnd(8)} ${fmtLift(m.lift).padEnd(10)}`);
+   512→    }
+   513→  }
+   514→  
+   515→  // ================================================================
+   516→  // SECTION 3: THRESHOLD SENSITIVITY (BTTS Checklist)
+   517→  // ================================================================
+   518→  console.log('\n' + '═'.repeat(110));
+   519→  console.log('SECTION 3: BTTS CHECKLIST THRESHOLD SENSITIVITY');
+   520→  console.log('═'.repeat(110));
+   521→  
+   522→  console.log(`\n  ${'Threshold'.padEnd(15)} ${'Fired'.padEnd(7)} ${'Fire%'.padEnd(8)} ${'BTTS Hit%'.padEnd(10)} ${'Base%'.padEnd(8)} ${'Lift'.padEnd(10)}`);
+   523→  console.log('  ' + '─'.repeat(60));
+   524→  
+   525→  for (let t = 1; t <= 4; t++) {
+   526→    const m = analyzeDetector(allRecords, `BTTS ≥${t}/4`, 'btts', r => r.bttsChecklistScore >= t);
+   527→    console.log(`  ${(`≥${t}/4`).padEnd(15)} ${String(m.fired).padEnd(7)} ${fmtPct(m.fireRate).padEnd(8)} ${fmtPct(m.hitRate).padEnd(10)} ${fmtPct(m.baseRate).padEnd(8)} ${fmtLift(m.lift).padEnd(10)}`);
+   528→  }
+   529→  
+   530→  // ================================================================
+   531→  // SECTION 4: THRESHOLD SENSITIVITY (O3.5 Checklist)
+   532→  // ================================================================
+   533→  console.log('\n' + '═'.repeat(110));
+   534→  console.log('SECTION 4: OVER 3.5 CHECKLIST THRESHOLD SENSITIVITY');
+   535→  console.log('═'.repeat(110));
+   536→  
+   537→  console.log(`\n  ${'Threshold'.padEnd(15)} ${'Fired'.padEnd(7)} ${'Fire%'.padEnd(8)} ${'O3.5 Hit%'.padEnd(10)} ${'Base%'.padEnd(8)} ${'Lift'.padEnd(10)}`);
+   538→  console.log('  ' + '─'.repeat(60));
+   539→  
+   540→  for (let t = 1; t <= 4; t++) {
+   541→    const m = analyzeDetector(allRecords, `O3.5 ≥${t}/4`, 'over35', r => r.over35ChecklistScore >= t);
+   542→    console.log(`  ${(`≥${t}/4`).padEnd(15)} ${String(m.fired).padEnd(7)} ${fmtPct(m.fireRate).padEnd(8)} ${fmtPct(m.hitRate).padEnd(10)} ${fmtPct(m.baseRate).padEnd(8)} ${fmtLift(m.lift).padEnd(10)}`);
+   543→  }
+   544→  
+   545→  // ================================================================
+   546→  // SECTION 5: STRONG BET POINTS DISTRIBUTION
+   547→  // ================================================================
+   548→  console.log('\n' + '═'.repeat(110));
+   549→  console.log('SECTION 5: STRONG BET POINTS DISTRIBUTION');
+   550→  console.log('═'.repeat(110));
+   551→  
+   552→  const sbPoints: Map<number, { total: number; o3hits: number; o25hits: number }> = new Map();
+   553→  for (const r of allRecords) {
+   554→    const bucket = r.strongBetPoints;
+   555→    const s = sbPoints.get(bucket) || { total: 0, o3hits: 0, o25hits: 0 };
+   556→    s.total++;
+   557→    if (r.totalGoals >= 3) s.o3hits++;
+   558→    if (r.over25) s.o25hits++;
+   559→    sbPoints.set(bucket, s);
+   560→  }
+   561→  
+   562→  console.log(`\n  ${'Points'.padEnd(8)} ${'Count'.padEnd(7)} ${'%of Total'.padEnd(10)} ${'O3+ Hit%'.padEnd(10)} ${'O2.5 Hit%'.padEnd(10)}`);
+   563→  console.log('  ' + '─'.repeat(50));
+   564→  
+   565→  const totalMatches = allRecords.length;
+   566→  const o3Base = allRecords.filter(r => r.totalGoals >= 3).length / totalMatches;
+   567→  const o25Base = allRecords.filter(r => r.over25).length / totalMatches;
+   568→  
+   569→  for (const [pts, s] of [...sbPoints.entries()].sort((a, b) => a[0] - b[0])) {
+   570→    const o3Lift = s.total > 0 ? (s.o3hits / s.total) / o3Base : 0;
+   571→    const o25Lift = s.total > 0 ? (s.o25hits / s.total) / o25Base : 0;
+   572→    console.log(`  ${String(pts).padEnd(8)} ${String(s.total).padEnd(7)} ${fmtPct(s.total / totalMatches).padEnd(10)} ${fmtPct(s.o3hits / s.total).padEnd(10)} ${fmtLift(o3Lift).padEnd(10)}`);
+   573→  }
+   574→  
+   575→  // ================================================================
+   576→  // SECTION 6: ASSESSMENT & RECOMMENDATIONS
+   577→  // ================================================================
+   578→  console.log('\n' + '═'.repeat(110));
+   579→  console.log('SECTION 6: ASSESSMENT & RECOMMENDATIONS');
+   580→  console.log('═'.repeat(110));
+   581→  
+   582→  const btts3 = analyzeDetector(allRecords, 'BTTS ≥3/4', 'btts', r => r.bttsChecklistScore >= 3);
+   583→  const o353 = analyzeDetector(allRecords, 'O3.5 ≥3/4', 'over35', r => r.over35ChecklistScore >= 3);
+   584→  const sb = analyzeDetector(allRecords, 'STRONG BET', 'o3goals', r => r.isStrongBet);
+   585→  const gr = analyzeDetector(allRecords, 'GREY RESULT', 'over25', r => r.isGreyResult);
+   586→  const gf = analyzeDetector(allRecords, 'GOAL FEST', 'over35', r => r.isGoalFest);
+   587→  const bh = analyzeDetector(allRecords, 'BTTS-BH', 'bttsBH', r => r.isBttsBH);
+   588→  
+   589→  console.log(`\n  BASE RATES:`);
+   590→  console.log(`    BTTS:       ${fmtPct(allRecords.filter(r => r.btts).length / totalMatches)}`);
+   591→  console.log(`    Over 2.5:   ${fmtPct(allRecords.filter(r => r.over25).length / totalMatches)}`);
+   592→  console.log(`    Over 3.5:   ${fmtPct(allRecords.filter(r => r.over35).length / totalMatches)}`);
+   593→  console.log(`    3+ Goals:   ${fmtPct(allRecords.filter(r => r.totalGoals >= 3).length / totalMatches)}`);
+   594→  console.log(`    BTTS-BH:    ${fmtPct(allRecords.filter(r => r.bttsBH_actual).length / totalMatches)}`);
+   595→  
+   596→  console.log(`\n  DETECTOR SUMMARY:`);
+   597→  console.log(`    BTTS ≥3/4:     Fire ${fmtPct(btts3.fireRate)}, Hit ${fmtPct(btts3.hitRate)}, Lift ${btts3.lift.toFixed(2)}x`);
+   598→  console.log(`    O3.5 ≥3/4:     Fire ${fmtPct(o353.fireRate)}, Hit ${fmtPct(o353.hitRate)}, Lift ${o353.lift.toFixed(2)}x`);
+   599→  console.log(`    STRONG BET:    Fire ${fmtPct(sb.fireRate)}, Hit ${fmtPct(sb.hitRate)}, Lift ${sb.lift.toFixed(2)}x`);
+   600→  console.log(`    GREY RESULT:   Fire ${fmtPct(gr.fireRate)}, Hit ${fmtPct(gr.hitRate)}, Lift ${gr.lift.toFixed(2)}x`);
+   601→  console.log(`    GOAL FEST:     Fire ${fmtPct(gf.fireRate)}, Hit ${fmtPct(gf.hitRate)}, Lift ${gf.lift.toFixed(2)}x`);
+   602→  console.log(`    BTTS-BH:       Fire ${fmtPct(bh.fireRate)}, Hit ${fmtPct(bh.hitRate)}, Lift ${bh.lift.toFixed(2)}x`);
+   603→  
+   604→  // Recommendations
+   605→  console.log(`\n  THRESHOLD RECOMMENDATIONS:`);
+   606→  
+   607→  if (btts3.lift >= 1.10) {
+   608→    console.log(`    ✅ BTTS ≥3/4: GOOD lift (${btts3.lift.toFixed(2)}x). Keep threshold at 3.`);
+   609→  } else if (btts3.lift >= 1.05) {
+   610→    console.log(`    🟡 BTTS ≥3/4: MARGINAL lift (${btts3.lift.toFixed(2)}x). Consider tightening to 4/4.`);
+   611→  } else {
+   612→    console.log(`    🔴 BTTS ≥3/4: NO lift (${btts3.lift.toFixed(2)}x). Threshold needs adjustment.`);
+   613→  }
+   614→  
+   615→  if (o353.lift >= 1.10) {
+   616→    console.log(`    ✅ O3.5 ≥3/4: GOOD lift (${o353.lift.toFixed(2)}x). Keep threshold at 3.`);
+   617→  } else if (o353.lift >= 1.05) {
+   618→    console.log(`    🟡 O3.5 ≥3/4: MARGINAL lift (${o353.lift.toFixed(2)}x). Consider tightening.`);
+   619→  } else {
+   620→    console.log(`    🔴 O3.5 ≥3/4: NO lift (${o353.lift.toFixed(2)}x). Threshold needs adjustment.`);
+   621→  }
+   622→  
+   623→  if (sb.lift >= 1.15) {
+   624→    console.log(`    ✅ STRONG BET: STRONG lift (${sb.lift.toFixed(2)}x). Threshold at 7 is well-calibrated.`);
+   625→  } else if (sb.lift >= 1.05) {
+   626→    console.log(`    🟡 STRONG BET: MARGINAL lift (${sb.lift.toFixed(2)}x). Consider raising threshold.`);
+   627→  } else {
+   628→    console.log(`    🔴 STRONG BET: NO lift (${sb.lift.toFixed(2)}x). Consider raising from 7 to 8+.`);
+   629→  }
+   630→  
+   631→  if (gf.lift >= 1.15) {
+   632→    console.log(`    ✅ GOAL FEST: STRONG lift (${gf.lift.toFixed(2)}x). 5/6 threshold is well-calibrated.`);
+   633→  } else if (gf.lift >= 1.05) {
+   634→    console.log(`    🟡 GOAL FEST: MARGINAL lift (${gf.lift.toFixed(2)}x). Consider tightening.`);
+   635→  } else {
+   636→    console.log(`    🔴 GOAL FEST: NO lift (${gf.lift.toFixed(2)}x). Consider raising threshold.`);
+   637→  }
+   638→  
+   639→  if (bh.lift >= 1.15) {
+   640→    console.log(`    ✅ BTTS-BH: STRONG lift (${bh.lift.toFixed(2)}x). 2/3 threshold is well-calibrated.`);
+   641→  } else if (bh.lift >= 1.05) {
+   642→    console.log(`    🟡 BTTS-BH: MARGINAL lift (${bh.lift.toFixed(2)}x). Monitor.`);
+   643→  } else {
+   644→    console.log(`    🔴 BTTS-BH: NO lift (${bh.lift.toFixed(2)}x). Needs investigation.`);
+   645→  }
+   646→  
+   647→  // Save results
+   648→  const { writeFile } = await import('fs/promises');
+   649→  const jsonPath = '/home/z/my-project/download/lean-detector-validation.json';
+   650→  await writeFile(jsonPath, JSON.stringify({
+   651→    timestamp: new Date().toISOString(),
+   652→    totalMatches: allRecords.length,
+   653→    leagues: LEAGUES.filter(l => leagueRecords.has(l.code)).map(l => ({ code: l.code, name: l.name, matches: leagueRecords.get(l.code)!.length })),
+   654→    globalMetrics,
+   655→    baseRates: {
+   656→      btts: allRecords.filter(r => r.btts).length / totalMatches,
+   657→      over25: allRecords.filter(r => r.over25).length / totalMatches,
+   658→      over35: allRecords.filter(r => r.over35).length / totalMatches,
+   659→    },
+   660→  }, null, 2));
+   661→  console.log(`\n  Full results saved to: ${jsonPath}`);
+   662→}
+   663→
+   664→main().catch(console.error);
+   665→

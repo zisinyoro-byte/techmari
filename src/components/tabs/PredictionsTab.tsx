@@ -384,9 +384,20 @@ export default function PredictionsTab({
                   // Now includes O2.5 implied probability + rolling 5-game scoring
 
                   // Compute O2.5 implied probability from match odds
-                  const homeOdds25 = results.filter(r => r.homeTeam === predHomeTeam && r.oddsAvgOver25)
-                    .sort((a, b) => b.date.localeCompare(a.date))[0]?.oddsAvgOver25;
+                  const matchResult = results.filter(r => r.homeTeam === predHomeTeam && r.oddsAvgOver25)
+                    .sort((a, b) => b.date.localeCompare(a.date))[0];
+                  const homeOdds25 = matchResult?.oddsAvgOver25;
                   const o25ImpliedProb = homeOdds25 ? (1 / homeOdds25) * 100 : null;
+
+                  // Compute draw probability from match odds
+                  const drawProb = (() => {
+                    const h = matchResult?.oddsAvgHome;
+                    const d = matchResult?.oddsAvgDraw;
+                    const a = matchResult?.oddsAvgAway;
+                    if (!h || !d || !a || h < 1.01 || d < 1.01 || a < 1.01) return null;
+                    const overround = (1 / h) + (1 / d) + (1 / a);
+                    return Math.round((1 / d) / overround * 100);
+                  })();
 
                   // Rolling 5-game scoring (from predict response if available)
                   const rolling = prediction.rollingStats;
@@ -406,6 +417,8 @@ export default function PredictionsTab({
                     rollingCombinedScoring: rolling?.rollingCombinedScoring ?? (analytics.avgHomeGoals + analytics.avgAwayGoals),
                     // NEW: O2.5 implied probability from bookmaker odds
                     o25ImpliedProb,
+                    // Draw probability from odds (for BTTS checklist 5th check)
+                    drawProb,
                   };
                   const bttsChecksQuickCount = computeBttsChecklist(bttsChecklistInput, resolved);
 

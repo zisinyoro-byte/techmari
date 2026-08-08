@@ -1,13 +1,13 @@
 /**
  * Lean Detector Validation Backtest
  * ================================
- * Validates all 6 lean detectors after noise removal:
- *   1. BTTS Checklist (4 checks, need threshold)
+ * Validates all 6 lean detectors after BTTS restructure + BTTS-BH tightening:
+ *   1. BTTS Checklist (5 checks, need threshold) - added draw prob check
  *   2. Over 3.5 Checklist (4 checks, need threshold)
  *   3. STRONG BET (6 checks, 13pts, need 7+)
  *   4. GREY RESULT (7 checks, need 5+)
  *   5. GOAL FEST (6 checks, need 5+)
- *   6. BTTS-BH (3 checks, need 2+)
+ *   6. BTTS-BH (3 checks, tightened: o25>=68%, roll>=3.2, need 2+)
  *
  * For each detector measures:
  *   - Fire rate (% of matches where detector triggers)
@@ -273,6 +273,7 @@ async function runLeagueBacktest(leagueCode: string, testSeason: string): Promis
       rollingAwayScored: awayRollingScored,
       rollingCombinedScoring: rollingCombined,
       o25ImpliedProb,
+      drawProb: drawProbFromOdds(match.oddsAvgHome, match.oddsAvgDraw, match.oddsAvgAway),
     };
     
     // Run all detectors
@@ -449,9 +450,9 @@ async function main() {
   
   const globalMetrics: DetectorMetrics[] = [
     // BTTS Checklist at different thresholds
-    analyzeDetector(allRecords, 'BTTS Checklist ≥2/4', 'btts', r => r.bttsChecklistScore >= 2),
-    analyzeDetector(allRecords, 'BTTS Checklist ≥3/4', 'btts', r => r.bttsChecklistScore >= 3),
-    analyzeDetector(allRecords, 'BTTS Checklist 4/4', 'btts', r => r.bttsChecklistScore >= 4),
+    analyzeDetector(allRecords, 'BTTS Checklist ≥2/5', 'btts', r => r.bttsChecklistScore >= 2),
+    analyzeDetector(allRecords, 'BTTS Checklist ≥3/5', 'btts', r => r.bttsChecklistScore >= 3),
+    analyzeDetector(allRecords, 'BTTS Checklist 5/5', 'btts', r => r.bttsChecklistScore >= 4),
     // O3.5 Checklist
     analyzeDetector(allRecords, 'O3.5 Checklist ≥2/4', 'over35', r => r.over35ChecklistScore >= 2),
     analyzeDetector(allRecords, 'O3.5 Checklist ≥3/4', 'over35', r => r.over35ChecklistScore >= 3),
@@ -490,7 +491,7 @@ ${'Detector'.padEnd(30)} ${'Outcome'.padEnd(10)} ${'Matches'.padEnd(8)} ${'Fired
   console.log('═'.repeat(110));
   
   const keyDetectors = [
-    { name: 'BTTS ≥3/4', outcome: 'btts' as const, fn: (r: MatchRecord) => r.bttsChecklistScore >= 3 },
+    { name: 'BTTS ≥4/5', outcome: 'btts' as const, fn: (r: MatchRecord) => r.bttsChecklistScore >= 4 },
     { name: 'O3.5 ≥3/4', outcome: 'over35' as const, fn: (r: MatchRecord) => r.over35ChecklistScore >= 3 },
     { name: 'STRONG BET', outcome: 'o3goals' as const, fn: (r: MatchRecord) => r.isStrongBet },
     { name: 'GREY RESULT', outcome: 'over25' as const, fn: (r: MatchRecord) => r.isGreyResult },
@@ -522,9 +523,9 @@ ${'Detector'.padEnd(30)} ${'Outcome'.padEnd(10)} ${'Matches'.padEnd(8)} ${'Fired
   console.log(`\n  ${'Threshold'.padEnd(15)} ${'Fired'.padEnd(7)} ${'Fire%'.padEnd(8)} ${'BTTS Hit%'.padEnd(10)} ${'Base%'.padEnd(8)} ${'Lift'.padEnd(10)}`);
   console.log('  ' + '─'.repeat(60));
   
-  for (let t = 1; t <= 4; t++) {
-    const m = analyzeDetector(allRecords, `BTTS ≥${t}/4`, 'btts', r => r.bttsChecklistScore >= t);
-    console.log(`  ${(`≥${t}/4`).padEnd(15)} ${String(m.fired).padEnd(7)} ${fmtPct(m.fireRate).padEnd(8)} ${fmtPct(m.hitRate).padEnd(10)} ${fmtPct(m.baseRate).padEnd(8)} ${fmtLift(m.lift).padEnd(10)}`);
+  for (let t = 1; t <= 5; t++) {
+    const m = analyzeDetector(allRecords, `BTTS ≥${t}/5`, 'btts', r => r.bttsChecklistScore >= t);
+    console.log(`  ${(`≥${t}/5`).padEnd(15)} ${String(m.fired).padEnd(7)} ${fmtPct(m.fireRate).padEnd(8)} ${fmtPct(m.hitRate).padEnd(10)} ${fmtPct(m.baseRate).padEnd(8)} ${fmtLift(m.lift).padEnd(10)}`);
   }
   
   // ================================================================
@@ -579,7 +580,7 @@ ${'Detector'.padEnd(30)} ${'Outcome'.padEnd(10)} ${'Matches'.padEnd(8)} ${'Fired
   console.log('SECTION 6: ASSESSMENT & RECOMMENDATIONS');
   console.log('═'.repeat(110));
   
-  const btts3 = analyzeDetector(allRecords, 'BTTS ≥3/4', 'btts', r => r.bttsChecklistScore >= 3);
+  const btts4 = analyzeDetector(allRecords, 'BTTS ≥4/5', 'btts', r => r.bttsChecklistScore >= 4);
   const o353 = analyzeDetector(allRecords, 'O3.5 ≥3/4', 'over35', r => r.over35ChecklistScore >= 3);
   const sb = analyzeDetector(allRecords, 'STRONG BET', 'o3goals', r => r.isStrongBet);
   const gr = analyzeDetector(allRecords, 'GREY RESULT', 'over25', r => r.isGreyResult);
@@ -594,7 +595,7 @@ ${'Detector'.padEnd(30)} ${'Outcome'.padEnd(10)} ${'Matches'.padEnd(8)} ${'Fired
   console.log(`    BTTS-BH:    ${fmtPct(allRecords.filter(r => r.bttsBH_actual).length / totalMatches)}`);
   
   console.log(`\n  DETECTOR SUMMARY:`);
-  console.log(`    BTTS ≥3/4:     Fire ${fmtPct(btts3.fireRate)}, Hit ${fmtPct(btts3.hitRate)}, Lift ${btts3.lift.toFixed(2)}x`);
+  console.log(`    BTTS ≥4/5:     Fire ${fmtPct(btts4.fireRate)}, Hit ${fmtPct(btts4.hitRate)}, Lift ${btts4.lift.toFixed(2)}x`);
   console.log(`    O3.5 ≥3/4:     Fire ${fmtPct(o353.fireRate)}, Hit ${fmtPct(o353.hitRate)}, Lift ${o353.lift.toFixed(2)}x`);
   console.log(`    STRONG BET:    Fire ${fmtPct(sb.fireRate)}, Hit ${fmtPct(sb.hitRate)}, Lift ${sb.lift.toFixed(2)}x`);
   console.log(`    GREY RESULT:   Fire ${fmtPct(gr.fireRate)}, Hit ${fmtPct(gr.hitRate)}, Lift ${gr.lift.toFixed(2)}x`);
@@ -604,12 +605,12 @@ ${'Detector'.padEnd(30)} ${'Outcome'.padEnd(10)} ${'Matches'.padEnd(8)} ${'Fired
   // Recommendations
   console.log(`\n  THRESHOLD RECOMMENDATIONS:`);
   
-  if (btts3.lift >= 1.10) {
-    console.log(`    ✅ BTTS ≥3/4: GOOD lift (${btts3.lift.toFixed(2)}x). Keep threshold at 3.`);
-  } else if (btts3.lift >= 1.05) {
-    console.log(`    🟡 BTTS ≥3/4: MARGINAL lift (${btts3.lift.toFixed(2)}x). Consider tightening to 4/4.`);
+  if (btts4.lift >= 1.10) {
+    console.log(`    ✅ BTTS ≥4/5: GOOD lift (${btts4.lift.toFixed(2)}x). 5-check restructure working.`);
+  } else if (btts4.lift >= 1.05) {
+    console.log(`    🟡 BTTS ≥4/5: MARGINAL lift (${btts4.lift.toFixed(2)}x). Consider adjusting.`);
   } else {
-    console.log(`    🔴 BTTS ≥3/4: NO lift (${btts3.lift.toFixed(2)}x). Threshold needs adjustment.`);
+    console.log(`    🔴 BTTS ≥4/5: NO lift (${btts4.lift.toFixed(2)}x). Needs further tuning.`);
   }
   
   if (o353.lift >= 1.10) {
@@ -636,9 +637,9 @@ ${'Detector'.padEnd(30)} ${'Outcome'.padEnd(10)} ${'Matches'.padEnd(8)} ${'Fired
     console.log(`    🔴 GOAL FEST: NO lift (${gf.lift.toFixed(2)}x). Consider raising threshold.`);
   }
   
-  if (bh.lift >= 1.15) {
-    console.log(`    ✅ BTTS-BH: STRONG lift (${bh.lift.toFixed(2)}x). 2/3 threshold is well-calibrated.`);
-  } else if (bh.lift >= 1.05) {
+  if (bh.lift >= 1.20) {
+    console.log(`    ✅ BTTS-BH: STRONG lift (${bh.lift.toFixed(2)}x). Tightened thresholds working.`);
+  } else if (bh.lift >= 1.10) {
     console.log(`    🟡 BTTS-BH: MARGINAL lift (${bh.lift.toFixed(2)}x). Monitor.`);
   } else {
     console.log(`    🔴 BTTS-BH: NO lift (${bh.lift.toFixed(2)}x). Needs investigation.`);

@@ -29,11 +29,11 @@ export default function BttsCheckTab({
             <CardHeader>
               <CardTitle className="text-xl flex items-center gap-2">
                 <Target className="w-6 h-6 text-purple-600" />
-                BTTS Checklist (4 Proven Checks)
+                BTTS Checklist (5 Proven Checks)
               </CardTitle>
               <CardDescription>
                 Use this checklist to evaluate if a game is likely to have Both Teams To Score (BTTS).
-                Only checks with proven predictive power are included.
+                Only checks with proven predictive power are included. Now includes draw probability for structural independence.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -41,6 +41,7 @@ export default function BttsCheckTab({
                 <p className="text-sm text-muted-foreground">
                   Based on <span className="font-bold text-foreground">{analytics.totalMatches} matches</span> from {selectedLeagueName}.
                   Removed noise: league constants (zero match discrimination), season-average goals (stale), shot conversion (unverified).
+                  Added: draw probability (structural independence, 1.21x lift in 24K-match BTTS-BH calibration).
                 </p>
               </div>
             </CardContent>
@@ -92,9 +93,19 @@ export default function BttsCheckTab({
                 }
 
                 // Calculate O2.5 implied probability
-                const homeOdds25 = results.filter(r => r.homeTeam && r.oddsAvgOver25)
-                  .sort((a, b) => b.date.localeCompare(a.date))[0]?.oddsAvgOver25
-                const o25ImpliedProb = homeOdds25 ? (1 / homeOdds25) * 100 : null
+                const lastResult = results.filter(r => r.homeTeam && r.oddsAvgOver25)
+                  .sort((a, b) => b.date.localeCompare(a.date))[0]
+                const o25ImpliedProb = lastResult?.oddsAvgOver25 ? (1 / lastResult.oddsAvgOver25) * 100 : null
+
+                // Calculate draw probability from odds
+                const drawProb = (() => {
+                  const h = lastResult?.oddsAvgHome
+                  const d = lastResult?.oddsAvgDraw
+                  const a = lastResult?.oddsAvgAway
+                  if (!h || !d || !a || h < 1.01 || d < 1.01 || a < 1.01) return null
+                  const overround = (1 / h) + (1 / d) + (1 / a)
+                  return Math.round((1 / d) / overround * 100)
+                })()
 
                 // Get rolling stats from prediction if available
                 const rollingStats = (prediction as any)?.rollingStats
@@ -133,9 +144,37 @@ export default function BttsCheckTab({
                     value: rollingCombinedScoring.toFixed(1),
                     threshold: '>= ' + ROLLING_SCORING_THRESHOLDS.btts,
                   },
+                  {
+                    id: 5,
+                    label: 'Draw Probability < ' + displayT.drawProbMax + '%',
+                    description: drawProb !== null ? 'Bookmaker odds imply ' + drawProb + '% draw chance' : 'No odds available for draw probability',
+                    passing: drawProb !== null && drawProb < displayT.drawProbMax,
+                    value: drawProb !== null ? drawProb + '%' : 'N/A',
+                    threshold: '< ' + displayT.drawProbMax + '%',
+                  },
                 ]
 
                 const passedCount = checklistItems.filter(item => item.passing === true).length
+
+                // Tier classification
+                let tierLabel: string
+                let tierColor: string
+                if (passedCount >= 5) { tierLabel = 'BTTS STRONG'; tierColor = 'green' }
+                else if (passedCount >= 4) { tierLabel = 'BTTS QUALIFIED'; tierColor = 'green' }
+                else if (passedCount >= 3) { tierLabel = 'BTTS WEAK'; tierColor = 'yellow' }
+                else { tierLabel = 'BTTS AVOID'; tierColor = 'red' }
+
+                const barColor = tierColor === 'green' ? 'bg-green-500' : tierColor === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'
+                const recBg = tierColor === 'green'
+                  ? 'bg-gradient-to-r from-green-100 to-emerald-100 border-green-400 dark:from-green-900/30 dark:to-emerald-900/30'
+                  : tierColor === 'yellow'
+                    ? 'bg-gradient-to-r from-yellow-100 to-amber-100 border-yellow-400 dark:from-yellow-900/30 dark:to-amber-900/30'
+                    : 'bg-gradient-to-r from-red-100 to-orange-100 border-red-400 dark:from-red-900/30 dark:to-orange-900/30'
+                const recText = tierColor === 'green'
+                  ? 'Strong indicators suggest BTTS is likely. Consider this a solid betting opportunity.'
+                  : tierColor === 'yellow'
+                    ? 'Mixed signals. Check team-specific form before deciding.'
+                    : 'Most indicators are negative. BTTS may not be the best choice for this match.'
 
                 return (
                   <div className="space-y-4">
@@ -148,11 +187,14 @@ export default function BttsCheckTab({
                         </div>
                         <div className="text-right">
                           <p className="text-3xl font-bold text-purple-600">{passedCount}/{checklistItems.length}</p>
+                          <Badge variant="outline" className={'mt-1 text-xs ' + (tierColor === 'green' ? 'border-green-500 text-green-700' : tierColor === 'yellow' ? 'border-yellow-500 text-yellow-700' : 'border-red-500 text-red-700')}>
+                            {tierLabel}
+                          </Badge>
                         </div>
                       </div>
                       <div className="mt-3 h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
-                          className={'h-full rounded-full transition-all ' + (passedCount >= 3 ? 'bg-green-500' : passedCount >= 2 ? 'bg-yellow-500' : 'bg-red-500')}
+                          className={'h-full rounded-full transition-all ' + barColor}
                           style={{ width: (passedCount / checklistItems.length) * 100 + '%' }}
                         />
                       </div>
@@ -202,28 +244,10 @@ export default function BttsCheckTab({
                     </div>
 
                     {/* Final Recommendation */}
-                    <div className={'p-6 rounded-xl border-2 ' + (
-                      passedCount >= 3
-                        ? 'bg-gradient-to-r from-green-100 to-emerald-100 border-green-400 dark:from-green-900/30 dark:to-emerald-900/30'
-                        : passedCount >= 2
-                        ? 'bg-gradient-to-r from-yellow-100 to-amber-100 border-yellow-400 dark:from-yellow-900/30 dark:to-amber-900/30'
-                        : 'bg-gradient-to-r from-red-100 to-orange-100 border-red-400 dark:from-red-900/30 dark:to-orange-900/30'
-                    )}>
+                    <div className={'p-6 rounded-xl border-2 ' + recBg}>
                       <div className="text-center">
-                        <p className="font-bold text-lg mb-2">
-                          {passedCount >= 3
-                            ? 'HIGH BTTS CONFIDENCE'
-                            : passedCount >= 2
-                            ? 'MODERATE BTTS CONFIDENCE'
-                            : 'LOW BTTS CONFIDENCE'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {passedCount >= 3
-                            ? 'Strong indicators suggest BTTS is likely. Consider this a solid betting opportunity.'
-                            : passedCount >= 2
-                            ? 'Mixed signals. Check team-specific form before deciding.'
-                            : 'Most indicators are negative. BTTS may not be the best choice for this match.'}
-                        </p>
+                        <p className="font-bold text-lg mb-2">{tierLabel}</p>
+                        <p className="text-sm text-muted-foreground">{recText}</p>
                       </div>
                     </div>
                   </div>

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-08T08:10:51.359Z",
+  "timestamp": "2026-08-08T08:35:58.393Z",
   "totalMatches": 3526,
   "leagues": [
     {
@@ -40,34 +40,34 @@
   ],
   "globalMetrics": [
     {
-      "detector": "BTTS Checklist ≥2/4",
+      "detector": "BTTS Checklist ≥2/5",
       "outcome": "btts",
       "totalMatches": 3526,
-      "fired": 1584,
-      "fireRate": 0.4492342597844583,
-      "hitRate": 0.57260101010101,
+      "fired": 2063,
+      "fireRate": 0.5850822461712989,
+      "hitRate": 0.566650508967523,
       "baseRate": 0.55218377765173,
-      "lift": 1.0369754296949982
+      "lift": 1.0261991240983492
     },
     {
-      "detector": "BTTS Checklist ≥3/4",
+      "detector": "BTTS Checklist ≥3/5",
       "outcome": "btts",
       "totalMatches": 3526,
-      "fired": 265,
-      "fireRate": 0.07515598411798072,
-      "hitRate": 0.5471698113207547,
+      "fired": 1249,
+      "fireRate": 0.3542257515598412,
+      "hitRate": 0.5636509207365893,
       "baseRate": 0.55218377765173,
-      "lift": 0.9909197507534572
+      "lift": 1.020766896002678
     },
     {
-      "detector": "BTTS Checklist 4/4",
+      "detector": "BTTS Checklist 5/5",
       "outcome": "btts",
       "totalMatches": 3526,
-      "fired": 0,
-      "fireRate": 0,
-      "hitRate": 0,
+      "fired": 209,
+      "fireRate": 0.05927396483267158,
+      "hitRate": 0.5263157894736842,
       "baseRate": 0.55218377765173,
-      "lift": 0
+      "lift": 0.9531532992728354
     },
     {
       "detector": "O3.5 Checklist ≥2/4",
@@ -103,41 +103,41 @@
       "detector": "STRONG BET",
       "outcome": "o3goals",
       "totalMatches": 3526,
-      "fired": 253,
-      "fireRate": 0.07175269427112876,
-      "hitRate": 0.6798418972332015,
+      "fired": 244,
+      "fireRate": 0.06920022688598979,
+      "hitRate": 0.6844262295081968,
       "baseRate": 0.5541690300623936,
-      "lift": 1.226777139019585
+      "lift": 1.235049583032703
     },
     {
       "detector": "STRONG BET",
       "outcome": "over25",
       "totalMatches": 3526,
-      "fired": 253,
-      "fireRate": 0.07175269427112876,
-      "hitRate": 0.6798418972332015,
+      "fired": 244,
+      "fireRate": 0.06920022688598979,
+      "hitRate": 0.6844262295081968,
       "baseRate": 0.5541690300623936,
-      "lift": 1.226777139019585
+      "lift": 1.235049583032703
     },
     {
       "detector": "GREY RESULT",
       "outcome": "grey4goals",
       "totalMatches": 3526,
-      "fired": 706,
-      "fireRate": 0.20022688598979013,
-      "hitRate": 0.44192634560906513,
+      "fired": 686,
+      "fireRate": 0.19455473624503686,
+      "hitRate": 0.4446064139941691,
       "baseRate": 0.33238797504254114,
-      "lift": 1.3295497394347813
+      "lift": 1.3376128120677817
     },
     {
       "detector": "GREY RESULT",
       "outcome": "over25",
       "totalMatches": 3526,
-      "fired": 706,
-      "fireRate": 0.20022688598979013,
-      "hitRate": 0.6458923512747875,
+      "fired": 686,
+      "fireRate": 0.19455473624503686,
+      "hitRate": 0.6457725947521866,
       "baseRate": 0.5541690300623936,
-      "lift": 1.16551506171694
+      "lift": 1.1652989606428916
     },
     {
       "detector": "GOAL FEST",
@@ -163,31 +163,31 @@
       "detector": "BTTS-BH (≥2/3)",
       "outcome": "bttsBH",
       "totalMatches": 3526,
-      "fired": 1149,
-      "fireRate": 0.3258650028360749,
-      "hitRate": 0.06875543951261967,
+      "fired": 1060,
+      "fireRate": 0.30062393647192287,
+      "hitRate": 0.07169811320754717,
       "baseRate": 0.059841179807146906,
-      "lift": 1.1489653067369525
+      "lift": 1.1981400339801485
     },
     {
       "detector": "BTTS-BH QUALIFIED",
       "outcome": "bttsBH",
       "totalMatches": 3526,
-      "fired": 1149,
-      "fireRate": 0.3258650028360749,
-      "hitRate": 0.06875543951261967,
+      "fired": 1060,
+      "fireRate": 0.30062393647192287,
+      "hitRate": 0.07169811320754717,
       "baseRate": 0.059841179807146906,
-      "lift": 1.1489653067369525
+      "lift": 1.1981400339801485
     },
     {
       "detector": "BTTS-BH STRONG (3/3)",
       "outcome": "bttsBH",
       "totalMatches": 3526,
-      "fired": 498,
-      "fireRate": 0.1412365286443562,
-      "hitRate": 0.08032128514056225,
+      "fired": 437,
+      "fireRate": 0.12393647192285877,
+      "hitRate": 0.07551487414187644,
       "baseRate": 0.059841179807146906,
-      "lift": 1.3422410019223816
+      "lift": 1.261921546086523
     }
   ],
   "baseRates": {

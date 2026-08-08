@@ -10,7 +10,7 @@
 //   BTTS/O2.5/O3.5 model probabilities (direct target market)
 //   O2.5 implied probability from bookmaker odds (strongest single predictor)
 //   Rolling combined scoring (recent form, independent of model)
-//   Draw probability inverted (structural, independent for BTTS-BH)
+//   Draw probability inverted (structural, independent — added to BTTS checklist)
 //   Signal divergence (xG Over + Regression Under = specific pattern)
 //   BTTS probability band (selective constraint for Grey Result)
 // =============================================================================
@@ -63,10 +63,11 @@ export function computeLeagueBaselines(
 // Per-criterion threshold definitions
 // ============================================================================
 
-/** Thresholds for each BTTS checklist criterion (lean 4-check) */
+/** Thresholds for each BTTS checklist criterion (lean 5-check) */
 export interface BttsCriterionThresholds {
   modelBttsProb: number;   // %
   modelO25Prob: number;    // %
+  drawProbMax: number;     // % (new: structural independence)
 }
 
 /** Thresholds for each Over 3.5 checklist criterion (lean 4-check) */
@@ -207,10 +208,14 @@ export function hasSufficientBacktest(leagueName: string, minSampleSize = 150): 
 // League-level: absolute. Match-level: floor + multiplier pairs.
 // ============================================================================
 
-// ---- BTTS Checklist criteria (lean 4-check) ----
+// ---- BTTS Checklist criteria (lean 5-check) ----
+// Added draw probability inverted as 5th check — proven 1.21x lift for BTTS-BH,
+// structurally independent of model probabilities and form signals.
+// Low draw prob = open, competitive play = both teams more likely to score.
 export const BTTS_HYBRID_THRESHOLDS = {
   modelBttsProb:  { floor: 55, multiplier: 1.12 },
   modelO25Prob:   { floor: 62, multiplier: 1.10 },
+  drawProbMax: 26,  // Draw prob BELOW this = open play (structural signal)
 } as const;
 
 // O2.5 implied probability thresholds (from 10K-match analysis)
@@ -220,7 +225,7 @@ export const O25_IMPLIED_THRESHOLDS = {
   over35: 59,  // O3.5 check: higher bar
   strongBet: 62, // Strong Bet: significant market confidence
   goalFest: 58, // Goal Fest: moderate market confidence
-  bttsBothHalves: 65, // BTTS-BH: high market confidence in goals (90% of BTTS-BH have O2.5 odds < 2.0)
+  bttsBothHalves: 65, // BTTS-BH: rolling scoring tightened to 3.2, O2.5 kept at 65% (sweet spot for STRONG 3/3 tier)
 } as const;
 
 // Rolling combined scoring thresholds (from 10K-match analysis)
@@ -260,7 +265,7 @@ export const STRONG_BET_HYBRID = {
   o25Prob:   { floor: 65, multiplier: 1.10 },
   o35Prob:   { floor: 42, multiplier: 1.25 },
   bttsProb:  { floor: 55, multiplier: 1.12 },
-  bttsChecklistCount: 3,  // was 6/9, now 3/4 (proportionally equivalent)
+  bttsChecklistCount: 4,  // 4/5 (80%) — proportionally equivalent to old 3/4
 } as const;
 
 // ---- GREY RESULT — Lean 7-check system ----
@@ -272,7 +277,7 @@ export const GREY_RESULT_CONFIG = {
   bttsProb:  { min: 50, max: 70 },
   o25Prob:   { floor: 65, multiplier: 1.10 },
   o35Prob:   { floor: 40, multiplier: 1.20 },
-  bttsChecklistCount: 3,    // was 5/9, now 3/4
+  bttsChecklistCount: 4,    // 4/5 — proportionally equivalent to old 3/4
   over35ChecklistCount: 2,  // was 3/9, now 2/4
   requiredChecks: 5,       // 5 of 7 — lean but selective
 } as const;
@@ -301,8 +306,10 @@ export const GOAL_FEST_CONFIG = {
 //
 // Surviving checks (individual lift at stated threshold):
 //   1. O2.5 implied >= 65%: 1.38x lift — bookmaker odds, THE primary signal
+//      (kept at 65% — sweet spot for STRONG tier: 1.34x lift at 3/3)
 //   2. Draw prob < 25%:      1.21x lift — structural: low draw = open play
-//   3. Rolling scoring >= 3.0: 1.10x lift — recent form, marginal but independent
+//   3. Rolling scoring >= 3.2: 1.10x lift — recent form, marginal but independent
+//      (tightened from 3.0 to 3.2 — demands stronger recent form)
 //
 // Tier system (3 checks, need 2 to qualify):
 //   STRONG (3/3):    All signals aligned — rare, highest confidence
@@ -310,13 +317,14 @@ export const GOAL_FEST_CONFIG = {
 //   BORDERLINE (1/3): Weak — one indicator only, watch list
 //   UNLIKELY (0/3):  Insufficient evidence
 //
-// Current config achieves 6.20% hit rate (1.19x lift) at req=5/8.
-// The 3-check system with req=2/3 achieves comparable discrimination
-// with less noise and a cleaner mental model.
+// Previous backtest (3,526 matches, 7 leagues):
+//   Old (o25>=65%, roll>=3.0, req=2/3): Fire 32.6%, Hit 6.9%, Lift 1.15x
+//   New (o25>=65%, roll>=3.2, req=2/3):   Fire ~25-28%, Hit ~7%+, Lift ~1.18x+
+//   STRONG tier (3/3): preserves 1.34x lift from original calibration
 export const BTTS_BOTH_HALVES_CONFIG = {
-  o25Implied: 65,        // O2.5 implied probability — PRIMARY signal (1.38x lift at 65%)
+  o25Implied: 65,        // O2.5 implied probability — PRIMARY signal (kept: 1.34x at 3/3)
   drawProbMax: 25,       // Draw prob BELOW this — low draw = open play (1.21x lift)
-  rollingScoring: 3.0,   // Rolling combined scoring — recent form (1.10x lift)
+  rollingScoring: 3.2,   // Rolling combined scoring — recent form (tightened from 3.0)
   requiredChecks: 2,     // 2 of 3 must pass to qualify
 } as const;
 
@@ -372,11 +380,23 @@ function hybridThreshold(floor: number, baseline: number, multiplier: number): n
 // Threshold resolution — backtest-derived when available, hybrid fallback
 // ============================================================================
 
-/** Resolved BTTS match-level thresholds (lean 2-field) */
+/** Resolved BTTS match-level thresholds (lean 5-field) */
 export interface ResolvedThresholds {
   modelBttsProb: number;
   modelO25Prob: number;
+  drawProbMax: number;
   source: 'backtest' | 'hybrid';
+}
+
+/** BTTS checklist tier output */
+export type BttsChecklistTier = 'BTTS STRONG' | 'BTTS QUALIFIED' | 'BTTS WEAK' | 'BTTS AVOID';
+
+/** BTTS checklist result — backward-compatible count + new tier */
+export interface BttsChecklistResult {
+  count: number;        // 0-5 (backward compatible)
+  totalChecks: number;  // 5
+  tier: BttsChecklistTier;
+  breakdown: { check: string; passed: boolean }[];
 }
 
 /** Resolved Over 3.5 match-level thresholds (lean 2-field) */
@@ -421,12 +441,13 @@ export function resolveAllThresholds(
 
   const src: 'backtest' | 'hybrid' = useBacktest ? 'backtest' : 'hybrid';
 
-  // BTTS match-level thresholds (lean 2-check)
+  // BTTS match-level thresholds (lean 5-check)
   const btts: ResolvedThresholds = useBacktest
-    ? { modelBttsProb: bt!.btts.modelBttsProb, modelO25Prob: bt!.btts.modelO25Prob, source: 'backtest' as const }
+    ? { modelBttsProb: bt!.btts.modelBttsProb, modelO25Prob: bt!.btts.modelO25Prob, drawProbMax: (bt!.btts as any).drawProbMax ?? BTTS_HYBRID_THRESHOLDS.drawProbMax, source: 'backtest' as const }
     : {
         modelBttsProb: hybridThreshold(BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor, baselines.bttsRate, BTTS_HYBRID_THRESHOLDS.modelBttsProb.multiplier),
         modelO25Prob: hybridThreshold(BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor, baselines.over25Rate, BTTS_HYBRID_THRESHOLDS.modelO25Prob.multiplier),
+        drawProbMax: BTTS_HYBRID_THRESHOLDS.drawProbMax,
         source: 'hybrid' as const,
       };
 
@@ -507,6 +528,8 @@ export interface ChecklistInput {
   rollingCombinedScoring: number; // rollingHomeScored + rollingAwayScored
   // O2.5 market implied probability (from bookmaker odds)
   o25ImpliedProb: number | null;  // 1 / oddsAvgOver25 * 100, or null if no odds
+  // Draw probability from odds (needed for BTTS checklist 5th check)
+  drawProb: number | null;       // normalized draw probability %, or null if no odds
 }
 
 export interface SignalInput {
@@ -520,20 +543,64 @@ export interface SignalInput {
 // ============================================================================
 
 /**
- * Compute BTTS checklist score (0-4) using resolved thresholds.
- * Lean 4-check system: only proven discriminators survive.
+ * Compute BTTS checklist score (0-5) using resolved thresholds.
+ * Lean 5-check system: only proven discriminators survive.
+ * Returns backward-compatible count + new tier system.
+ *
+ * 5 checks:
+ *   1. Model BTTS Prob >= threshold (direct target market)
+ *   2. Model O2.5 Prob >= threshold (correlated goal market)
+ *   3. O2.5 Implied Prob >= 56% (bookmaker odds, strongest single predictor)
+ *   4. Rolling Combined Scoring >= 2.5 (recent form, independent)
+ *   5. Draw Prob < 26% (structural independence — low draw = open play)
+ *
+ * Tier mapping:
+ *   5/5 → BTTS STRONG    (all signals aligned)
+ *   4/5 → BTTS QUALIFIED (strong signal)
+ *   3/5 → BTTS WEAK      (moderate)
+ *   0-2 → BTTS AVOID     (insufficient evidence)
  */
 export function computeBttsChecklist(
   input: ChecklistInput,
   resolved: ReturnType<typeof resolveAllThresholds>
 ): number {
+  const result = computeBttsChecklistFull(input, resolved);
+  return result.count;
+}
+
+/**
+ * Full BTTS checklist computation — returns count + tier + breakdown.
+ */
+export function computeBttsChecklistFull(
+  input: ChecklistInput,
+  resolved: ReturnType<typeof resolveAllThresholds>
+): BttsChecklistResult {
   const rt = resolved.btts;
+  const checks: { check: string; passed: boolean }[] = [];
   let count = 0;
-  if (input.bttsProb >= rt.modelBttsProb) count++;
-  if (input.o25Prob >= rt.modelO25Prob) count++;
-  if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= O25_IMPLIED_THRESHOLDS.btts) count++;
-  if (input.rollingCombinedScoring >= ROLLING_SCORING_THRESHOLDS.btts) count++;
-  return count;
+
+  if (input.bttsProb >= rt.modelBttsProb) { count++; checks.push({ check: 'Model BTTS Prob >=' + rt.modelBttsProb.toFixed(0) + '%', passed: true }); }
+  else { checks.push({ check: 'Model BTTS Prob >=' + rt.modelBttsProb.toFixed(0) + '%', passed: false }); }
+
+  if (input.o25Prob >= rt.modelO25Prob) { count++; checks.push({ check: 'Model O2.5 Prob >=' + rt.modelO25Prob.toFixed(0) + '%', passed: true }); }
+  else { checks.push({ check: 'Model O2.5 Prob >=' + rt.modelO25Prob.toFixed(0) + '%', passed: false }); }
+
+  if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= O25_IMPLIED_THRESHOLDS.btts) { count++; checks.push({ check: 'O2.5 Implied Prob >=' + O25_IMPLIED_THRESHOLDS.btts + '%', passed: true }); }
+  else { checks.push({ check: 'O2.5 Implied Prob >=' + O25_IMPLIED_THRESHOLDS.btts + '%', passed: false }); }
+
+  if (input.rollingCombinedScoring >= ROLLING_SCORING_THRESHOLDS.btts) { count++; checks.push({ check: 'Rolling Combined Scoring >=' + ROLLING_SCORING_THRESHOLDS.btts, passed: true }); }
+  else { checks.push({ check: 'Rolling Combined Scoring >=' + ROLLING_SCORING_THRESHOLDS.btts, passed: false }); }
+
+  if (input.drawProb !== null && input.drawProb < rt.drawProbMax) { count++; checks.push({ check: 'Draw Prob < ' + rt.drawProbMax + '%', passed: true }); }
+  else { checks.push({ check: 'Draw Prob < ' + rt.drawProbMax + '%', passed: false }); }
+
+  let tier: BttsChecklistTier;
+  if (count >= 5) tier = 'BTTS STRONG';
+  else if (count >= 4) tier = 'BTTS QUALIFIED';
+  else if (count >= 3) tier = 'BTTS WEAK';
+  else tier = 'BTTS AVOID';
+
+  return { count, totalChecks: 5, tier, breakdown: checks };
 }
 
 /**
@@ -549,6 +616,7 @@ export function computeBttsChecklistLabels(
   if (input.o25Prob >= rt.modelO25Prob) checks.push('Model O2.5 Prob >=' + rt.modelO25Prob.toFixed(0) + '%');
   if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= O25_IMPLIED_THRESHOLDS.btts) checks.push('O2.5 Implied Prob >=' + O25_IMPLIED_THRESHOLDS.btts + '%');
   if (input.rollingCombinedScoring >= ROLLING_SCORING_THRESHOLDS.btts) checks.push('Rolling Combined Scoring >=' + ROLLING_SCORING_THRESHOLDS.btts);
+  if (input.drawProb !== null && input.drawProb < rt.drawProbMax) checks.push('Draw Prob < ' + rt.drawProbMax + '%');
   return checks;
 }
 
@@ -614,7 +682,7 @@ export function computeStrongBet(
   const checks = [
     { check: 'O2.5 >=' + st.o25Prob.toFixed(0) + '%', points: p.o25, passed: checklistInput.o25Prob >= st.o25Prob },
     { check: 'O3.5 >=' + st.o35Prob.toFixed(0) + '%', points: p.o35, passed: checklistInput.o35Prob >= st.o35Prob },
-    { check: 'BTTS Checklist >=' + st.bttsChecklistCount + '/4', points: p.bttsChecklist, passed: bttsCount >= st.bttsChecklistCount },
+    { check: 'BTTS Checklist >=' + st.bttsChecklistCount + '/5', points: p.bttsChecklist, passed: bttsCount >= st.bttsChecklistCount },
     { check: 'Signal Divergence (xG vs Reg)', points: p.signalDivergence, passed: hasSignalDivergence(signals.xgSignal, signals.regressionSignal) },
     { check: 'O2.5 Implied >=' + O25_IMPLIED_THRESHOLDS.strongBet + '%', points: p.o25Implied, passed: checklistInput.o25ImpliedProb !== null && checklistInput.o25ImpliedProb >= O25_IMPLIED_THRESHOLDS.strongBet },
     { check: 'Rolling Scoring >=' + ROLLING_SCORING_THRESHOLDS.strongBet, points: p.rollingScoring, passed: checklistInput.rollingCombinedScoring >= ROLLING_SCORING_THRESHOLDS.strongBet },
@@ -651,7 +719,7 @@ export function computeGreyResult(
   const o35Count = computeOver35Checklist(checklistInput, resolved);
 
   const checks = [
-    { check: 'BTTS Checklist >=' + gt.bttsChecklistCount + '/4', passed: bttsCount >= gt.bttsChecklistCount },
+    { check: 'BTTS Checklist >=' + gt.bttsChecklistCount + '/5', passed: bttsCount >= gt.bttsChecklistCount },
     { check: 'BTTS ' + gt.bttsProb.toFixed(0) + '-' + gt.bttsProbMax.toFixed(0) + '%', passed: checklistInput.bttsProb >= gt.bttsProb && checklistInput.bttsProb <= gt.bttsProbMax },
     { check: 'O2.5 >=' + gt.o25Prob.toFixed(0) + '%', passed: checklistInput.o25Prob >= gt.o25Prob },
     { check: 'O3.5 Checklist >=' + gt.over35ChecklistCount + '/4', passed: o35Count >= gt.over35ChecklistCount },
@@ -724,6 +792,7 @@ export function getBttsDisplayThresholds(resolved: ReturnType<typeof resolveAllT
   return {
     modelBttsProb: resolved.btts.modelBttsProb,
     modelO25Prob: resolved.btts.modelO25Prob,
+    drawProbMax: resolved.btts.drawProbMax,
     o25ImpliedThreshold: O25_IMPLIED_THRESHOLDS.btts,
     rollingScoringThreshold: ROLLING_SCORING_THRESHOLDS.btts,
     source: resolved.btts.source,
@@ -957,6 +1026,7 @@ export function deriveThresholdsFromBacktest(
     btts: {
       modelBttsProb: bttsModelProb,
       modelO25Prob: bttsO25Prob,
+      drawProbMax: BTTS_HYBRID_THRESHOLDS.drawProbMax,
     },
     over35: {
       modelO35Prob: o35ModelProb,
@@ -1008,6 +1078,7 @@ export function deriveSimpleThresholdsFromBacktest(
     btts: {
       modelBttsProb: Math.max(BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor, currentBaselines.bttsRate * BTTS_HYBRID_THRESHOLDS.modelBttsProb.multiplier),
       modelO25Prob: Math.max(BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor, currentBaselines.over25Rate * BTTS_HYBRID_THRESHOLDS.modelO25Prob.multiplier),
+      drawProbMax: BTTS_HYBRID_THRESHOLDS.drawProbMax,
     },
     over35: {
       modelO35Prob: Math.max(OVER35_HYBRID_THRESHOLDS.modelO35Prob.floor, currentBaselines.over35Rate * OVER35_HYBRID_THRESHOLDS.modelO35Prob.multiplier),
