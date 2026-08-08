@@ -1,0 +1,1169 @@
+     1→   846→    let bestSampleAbove = 0;
+     2→   847→
+     3→   848→    for (let t = lo; t <= hi; t += step) {
+     4→   849→      const aboveThreshold = matches.filter(m => {
+     5→   850→        const pred = getPredicted(m);
+     6→   851→        return pred !== undefined && pred >= t;
+     7→   852→      });
+     8→   853→      if (aboveThreshold.length < 30) continue;
+     9→   854→
+    10→   855→      const correct = aboveThreshold.filter(m => getActual(m)).length;
+    11→   856→      const accuracy = correct / aboveThreshold.length;
+    12→   857→
+    13→   858→      if (accuracy >= minGoalAccuracy && (accuracy > bestAccuracy || (accuracy === bestAccuracy && aboveThreshold.length > bestSampleAbove))) {
+    14→   859→        bestThreshold = Math.round(t * 100) / 100;
+    15→   860→        bestAccuracy = accuracy;
+    16→   861→        bestSampleAbove = aboveThreshold.length;
+    17→   862→      }
+    18→   863→    }
+    19→   864→
+    20→   865→    if (bestAccuracy < minGoalAccuracy && floor !== undefined) {
+    21→   866→      return floor;
+    22→   867→    }
+    23→   868→    return bestThreshold;
+    24→   869→  };
+    25→   870→
+    26→   871→  // --- Derive BTTS thresholds ---
+    27→   872→  const bttsModelProb = findOptimalProbThreshold(
+    28→   873→    m => m.predictedBtts,
+    29→   874→    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    30→   875→    [40, 80],
+    31→   876→    1,
+    32→   877→    BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor
+    33→   878→  );
+    34→   879→
+    35→   880→  const bttsHomeGoals = findOptimalGoalThreshold(
+    36→   881→    m => m.avgHomeGoals,
+    37→   882→    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    38→   883→    [0.8, 2.2],
+    39→   884→    0.05,
+    40→   885→    BTTS_HYBRID_THRESHOLDS.homeAvgGoals.floor
+    41→   886→  );
+    42→   887→
+    43→   888→  const bttsAwayGoals = findOptimalGoalThreshold(
+    44→   889→    m => m.avgAwayGoals,
+    45→   890→    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    46→   891→    [0.6, 1.8],
+    47→   892→    0.05,
+    48→   893→    BTTS_HYBRID_THRESHOLDS.awayAvgGoals.floor
+    49→   894→  );
+    50→   895→
+    51→   896→  const bttsO25Prob = findOptimalProbThreshold(
+    52→   897→    m => m.predictedO25,
+    53→   898→    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    54→   899→    [45, 85],
+    55→   900→    1,
+    56→   901→    BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor
+    57→   902→  );
+    58→   903→
+    59→   904→  const bttsShotConv = findOptimalProbThreshold(
+    60→   905→    m => m.shotConversion,
+    61→   906→    m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0,
+    62→   907→    [5, 25],
+    63→   908→    1,
+    64→   909→    BTTS_HYBRID_THRESHOLDS.shotConversion.floor
+    65→   910→  );
+    66→   911→
+    67→   912→  // --- Derive Over 3.5 thresholds ---
+    68→   913→  const o35ModelProb = findOptimalProbThreshold(
+    69→   914→    m => m.predictedO35,
+    70→   915→    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    71→   916→    [20, 65],
+    72→   917→    1,
+    73→   918→    OVER35_HYBRID_THRESHOLDS.modelO35Prob.floor
+    74→   919→  );
+    75→   920→
+    76→   921→  const o35BttsProb = findOptimalProbThreshold(
+    77→   922→    m => m.predictedBtts,
+    78→   923→    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    79→   924→    [35, 80],
+    80→   925→    1,
+    81→   926→    OVER35_HYBRID_THRESHOLDS.bttsProb.floor
+    82→   927→  );
+    83→   928→
+    84→   929→  const o35HomeGoals = findOptimalGoalThreshold(
+    85→   930→    m => m.avgHomeGoals,
+    86→   931→    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    87→   932→    [0.8, 2.5],
+    88→   933→    0.05,
+    89→   934→    OVER35_HYBRID_THRESHOLDS.homeAvgGoals.floor
+    90→   935→  );
+    91→   936→
+    92→   937→  const o35AwayGoals = findOptimalGoalThreshold(
+    93→   938→    m => m.avgAwayGoals,
+    94→   939→    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+    95→   940→    [0.6, 2.0],
+    96→   941→    0.05,
+    97→   942→    OVER35_HYBRID_THRESHOLDS.awayAvgGoals.floor
+    98→   943→  );
+    99→   944→
+   100→   945→  const o35ShotConv = findOptimalProbThreshold(
+   101→   946→    m => m.shotConversion,
+   102→   947→    m => (m.ftHomeGoals + m.ftAwayGoals) > 3.5,
+   103→   948→    [5, 25],
+   104→   949→    1,
+   105→   950→    OVER35_HYBRID_THRESHOLDS.shotConversion.floor
+   106→   951→  );
+   107→   952→
+   108→   953→  // --- STRONG BET thresholds (derive O2.5, O3.5, BTTS prob thresholds) ---
+   109→   954→  const sbO25Prob = findOptimalProbThreshold(
+   110→   955→    m => m.predictedO25,
+   111→   956→    m => m.ftHomeGoals + m.ftAwayGoals >= 3, // STRONG BET targets high-scoring games
+   112→   957→    [50, 85],
+   113→   958→    1,
+   114→   959→    STRONG_BET_HYBRID.o25Prob.floor
+   115→   960→  );
+   116→   961→
+   117→   962→  const sbO35Prob = findOptimalProbThreshold(
+   118→   963→    m => m.predictedO35,
+   119→   964→    m => m.ftHomeGoals + m.ftAwayGoals >= 3,
+   120→   965→    [25, 60],
+   121→   966→    1,
+   122→   967→    STRONG_BET_HYBRID.o35Prob.floor
+   123→   968→  );
+   124→   969→
+   125→   970→  const sbBttsProb = findOptimalProbThreshold(
+   126→   971→    m => m.predictedBtts,
+   127→   972→    m => m.ftHomeGoals + m.ftAwayGoals >= 3,
+   128→   973→    [40, 80],
+   129→   974→    1,
+   130→   975→    STRONG_BET_HYBRID.bttsProb.floor
+   131→   976→  );
+   132→   977→
+   133→   978→  // --- GREY RESULT thresholds (stricter: targets high-scoring games) ---
+   134→   979→  const grBttsProb = findOptimalProbThreshold(
+   135→   980→    m => m.predictedBtts,
+   136→   981→    m => m.ftHomeGoals >= 1 && m.ftAwayGoals >= 1 && m.ftHomeGoals + m.ftAwayGoals >= 4,
+   137→   982→    [40, 80],
+   138→   983→    1,
+   139→   984→    GREY_RESULT_CONFIG.bttsProb.min
+   140→   985→  );
+   141→   986→
+   142→   987→  const grO25Prob = findOptimalProbThreshold(
+   143→   988→    m => m.predictedO25,
+   144→   989→    m => m.ftHomeGoals >= 1 && m.ftAwayGoals >= 1 && m.ftHomeGoals + m.ftAwayGoals >= 4,
+   145→   990→    [50, 85],
+   146→   991→    1,
+   147→   992→    GREY_RESULT_CONFIG.o25Prob.floor
+   148→   993→  );
+   149→   994→
+   150→   995→  const grO35Prob = findOptimalProbThreshold(
+   151→   996→    m => m.predictedO35,
+   152→   997→    m => m.ftHomeGoals >= 1 && m.ftAwayGoals >= 1 && m.ftHomeGoals + m.ftAwayGoals >= 4,
+   153→   998→    [20, 60],
+   154→   999→    1,
+   155→  1000→    GREY_RESULT_CONFIG.o35Prob.floor
+   156→  1001→  );
+   157→  1002→
+   158→  1003→  // --- League-level thresholds (keep as absolute defaults) ---
+   159→  1004→  const bttsLeagueAvgGoals = BTTS_LEAGUE_THRESHOLDS.leagueAvgGoals;
+   160→  1005→  const bttsLeagueO25Rate = BTTS_LEAGUE_THRESHOLDS.leagueO25Rate;
+   161→  1006→  const o35LeagueAvgGoals = OVER35_LEAGUE_THRESHOLDS.leagueAvgGoals;
+   162→  1007→  const o35LeagueO25Rate = OVER35_LEAGUE_THRESHOLDS.leagueO25Rate;
+   163→  1008→
+   164→  1009→  return {
+   165→  1010→    leagueName,
+   166→  1011→    bttsLeagueAvgGoals,
+   167→  1012→    bttsLeagueO25Rate,
+   168→  1013→    o35LeagueAvgGoals,
+   169→  1014→    o35LeagueO25Rate,
+   170→  1015→    btts: {
+   171→  1016→      modelBttsProb: bttsModelProb,
+   172→  1017→      homeAvgGoals: bttsHomeGoals,
+   173→  1018→      awayAvgGoals: bttsAwayGoals,
+   174→  1019→      modelO25Prob: bttsO25Prob,
+   175→  1020→      shotConversion: bttsShotConv,
+   176→  1021→    },
+   177→  1022→    over35: {
+   178→  1023→      modelO35Prob: o35ModelProb,
+   179→  1024→      bttsProb: o35BttsProb,
+   180→  1025→      homeAvgGoals: o35HomeGoals,
+   181→  1026→      awayAvgGoals: o35AwayGoals,
+   182→  1027→      shotConversion: o35ShotConv,
+   183→  1028→    },
+   184→  1029→    strongBet: {
+   185→  1030→      o25Prob: sbO25Prob,
+   186→  1031→      o35Prob: sbO35Prob,
+   187→  1032→      bttsProb: sbBttsProb,
+   188→  1033→      bttsChecklistCount: STRONG_BET_HYBRID.bttsChecklistCount,
+   189→  1034→    },
+   190→  1035→    greyResult: {
+   191→  1036→      bttsProb: grBttsProb,
+   192→  1037→      bttsProbMax: GREY_RESULT_CONFIG.bttsProb.max,
+   193→  1038→      o25Prob: grO25Prob,
+   194→  1039→      o35Prob: grO35Prob,
+   195→  1040→      bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
+   196→  1041→      over35ChecklistCount: GREY_RESULT_CONFIG.over35ChecklistCount,
+   197→  1042→      requiredChecks: GREY_RESULT_CONFIG.requiredChecks,
+   198→  1043→    },
+   199→  1044→    sampleSize: matches.length,
+   200→  1045→    derivedAt: new Date().toISOString(),
+   201→  1046→  };
+   202→  1047→}
+   203→  1048→
+   204→  1049→/**
+   205→  1050→ * Derive thresholds from backtest data using a simpler approach when model
+   206→  1051→ * predictions are not available — uses league averages as the predictor.
+   207→  1052→ */
+   208→  1053→export function deriveSimpleThresholdsFromBacktest(
+   209→  1054→  leagueName: string,
+   210→  1055→  matches: { ftHomeGoals: number; ftAwayGoals: number }[],
+   211→  1056→  currentBaselines: LeagueBaselines,
+   212→  1057→  options: BacktestDerivationOptions = {}
+   213→  1058→): LeagueBacktestThresholds | null {
+   214→  1059→  const { minSampleSize = 150 } = options;
+   215→  1060→
+   216→  1061→  if (matches.length < minSampleSize) return null;
+   217→  1062→
+   218→  1063→  // Simple derivation: find the league-average-based thresholds that best
+   219→  1064→  // separate BTTS from non-BTTS and O3.5 from non-O3.5 matches.
+   220→  1065→  // This uses the Dixon-Coles probability approach: given league averages,
+   221→  1066→  // the Poisson BTTS probability is already a strong predictor.
+   222→  1067→
+   223→  1068→  const bttsMatches = matches.filter(m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0);
+   224→  1069→  const over35Matches = matches.filter(m => m.ftHomeGoals + m.ftAwayGoals > 3.5);
+   225→  1070→
+   226→  1071→  // Derive BTTS probability threshold from league BTTS rate
+   227→  1072→  // A match is "above average" if its BTTS prob > league BTTS rate
+   228→  1073→  // Find the multiplier that gives best accuracy
+   229→  1074→  let bestBttsMult = BTTS_HYBRID_THRESHOLDS.modelBttsProb.multiplier;
+   230→  1075→  let bestBttsAcc = 0;
+   231→  1076→  for (let mult = 1.0; mult <= 1.3; mult += 0.01) {
+   232→  1077→    const threshold = Math.max(BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor, currentBaselines.bttsRate * mult);
+   233→  1078→    const aboveCount = bttsMatches.filter(() => currentBaselines.bttsRate >= threshold).length;
+   234→  1079→    // All BTTS matches have BTTS prob ~= league rate, so check hit rate
+   235→  1080→    // For simple derivation, use the rate-based threshold directly
+   236→  1081→    const estimatedAccuracy = bttsMatches.length > 0
+   237→  1082→      ? bttsMatches.filter(() => currentBaselines.bttsRate >= threshold).length / Math.max(matches.length, 1)
+   238→  1083→      : 0;
+   239→  1084→    if (estimatedAccuracy > bestBttsAcc) {
+   240→  1085→      bestBttsAcc = estimatedAccuracy;
+   241→  1086→      bestBttsMult = mult;
+   242→  1087→    }
+   243→  1088→  }
+   244→  1089→
+   245→  1090→  // For simple derivation without per-match predictions, use the hybrid formula
+   246→  1091→  // with the derived multiplier, falling back to defaults.
+   247→  1092→  const bttsFloor = BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor;
+   248→  1093→  const bttsRate = currentBaselines.bttsRate;
+   249→  1094→
+   250→  1095→  return {
+   251→  1096→    leagueName,
+   252→  1097→    bttsLeagueAvgGoals: BTTS_LEAGUE_THRESHOLDS.leagueAvgGoals,
+   253→  1098→    bttsLeagueO25Rate: BTTS_LEAGUE_THRESHOLDS.leagueO25Rate,
+   254→  1099→    o35LeagueAvgGoals: OVER35_LEAGUE_THRESHOLDS.leagueAvgGoals,
+   255→  1100→    o35LeagueO25Rate: OVER35_LEAGUE_THRESHOLDS.leagueO25Rate,
+   256→  1101→    btts: {
+   257→  1102→      modelBttsProb: Math.max(bttsFloor, bttsRate * bestBttsMult),
+   258→  1103→      homeAvgGoals: Math.max(BTTS_HYBRID_THRESHOLDS.homeAvgGoals.floor, currentBaselines.avgHomeGoals * BTTS_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
+   259→  1104→      awayAvgGoals: Math.max(BTTS_HYBRID_THRESHOLDS.awayAvgGoals.floor, currentBaselines.avgAwayGoals * BTTS_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
+   260→  1105→      modelO25Prob: Math.max(BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor, currentBaselines.over25Rate * BTTS_HYBRID_THRESHOLDS.modelO25Prob.multiplier),
+   261→  1106→      shotConversion: Math.max(BTTS_HYBRID_THRESHOLDS.shotConversion.floor, currentBaselines.shotConversion * BTTS_HYBRID_THRESHOLDS.shotConversion.multiplier),
+   262→  1107→    },
+   263→  1108→    over35: {
+   264→  1109→      modelO35Prob: Math.max(OVER35_HYBRID_THRESHOLDS.modelO35Prob.floor, currentBaselines.over35Rate * OVER35_HYBRID_THRESHOLDS.modelO35Prob.multiplier),
+   265→  1110→      bttsProb: Math.max(OVER35_HYBRID_THRESHOLDS.bttsProb.floor, currentBaselines.bttsRate * OVER35_HYBRID_THRESHOLDS.bttsProb.multiplier),
+   266→  1111→      homeAvgGoals: Math.max(OVER35_HYBRID_THRESHOLDS.homeAvgGoals.floor, currentBaselines.avgHomeGoals * OVER35_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
+   267→  1112→      awayAvgGoals: Math.max(OVER35_HYBRID_THRESHOLDS.awayAvgGoals.floor, currentBaselines.avgAwayGoals * OVER35_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
+   268→  1113→      shotConversion: Math.max(OVER35_HYBRID_THRESHOLDS.shotConversion.floor, currentBaselines.shotConversion * OVER35_HYBRID_THRESHOLDS.shotConversion.multiplier),
+   269→  1114→    },
+   270→  1115→    strongBet: {
+   271→  1116→      o25Prob: Math.max(STRONG_BET_HYBRID.o25Prob.floor, currentBaselines.over25Rate * STRONG_BET_HYBRID.o25Prob.multiplier),
+   272→  1117→      o35Prob: Math.max(STRONG_BET_HYBRID.o35Prob.floor, currentBaselines.over35Rate * STRONG_BET_HYBRID.o35Prob.multiplier),
+   273→  1118→      bttsProb: Math.max(STRONG_BET_HYBRID.bttsProb.floor, currentBaselines.bttsRate * STRONG_BET_HYBRID.bttsProb.multiplier),
+   274→  1119→      bttsChecklistCount: STRONG_BET_HYBRID.bttsChecklistCount,
+   275→  1120→    },
+   276→  1121→    greyResult: {
+   277→  1122→      bttsProb: GREY_RESULT_CONFIG.bttsProb.min,
+   278→  1123→      bttsProbMax: GREY_RESULT_CONFIG.bttsProb.max,
+   279→  1124→      o25Prob: Math.max(GREY_RESULT_CONFIG.o25Prob.floor, currentBaselines.over25Rate * GREY_RESULT_CONFIG.o25Prob.multiplier),
+   280→  1125→      o35Prob: Math.max(GREY_RESULT_CONFIG.o35Prob.floor, currentBaselines.over35Rate * GREY_RESULT_CONFIG.o35Prob.multiplier),
+   281→  1126→      bttsChecklistCount: GREY_RESULT_CONFIG.bttsChecklistCount,
+   282→  1127→      over35ChecklistCount: GREY_RESULT_CONFIG.over35ChecklistCount,
+   283→  1128→      requiredChecks: GREY_RESULT_CONFIG.requiredChecks,
+   284→  1129→    },
+   285→  1130→    sampleSize: matches.length,
+   286→  1131→    derivedAt: new Date().toISOString(),
+   287→  1132→  };
+   288→  1133→}
+   289→  1134→
+   290→  1135→// ============================================================================
+   291→  1136→// Bookie Odds Dampener — Heavy Favorite Adjustment
+   292→  1137→// ============================================================================
+   293→  1138→// Based on live results analysis: when bookie odds for one side are <=1.70,
+   294→  1139→// the model systematically overestimates O2.5 probability by 10-15%.
+   295→  1140→// Heavy favorites tend to win tight, controlling games (1-0, 2-0) rather
+   296→  1141→// than high-scoring shootouts. This dampener accounts for that pattern.
+   297→  1142→// ============================================================================
+   298→  1143→
+   299→  1144→/** Heavy favorite odds threshold (decimal odds) */
+   300→  1145→const HEAVY_FAVORITE_ODDS = 1.70;
+   301→  1146→
+   302→  1147→/** Maximum dampener amount (percentage points to subtract) */
+   303→  1148→const HEAVY_FAVORITE_DAMPENER = 10;
+   304→  1149→
+   305→  1150→/**
+   306→  1151→ * Apply bookie odds dampener to goal market probabilities.
+   307→  1152→ * When either team is a heavy favorite (avg odds <=1.70), reduce O2.5/O3.5/BTTS
+   308→  1153→ * probabilities to account for the "park the bus" effect.
+   309→  1154→ *
+   310→  1155→ * Only applies when valid odds are available (non-null, positive).
+   311→  1156→ *
+   312→  1157→ * @param over25Prob  - Model O2.5 probability (%)
+   313→  1158→ * @param over35Prob  - Model O3.5 probability (%)
+   314→  1159→ * @param bttsProb    - Model BTTS probability (%)
+   315→  1160→ * @param homeAvgOdds - Home team average odds (decimal)
+   316→  1161→ * @param awayAvgOdds - Away team average odds (decimal)
+   317→  1162→ * @returns Adjusted probabilities with dampener applied
+   318→  1163→ */
+   319→  1164→export function applyBookieOddsDampener(
+   320→  1165→  over25Prob: number,
+   321→  1166→  over35Prob: number,
+   322→  1167→  bttsProb: number,
+   323→  1168→  homeAvgOdds: number | null | undefined,
+   324→  1169→  awayAvgOdds: number | null | undefined,
+   325→  1170→  leagueAvgGoalsPerGame?: number
+   326→  1171→): { over25: number; over35: number; btts: number; dampened: boolean; reason: string } {
+   327→  1172→  if (!homeAvgOdds || !awayAvgOdds || homeAvgOdds <= 0 || awayAvgOdds <= 0) {
+   328→  1173→    return { over25: over25Prob, over35: over35Prob, btts: bttsProb, dampened: false, reason: '' };
+   329→  1174→  }
+   330→  1175→
+   331→  1176→  // League-adaptive: gentler dampener in high-variance leagues
+   332→  1177→  const variance = leagueAvgGoalsPerGame ? classifyLeagueVariance(leagueAvgGoalsPerGame) : 'low';
+   333→  1178→  const heavyThreshold = variance === 'high' ? 1.40 : variance === 'medium' ? 1.60 : HEAVY_FAVORITE_ODDS;
+   334→  1179→  const maxDampener = variance === 'high' ? 5 : variance === 'medium' ? 7 : HEAVY_FAVORITE_DAMPENER;
+   335→  1180→
+   336→  1181→  const homeIsHeavy = homeAvgOdds <= heavyThreshold;
+   337→  1182→  const awayIsHeavy = awayAvgOdds <= heavyThreshold;
+   338→  1183→
+   339→  1184→  if (!homeIsHeavy && !awayIsHeavy) {
+   340→  1185→    return { over25: over25Prob, over35: over35Prob, btts: bttsProb, dampened: false, reason: '' };
+   341→  1186→  }
+   342→  1187→
+   343→  1188→  const heavyOdds = Math.min(homeAvgOdds, awayAvgOdds);
+   344→  1189→  // Scale dampener: heavier favorite = bigger reduction
+   345→  1190→  // At 1.17 (PSG level): full dampener
+   346→  1191→  // At threshold: minimal 2% dampener
+   347→  1192→  const minDampener = variance === 'high' ? 2 : 3;
+   348→  1193→  const scale = Math.max(0, 1 - (heavyOdds - 1.17) / (heavyThreshold - 1.17));
+   349→  1194→  const dampener = Math.round(minDampener + (maxDampener - minDampener) * scale);
+   350→  1195→
+   351→  1196→  const leagueLabel = variance.charAt(0).toUpperCase() + variance.slice(1);
+   352→  1197→  const reason = homeIsHeavy
+   353→  1198→    ? `${leagueLabel}-variance: Heavy home favorite (${homeAvgOdds.toFixed(2)}): -${dampener}% dampener`
+   354→  1199→    : `${leagueLabel}-variance: Heavy away favorite (${awayAvgOdds.toFixed(2)}): -${dampener}% dampener`;
+   355→  1200→
+   356→  1201→  return {
+   357→  1202→    over25: Math.max(30, over25Prob - dampener),
+   358→  1203→    over35: Math.max(20, over35Prob - dampener),
+   359→  1204→    btts: Math.max(25, bttsProb - Math.round(dampener * 0.5)), // BTTS dampened less
+   360→  1205→    dampened: true,
+   361→  1206→    reason,
+   362→  1207→  };
+   363→  1208→}
+   364→  1209→
+   365→  1210→/**
+   366→  1211→ * Compute average bookie odds for a team from match results.
+   367→  1212→ * Averages odds across all matches for that team.
+   368→  1213→ *
+   369→  1214→ * @param matches - Match results with odds data
+   370→  1215→ * @param team    - Team name
+   371→  1216→ * @returns Average decimal odds, or null if insufficient data
+   372→  1217→ */
+   373→  1218→export function computeTeamAvgOdds(
+   374→  1219→  matches: { homeTeam: string; awayTeam: string; oddsAvgHome: number | null; oddsAvgAway: number | null }[],
+   375→  1220→  team: string
+   376→  1221→): number | null {
+   377→  1222→  const teamOdds: number[] = [];
+   378→  1223→
+   379→  1224→  for (const m of matches) {
+   380→  1225→    const odds = m.homeTeam === team ? m.oddsAvgHome : (m.awayTeam === team ? m.oddsAvgAway : null);
+   381→  1226→    if (odds && odds > 1 && odds < 20) {
+   382→  1227→      teamOdds.push(odds);
+   383→  1228→    }
+   384→  1229→  }
+   385→  1230→
+   386→  1231→  if (teamOdds.length < 3) return null;
+   387→  1232→
+   388→  1233→  return teamOdds.reduce((s, o) => s + o, 0) / teamOdds.length;
+   389→  1234→}
+   390→  1235→
+   391→  1236→// ============================================================================
+   392→  1237→// League Variance Classification — Used by blowout/dampener adaptivity
+   393→  1238→// ============================================================================
+   394→  1239→// Classifies a league by its historical goal variance so that blowout and
+   395→  1240→// dampener thresholds can be calibrated to the league's natural scoring profile.
+   396→  1241→// High-variance leagues (2. Bundesliga, Eredivisie) see more goal explosions
+   397→  1242→// from heavy favorites, so suppression mechanisms should be gentler.
+   398→  1243→
+   399→  1244→export type LeagueVariance = 'high' | 'medium' | 'low';
+   400→  1245→
+   401→  1246→export function classifyLeagueVariance(avgGoalsPerGame: number): LeagueVariance {
+   402→  1247→  if (avgGoalsPerGame >= 3.0) return 'high';
+   403→  1248→  if (avgGoalsPerGame >= 2.5) return 'medium';
+   404→  1249→  return 'low';
+   405→  1250→}
+   406→  1251→
+   407→  1252→// ============================================================================
+   408→  1253→// Blowout Risk Qualifier — Override Under signals in massive quality gaps
+   409→  1254→// ============================================================================
+   410→  1255→// Based on live results analysis: when there's a huge quality gap (favorite's
+   411→  1256→// avg odds <= 1.50), the Regression "Under" signal is unreliable. Heavy favorites
+   412→  1257→// tend to dominate regardless of recent form — a "cooling off" period doesn't
+   413→  1258→// matter when you're 2-3 quality tiers above the opponent.
+   414→  1259→//
+   415→  1260→// This qualifier prevents the "Under" regression signal from canceling out
+   416→  1261→// legitimate "Over" signals (xG, Z-Score) in STRONG BET / GREY RESULT / GOAL FEST.
+   417→  1262→//
+   418→  1263→// Example: Man City (odds 1.20) vs Luton — Regression says "Under" (City only
+   419→  1264→// scored 1 goal last 3 games), but City will likely score 3-4 regardless.
+   420→  1265→// Without this qualifier, the Under signal would block 2 points in STRONG BET.
+   421→  1266→// ============================================================================
+   422→  1267→
+   423→  1268→/** Blowout threshold: favorite's average odds at or below this triggers override */
+   424→  1269→const BLOWOUT_ODDS_THRESHOLD = 1.50;
+   425→  1270→
+   426→  1271→/**
+   427→  1272→ * Apply blowout risk qualifier to regression signal.
+   428→  1273→ * When either team is a massive favorite (avg odds <= 1.50), override
+   429→  1274→ * Regression "Under"/"Strong Under" to "Neutral" because quality advantage
+   430→  1275→ * outweighs recent form in one-sided matchups.
+   431→  1276→ *
+   432→  1277→ * @param signals      - Current signal set (xgSignal, regressionSignal, zScoreSignal)
+   433→  1278→ * @param homeAvgOdds  - Home team average odds (decimal)
+   434→  1279→ * @param awayAvgOdds  - Away team average odds (decimal)
+   435→  1280→ * @returns Modified signals (regression may be overridden to Neutral)
+   436→  1281→ */
+   437→  1282→export function applyBlowoutQualifier(
+   438→  1283→  signals: SignalInput,
+   439→  1284→  homeAvgOdds: number | null | undefined,
+   440→  1285→  awayAvgOdds: number | null | undefined,
+   441→  1286→  leagueAvgGoalsPerGame?: number
+   442→  1287→): { signals: SignalInput; blowoutOverride: boolean; reason: string } {
+   443→  1288→  // Only applies when valid odds are available
+   444→  1289→  if (!homeAvgOdds || !awayAvgOdds || homeAvgOdds <= 0 || awayAvgOdds <= 0) {
+   445→  1290→    return { signals, blowoutOverride: false, reason: '' };
+   446→  1291→  }
+   447→  1292→
+   448→  1293→  // League-adaptive threshold: gentler in high-variance leagues
+   449→  1294→  const variance = leagueAvgGoalsPerGame ? classifyLeagueVariance(leagueAvgGoalsPerGame) : 'low';
+   450→  1295→  const blowoutThreshold = variance === 'high' ? 1.25 : variance === 'medium' ? 1.40 : BLOWOUT_ODDS_THRESHOLD;
+   451→  1296→
+   452→  1297→  const homeIsMassiveFavorite = homeAvgOdds <= blowoutThreshold;
+   453→  1298→  const awayIsMassiveFavorite = awayAvgOdds <= blowoutThreshold;
+   454→  1299→
+   455→  1300→  // Only trigger when one team is a massive favorite
+   456→  1301→  if (!homeIsMassiveFavorite && !awayIsMassiveFavorite) {
+   457→  1302→    return { signals, blowoutOverride: false, reason: '' };
+   458→  1303→  }
+   459→  1304→
+   460→  1305→  // In high-variance leagues, only override Strong Under (keep mild signals intact)
+   461→  1306→  // because hot favorites in goal-rich leagues often score freely
+   462→  1307→  const shouldOverride = variance === 'high'
+   463→  1308→    ? signals.regressionSignal === 'Strong Under'
+   464→  1309→    : signals.regressionSignal === 'Under' || signals.regressionSignal === 'Strong Under';
+   465→  1310→  if (!shouldOverride) {
+   466→  1311→    return { signals, blowoutOverride: false, reason: '' };
+   467→  1312→  }
+   468→  1313→
+   469→  1314→  const favoriteOdds = Math.min(homeAvgOdds, awayAvgOdds);
+   470→  1315→  const favorite = homeIsMassiveFavorite ? 'Home' : 'Away';
+   471→  1316→  const reason = `Blowout qualifier (${variance}-variance): ${favorite} favorite (${favoriteOdds.toFixed(2)} <= ${blowoutThreshold}) — Regression "${signals.regressionSignal}" overridden to Neutral`;
+   472→  1317→
+   473→  1318→  return {
+   474→  1319→    signals: {
+   475→  1320→      ...signals,
+   476→  1321→      regressionSignal: 'Neutral',
+   477→  1322→    },
+   478→  1323→    blowoutOverride: true,
+   479→  1324→    reason,
+   480→  1325→  };
+   481→  1326→}
+   482→  1327→
+   483→  1328→// ============================================================================
+   484→  1329→// BTTS Dual-Team Qualification System
+   485→  1330→// ============================================================================
+   486→  1331→// BTTS requires BOTH teams to score — the match-level signal combo (Regression
+   487→  1332→// Under + Z-Score Neutral + xG Over) correctly identifies "goals are coming"
+   488→  1333→// but tends to surface ONE-SIDED regressions (one team due for a breakout).
+   489→  1334→// This system evaluates each team independently and produces a BTTS-specific
+   490→  1335→// conviction tier that is separate from the Over goal thesis.
+   491→  1336→// ============================================================================
+   492→  1337→
+   493→  1338→/** BTTS qualification tiers */
+   494→  1339→export type BttsQualificationTier = 'BTTS STRONG' | 'BTTS QUALIFIED' | 'BTTS WEAK' | 'BTTS AVOID';
+   495→  1340→
+   496→  1341→/** Per-team signal data for BTTS qualification */
+   497→  1342→export interface BttsQualificationInput {
+   498→  1343→  /** Home team regression signal (Under/Strong Under/Neutral/Over/Strong Over) */
+   499→  1344→  homeRegressionSignal: string;
+   500→  1345→  /** Away team regression signal */
+   501→  1346→  awayRegressionSignal: string;
+   502→  1347→  /** Home team xG overperformance diff (positive = overperforming, negative = underperforming) */
+   503→  1348→  homeXgDiff: number;
+   504→  1349→  /** Away team xG overperformance diff */
+   505→  1350→  awayXgDiff: number;
+   506→  1351→  /** Home team Z-Score (negative = underperforming, positive = overperforming) */
+   507→  1352→  homeZScore: number;
+   508→  1353→  /** Away team Z-Score */
+   509→  1354→  awayZScore: number;
+   510→  1355→  /** Home team SOT conversion rate (%) */
+   511→  1356→  homeSotConversion: number | null;
+   512→  1357→  /** Away team SOT conversion rate (%) */
+   513→  1358→  awaySotConversion: number | null;
+   514→  1359→  /** Favorite odds (decimal) — lower = bigger favorite */
+   515→  1360→  favoriteOdds: number | null;
+   516→  1361→  /** Home team momentum signal (optional — enables momentum-aware scoring) */
+   517→  1362→  homeMomentumSignal?: string;
+   518→  1363→  /** Away team momentum signal (optional) */
+   519→  1364→  awayMomentumSignal?: string;
+   520→  1365→}
+   521→  1366→
+   522→  1367→/** BTTS qualification result */
+   523→  1368→export interface BttsQualificationResult {
+   524→  1369→  tier: BttsQualificationTier;
+   525→  1370→  score: number;
+   526→  1371→  breakdown: { check: string; points: number; passed: boolean }[];
+   527→  1372→  bttsCap: number; // Max BTTS probability allowed at this tier
+   528→  1373→}
+   529→  1374→
+   530→  1375→/**
+   531→  1376→ * Classify a per-team regression deviation into a signal label.
+   532→  1377→ * Uses the same thresholds as REGRESSION_THRESHOLDS.perTeam.
+   533→  1378→ */
+   534→  1379→export function classifyPerTeamRegressionSignal(combinedSignal: number): string {
+   535→  1380→  if (combinedSignal <= -0.8) return 'Strong Over';
+   536→  1381→  if (combinedSignal <= -0.3) return 'Over';
+   537→  1382→  if (combinedSignal >= 0.8) return 'Strong Under';
+   538→  1383→  if (combinedSignal >= 0.3) return 'Under';
+   539→  1384→  return 'Neutral';
+   540→  1385→}
+   541→  1386→
+   542→  1387→/**
+   543→  1388→ * Classify a per-team xG diff into a signal label.
+   544→  1389→ * Uses the same thresholds as XG_THRESHOLDS applied per-team.
+   545→  1390→ */
+   546→  1391→export function classifyPerTeamXgSignal(xgDiff: number): string {
+   547→  1392→  if (xgDiff <= -1.0) return 'Strong Over';
+   548→  1393→  if (xgDiff <= -0.5) return 'Over';
+   549→  1394→  if (xgDiff >= 1.0) return 'Strong Under';
+   550→  1395→  if (xgDiff >= 0.5) return 'Under';
+   551→  1396→  return 'Neutral';
+   552→  1397→}
+   553→  1398→
+   554→  1399→/**
+   555→  1400→ * Classify a per-team Z-Score into a signal label.
+   556→  1401→ * Negative Z = underperforming recently (goals expected to rise).
+   557→  1402→ */
+   558→  1403→export function classifyPerTeamZScoreSignal(zScore: number): string {
+   559→  1404→  if (zScore <= -1.5) return 'Strong Over';
+   560→  1405→  if (zScore <= -1.0) return 'Over';
+   561→  1406→  if (zScore >= 1.5) return 'Strong Under';
+   562→  1407→  if (zScore >= 1.0) return 'Under';
+   563→  1408→  return 'Neutral';
+   564→  1409→}
+   565→  1410→
+   566→  1411→// ============================================================================
+   567→  1412→// Momentum Signal — Parallel track to Regression (form continuation)
+   568→  1413→// ============================================================================
+   569→  1414→// While Regression asks "is this team due to bounce back?", Momentum asks
+   570→  1415→// "is this team on a sustained hot streak that will continue?"
+   571→  1416→// Both tracks run simultaneously; a match can qualify through either pathway.
+   572→  1417→
+   573→  1418→export interface MomentumTeamInput {
+   574→  1419→  last5Goals: number[];    // total goals per match in last 5
+   575→  1420→  seasonAvg: number;       // season avg total goals per game
+   576→  1421→  xgDiff: number;          // actualGoals/matches - totalXg/matches (positive = overperforming)
+   577→  1422→  sotPerGame: number | null;
+   578→  1423→}
+   579→  1424→
+   580→  1425→export interface MomentumResult {
+   581→  1426→  homeSignal: string;      // 'Strong Momentum' | 'Momentum' | 'Neutral' | 'Cooling' | 'Cold'
+   582→  1427→  awaySignal: string;
+   583→  1428→  matchSignal: string;     // 'MOMENTUM OVER' | 'MOMENTUM LEAN OVER' | 'MOMENTUM NEUTRAL' | 'MOMENTUM LEAN UNDER' | 'MOMENTUM UNDER'
+   584→  1429→}
+   585→  1430→
+   586→  1431→function classifyTeamMomentum(team: MomentumTeamInput): string {
+   587→  1432→  if (team.last5Goals.length < 3) return 'Neutral';
+   588→  1433→
+   589→  1434→  const last5Avg = team.last5Goals.reduce((s, g) => s + g, 0) / team.last5Goals.length;
+   590→  1435→  const last3 = team.last5Goals.slice(0, Math.min(3, team.last5Goals.length));
+   591→  1436→  const last3Avg = last3.reduce((s, g) => s + g, 0) / last3.length;
+   592→  1437→
+   593→  1438→  // Consistency: coefficient of variation of last 5
+   594→  1439→  const mean = last5Avg;
+   595→  1440→  const variance = team.last5Goals.reduce((s, g) => s + (g - mean) ** 2, 0) / team.last5Goals.length;
+   596→  1441→  const stdDev = Math.sqrt(variance);
+   597→  1442→  const cv = mean > 0 ? stdDev / mean : 999;
+   598→  1443→
+   599→  1444→  // Sustained: 5+ game window above season average by meaningful margin
+   600→  1445→  const sustained = last5Avg > team.seasonAvg * 1.15;
+   601→  1446→
+   602→  1447→  // Accelerating: last 3 even hotter than last 5
+   603→  1448→  const accelerating = last3Avg > last5Avg * 1.05;
+   604→  1449→
+   605→  1450→  // xG sustainability: overperforming xG with shot volume to back it
+   606→  1451→  const xgSustainable = team.xgDiff > 0 && team.sotPerGame !== null && team.sotPerGame > 5.0;
+   607→  1452→
+   608→  1453→  // Strong Momentum: sustained + consistent + high output
+   609→  1454→  if (sustained && cv < 0.5 && last5Avg >= 2.0) return 'Strong Momentum';
+   610→  1455→  // Momentum: sustained with moderate variance, or recent surge with sustainable backing
+   611→  1456→  if (sustained && cv < 0.65) return 'Momentum';
+   612→  1457→  if (last5Avg > team.seasonAvg * 1.15 && accelerating && (xgSustainable || team.xgDiff <= 0)) return 'Momentum';
+   613→  1458→  // Cold: declining output
+   614→  1459→  if (last5Avg < team.seasonAvg * 0.75) {
+   615→  1460→    return last3Avg < last5Avg * 0.8 ? 'Cold' : 'Cooling';
+   616→  1461→  }
+   617→  1462→  return 'Neutral';
+   618→  1463→}
+   619→  1464→
+   620→  1465→export function computeMomentumSignal(home: MomentumTeamInput, away: MomentumTeamInput): MomentumResult {
+   621→  1466→  const homeSignal = classifyTeamMomentum(home);
+   622→  1467→  const awaySignal = classifyTeamMomentum(away);
+   623→  1468→
+   624→  1469→  const isOver = (s: string) => s === 'Strong Momentum' || s === 'Momentum';
+   625→  1470→  const isUnder = (s: string) => s === 'Cold' || s === 'Cooling';
+   626→  1471→
+   627→  1472→  let matchSignal: string;
+   628→  1473→  if (isOver(homeSignal) && isOver(awaySignal)) matchSignal = 'MOMENTUM OVER';
+   629→  1474→  else if ((isOver(homeSignal) || isOver(awaySignal)) && !isUnder(homeSignal) && !isUnder(awaySignal)) matchSignal = 'MOMENTUM LEAN OVER';
+   630→  1475→  else if (isUnder(homeSignal) && isUnder(awaySignal)) matchSignal = 'MOMENTUM UNDER';
+   631→  1476→  else if (isUnder(homeSignal) || isUnder(awaySignal)) matchSignal = 'MOMENTUM LEAN UNDER';
+   632→  1477→  else matchSignal = 'MOMENTUM NEUTRAL';
+   633→  1478→
+   634→  1479→  return { homeSignal, awaySignal, matchSignal };
+   635→  1480→}
+   636→  1481→
+   637→  1482→// ============================================================================
+   638→  1483→// BTTS Dual-Team Qualification System
+   639→  1484→// ============================================================================
+   640→  1485→// Evaluates each team independently to determine whether BOTH teams are likely
+   641→  1486→// to score. Returns a tier that caps BTTS probability independently from the
+   642→  1487→// Over goal thesis.
+   643→  1488→//
+   644→  1489→// Now supports TWO qualification pathways:
+   645→  1490→//   1. Regression Under: both teams underperforming → due to bounce back
+   646→  1491→//   2. Momentum Over: both teams on hot streaks → likely to keep scoring
+   647→  1492→//
+   648→  1493→// Tier mapping:
+   649→  1494→//   5+ → BTTS STRONG   (cap 70%) — both teams individually qualify
+   650→  1495→//   3–4 → BTTS QUALIFIED (cap 55%) — mild BTTS confidence
+   651→  1496→//   1–2 → BTTS WEAK     (cap 40%) — one-sided regression likely
+   652→  1497→//   ≤0  → BTTS AVOID    (cap 25%) — do not bet BTTS
+   653→  1498→// ============================================================================
+   654→  1499→export function computeBTTSQualification(input: BttsQualificationInput): BttsQualificationResult {
+   655→  1500→  let score = 0;
+   656→  1501→  const checks: { check: string; points: number; passed: boolean }[] = [];
+   657→  1502→
+   658→  1503→  const isRegressionUnder = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+   659→  1504→  const isXgOver = (diff: number) => diff <= -0.5; // underperforming xG = goals due
+   660→  1505→  const isZCold = (z: number) => z >= 1.0; // overperforming Z = cold streak coming
+   661→  1506→  const isZNeutralOrBetter = (z: number) => z < 1.0; // not overheated
+   662→  1507→
+   663→  1508→  // Momentum helpers
+   664→  1509→  const isMomentum = (s: string | undefined) => s === 'Strong Momentum' || s === 'Momentum';
+   665→  1510→  const homeMom = isMomentum(input.homeMomentumSignal);
+   666→  1511→  const awayMom = isMomentum(input.awayMomentumSignal);
+   667→  1512→  const bothMom = homeMom && awayMom;
+   668→  1513→  const oneMom = homeMom || awayMom;
+   669→  1514→
+   670→  1515→  // Check 1: Regression Under OR Momentum Over — dual qualification pathway
+   671→  1516→  const bothRegUnder = isRegressionUnder(input.homeRegressionSignal) && isRegressionUnder(input.awayRegressionSignal);
+   672→  1517→  const oneRegUnder = isRegressionUnder(input.homeRegressionSignal) || isRegressionUnder(input.awayRegressionSignal);
+   673→  1518→
+   674→  1519→  if (bothRegUnder && bothMom) {
+   675→  1520→    // Supercharged: both signals agree from both sides
+   676→  1521→    score += 5;
+   677→  1522→    checks.push({ check: 'Both Regression Under AND Momentum Over (supercharged)', points: 5, passed: true });
+   678→  1523→  } else if (bothRegUnder || bothMom) {
+   679→  1524→    score += 3;
+   680→  1525→    checks.push({ check: bothRegUnder ? 'Both teams Regression Under/StrongUnder' : 'Both teams Momentum Over (hot streak)', points: 3, passed: true });
+   681→  1526→  } else if ((oneRegUnder && oneMom)) {
+   682→  1527→    score += 2; // Mixed but both signal types point to goals
+   683→  1528→    checks.push({ check: 'One Regression Under + One Momentum Over', points: 2, passed: true });
+   684→  1529→  } else if (oneRegUnder || oneMom) {
+   685→  1530→    score += 1;
+   686→  1531→    checks.push({ check: oneRegUnder ? 'One team Regression Under' : 'One team Momentum Over', points: 1, passed: true });
+   687→  1532→  } else {
+   688→  1533→    checks.push({ check: 'No Regression Under or Momentum Over', points: 3, passed: false });
+   689→  1534→  }
+   690→  1535→
+   691→  1536→  // Check 2: BOTH teams xG Over (underperforming xG = creating chances, finishing due)
+   692→  1537→  const bothXgOver = isXgOver(input.homeXgDiff) && isXgOver(input.awayXgDiff);
+   693→  1538→  if (bothXgOver) {
+   694→  1539→    score += 2;
+   695→  1540→    checks.push({ check: 'Both teams xG Over (underperforming)', points: 2, passed: true });
+   696→  1541→  } else {
+   697→  1542→    checks.push({ check: 'Both teams xG Over (underperforming)', points: 2, passed: false });
+   698→  1543→  }
+   699→  1544→
+   700→  1545→  // Check 3: BOTH teams Z-Score not overheated
+   701→  1546→  const bothZOk = isZNeutralOrBetter(input.homeZScore) && isZNeutralOrBetter(input.awayZScore);
+   702→  1547→  if (bothZOk) {
+   703→  1548→    score += 1;
+   704→  1549→    checks.push({ check: 'Both teams Z-Score Neutral/better', points: 1, passed: true });
+   705→  1550→  } else {
+   706→  1551→    checks.push({ check: 'Both teams Z-Score Neutral/better', points: 1, passed: false });
+   707→  1552→  }
+   708→  1553→
+   709→  1554→  // Check 4: Competitive matchup (favorite odds 1.80–2.50)
+   710→  1555→  if (input.favoriteOdds && input.favoriteOdds >= 1.80 && input.favoriteOdds <= 2.50) {
+   711→  1556→    score += 1;
+   712→  1557→    checks.push({ check: 'Competitive matchup (odds 1.80-2.50)', points: 1, passed: true });
+   713→  1558→  } else {
+   714→  1559→    checks.push({ check: 'Competitive matchup (odds 1.80-2.50)', points: 1, passed: false });
+   715→  1560→  }
+   716→  1561→
+   717→  1562→  // Penalty 5: Massive favorite (≤1.50) — one side dominates, BTTS unlikely
+   718→  1563→  if (input.favoriteOdds && input.favoriteOdds <= 1.50) {
+   719→  1564→    score -= 2;
+   720→  1565→    checks.push({ check: 'Massive favorite (odds ≤1.50)', points: -2, passed: true });
+   721→  1566→  } else {
+   722→  1567→    checks.push({ check: 'Massive favorite (odds ≤1.50)', points: -2, passed: false });
+   723→  1568→  }
+   724→  1569→
+   725→  1570→  // Penalty 6: Either team can't finish (SOT conversion <25%)
+   726→  1571→  const homeCantFinish = input.homeSotConversion !== null && input.homeSotConversion < 25;
+   727→  1572→  const awayCantFinish = input.awaySotConversion !== null && input.awaySotConversion < 25;
+   728→  1573→  if (homeCantFinish) score -= 1;
+   729→  1574→  if (awayCantFinish) score -= 1;
+   730→  1575→  checks.push({
+   731→  1576→    check: `Home SOT conversion ${homeCantFinish ? '< 25%' : '≥ 25%'}${input.homeSotConversion !== null ? ` (${input.homeSotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+   732→  1577→    points: -1,
+   733→  1578→    passed: !homeCantFinish,
+   734→  1579→  });
+   735→  1580→  checks.push({
+   736→  1581→    check: `Away SOT conversion ${awayCantFinish ? '< 25%' : '≥ 25%'}${input.awaySotConversion !== null ? ` (${input.awaySotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+   737→  1582→    points: -1,
+   738→  1583→    passed: !awayCantFinish,
+   739→  1584→  });
+   740→  1585→
+   741→  1586→  // Penalty 7: Either team in a strong cold Z-Score streak
+   742→  1587→  const homeCold = isZCold(input.homeZScore);
+   743→  1588→  const awayCold = isZCold(input.awayZScore);
+   744→  1589→  if (homeCold) score -= 2;
+   745→  1590→  if (awayCold) score -= 2;
+   746→  1591→  checks.push({
+   747→  1592→    check: `Home Z-Score ${homeCold ? 'cold (≥1.0)' : 'ok'}`,
+   748→  1593→    points: -2,
+   749→  1594→    passed: !homeCold,
+   750→  1595→  });
+   751→  1596→  checks.push({
+   752→  1597→    check: `Away Z-Score ${awayCold ? 'cold (≥1.0)' : 'ok'}`,
+   753→  1598→    points: -2,
+   754→  1599→    passed: !awayCold,
+   755→  1600→  });
+   756→  1601→
+   757→  1602→  // Determine tier
+   758→  1603→  let tier: BttsQualificationTier;
+   759→  1604→  let bttsCap: number;
+   760→  1605→  if (score >= 5) {
+   761→  1606→    tier = 'BTTS STRONG';
+   762→  1607→    bttsCap = 70;
+   763→  1608→  } else if (score >= 3) {
+   764→  1609→    tier = 'BTTS QUALIFIED';
+   765→  1610→    bttsCap = 55;
+   766→  1611→  } else if (score >= 1) {
+   767→  1612→    tier = 'BTTS WEAK';
+   768→  1613→    bttsCap = 40;
+   769→  1614→  } else {
+   770→  1615→    tier = 'BTTS AVOID';
+   771→  1616→    bttsCap = 25;
+   772→  1617→  }
+   773→  1618→
+   774→  1619→  return { tier, score, breakdown: checks, bttsCap };
+   775→  1620→}
+   776→  1621→
+   777→  1622→// ============================================================================
+   778→  1623→// Third Goal (2-Goal Ceiling) Detector
+   779→  1624→// ============================================================================
+   780→  1625→// 85.7% Over 1.5 but only 57.1% Over 2.5 — the 28.6pp gap means ~1 in 3
+   781→  1626→// qualified picks stall at exactly 2 goals. This qualifier identifies whether
+   782→  1627→// there's enough sustained pressure on BOTH sides to break through the 2-goal
+   783→  1628→// ceiling and reach 3+ goals.
+   784→  1629→// ============================================================================
+   785→  1630→
+   786→  1631→/** Goal tier classification */
+   787→  1632→export type GoalTier = 'GOAL RICH' | 'GOAL LIKELY' | 'GOAL BORDERLINE' | 'GOAL THIN' | 'GOAL STALL';
+   788→  1633→
+   789→  1634→/** Input for Third Goal qualifier */
+   790→  1635→export interface ThirdGoalQualifierInput {
+   791→  1636→  /** Combined xG total per game (home xG/game + away xG/game) */
+   792→  1637→  combinedXgTotal: number;
+   793→  1638→  /** Home team regression signal */
+   794→  1639→  homeRegressionSignal: string;
+   795→  1640→  /** Away team regression signal */
+   796→  1641→  awayRegressionSignal: string;
+   797→  1642→  /** Home team xG signal label */
+   798→  1643→  homeXgSignal: string;
+   799→  1644→  /** Away team xG signal label */
+   800→  1645→  awayXgSignal: string;
+   801→  1646→  /** Home team average SOT per game */
+   802→  1647→  homeAvgSot: number | null;
+   803→  1648→  /** Away team average SOT per game */
+   804→  1649→  awayAvgSot: number | null;
+   805→  1650→  /** Favorite odds (decimal) — lower = bigger favorite */
+   806→  1651→  favoriteOdds: number | null;
+   807→  1652→  /** Home team SOT conversion rate (%) */
+   808→  1653→  homeSotConversion: number | null;
+   809→  1654→  /** Away team SOT conversion rate (%) */
+   810→  1655→  awaySotConversion: number | null;
+   811→  1656→}
+   812→  1657→
+   813→  1658→/** Third Goal qualifier result */
+   814→  1659→export interface ThirdGoalQualifierResult {
+   815→  1660→  tier: GoalTier;
+   816→  1661→  score: number;
+   817→  1662→  breakdown: { check: string; points: number; passed: boolean }[];
+   818→  1663→  recommendation: string;
+   819→  1664→}
+   820→  1665→
+   821→  1666→/**
+   822→  1667→ * Compute Third Goal qualifier — distinguishes "2-goal games" from "3+ goal games"
+   823→  1668→ * within pre-filtered selections.
+   824→  1669→ *
+   825→  1670→ * Tier mapping:
+   826→  1671→ *   6+  → GOAL RICH      — Full confidence on Over 2.5, consider Over 3.5
+   827→  1672→ *   4–5 → GOAL LIKELY    — Solid Over 2.5 bet
+   828→  1673→ *   2–3 → GOAL BORDERLINE — Over 1.5 strong, Over 2.5 cautious
+   829→  1674→ *   0–1 → GOAL THIN      — Over 1.5 only, skip Over 2.5
+   830→  1675→ *   <0  → GOAL STALL     — Likely 1-2 goals, avoid Over markets above 1.5
+   831→  1676→ */
+   832→  1677→export function computeThirdGoalQualifier(input: ThirdGoalQualifierInput): ThirdGoalQualifierResult {
+   833→  1678→  let score = 0;
+   834→  1679→  const checks: { check: string; points: number; passed: boolean }[] = [];
+   835→  1680→
+   836→  1681→  const isRegressionUnder = (sig: string) => sig === 'Under' || sig === 'Strong Under';
+   837→  1682→  const isXgOver = (sig: string) => sig === 'Over' || sig === 'Strong Over';
+   838→  1683→
+   839→  1684→  // Check 1: Combined xG > 3.0 (very high chance creation)
+   840→  1685→  if (input.combinedXgTotal > 3.0) {
+   841→  1686→    score += 3;
+   842→  1687→    checks.push({ check: `Combined xG ${input.combinedXgTotal.toFixed(2)} > 3.0`, points: 3, passed: true });
+   843→  1688→  } else if (input.combinedXgTotal >= 2.5) {
+   844→  1689→    score += 1;
+   845→  1690→    checks.push({ check: `Combined xG ${input.combinedXgTotal.toFixed(2)} in 2.5-3.0`, points: 1, passed: true });
+   846→  1691→  } else {
+   847→  1692→    checks.push({ check: `Combined xG ${input.combinedXgTotal.toFixed(2)} < 2.5`, points: 3, passed: false });
+   848→  1693→  }
+   849→  1694→
+   850→  1695→  // Check 2: BOTH teams Regression Under (double regression)
+   851→  1696→  const bothRegUnder = isRegressionUnder(input.homeRegressionSignal) && isRegressionUnder(input.awayRegressionSignal);
+   852→  1697→  if (bothRegUnder) {
+   853→  1698→    score += 2;
+   854→  1699→    checks.push({ check: 'Both teams Regression Under', points: 2, passed: true });
+   855→  1700→  } else {
+   856→  1701→    checks.push({ check: 'Both teams Regression Under', points: 2, passed: false });
+   857→  1702→  }
+   858→  1703→
+   859→  1704→  // Check 3: BOTH teams xG Over (both creating chances)
+   860→  1705→  const bothXgOver = isXgOver(input.homeXgSignal) && isXgOver(input.awayXgSignal);
+   861→  1706→  if (bothXgOver) {
+   862→  1707→    score += 2;
+   863→  1708→    checks.push({ check: 'Both teams xG Over', points: 2, passed: true });
+   864→  1709→  } else {
+   865→  1710→    checks.push({ check: 'Both teams xG Over', points: 2, passed: false });
+   866→  1711→  }
+   867→  1712→
+   868→  1713→  // Check 4: BOTH teams average SOT > 5.5 (sustained pressure)
+   869→  1714→  const homeHighSot = input.homeAvgSot !== null && input.homeAvgSot > 5.5;
+   870→  1715→  const awayHighSot = input.awayAvgSot !== null && input.awayAvgSot > 5.5;
+   871→  1716→  if (homeHighSot && awayHighSot) {
+   872→  1717→    score += 2;
+   873→  1718→    checks.push({ check: `Both teams SOT > 5.5 (${input.homeAvgSot?.toFixed(1)} / ${input.awayAvgSot?.toFixed(1)})`, points: 2, passed: true });
+   874→  1719→  } else if (homeHighSot || awayHighSot) {
+   875→  1720→    checks.push({ check: `One team SOT > 5.5 (${input.homeAvgSot?.toFixed(1) ?? 'N/A'} / ${input.awayAvgSot?.toFixed(1) ?? 'N/A'})`, points: 2, passed: false });
+   876→  1721→  } else {
+   877→  1722→    checks.push({ check: `Neither team SOT > 5.5 (${input.homeAvgSot?.toFixed(1) ?? 'N/A'} / ${input.awayAvgSot?.toFixed(1) ?? 'N/A'})`, points: 2, passed: false });
+   878→  1723→  }
+   879→  1724→
+   880→  1725→  // Check 5: Balanced xG (within 0.8 of each other) — competitive game
+   881→  1726→  // We check if xG signals are similar (not one-sided)
+   882→  1727→  const xgBalanced = isXgOver(input.homeXgSignal) === isXgOver(input.awayXgSignal);
+   883→  1728→  if (xgBalanced) {
+   884→  1729→    score += 1;
+   885→  1730→    checks.push({ check: 'xG signals balanced (both teams similar)', points: 1, passed: true });
+   886→  1731→  } else {
+   887→  1732→    checks.push({ check: 'xG signals lopsided (one-sided)', points: 1, passed: false });
+   888→  1733→  }
+   889→  1734→
+   890→  1735→  // Check 6: Favorite odds 1.80–2.50 (open competitive game)
+   891→  1736→  if (input.favoriteOdds && input.favoriteOdds >= 1.80 && input.favoriteOdds <= 2.50) {
+   892→  1737→    score += 1;
+   893→  1738→    checks.push({ check: 'Competitive matchup (odds 1.80-2.50)', points: 1, passed: true });
+   894→  1739→  } else {
+   895→  1740→    checks.push({ check: 'Not a competitive matchup', points: 1, passed: false });
+   896→  1741→  }
+   897→  1742→
+   898→  1743→  // Penalty 7: Lopsided xG (one team xG Over, other not)
+   899→  1744→  if (!xgBalanced) {
+   900→  1745→    score -= 1;
+   901→  1746→    // Already counted in check 5 as non-passed, no duplicate
+   902→  1747→  }
+   903→  1748→
+   904→  1749→  // Penalty 8: Massive favorite (≤1.50) — might be controlled 2-0
+   905→  1750→  if (input.favoriteOdds && input.favoriteOdds <= 1.50) {
+   906→  1751→    score -= 1;
+   907→  1752→    checks.push({ check: 'Massive favorite (odds ≤1.50) — controlled game risk', points: -1, passed: true });
+   908→  1753→  } else {
+   909→  1754→    checks.push({ check: 'Massive favorite risk', points: -1, passed: false });
+   910→  1755→  }
+   911→  1756→
+   912→  1757→  // Penalty 9: Either team can't finish (SOT conversion <25%)
+   913→  1758→  const homeCantFinish = input.homeSotConversion !== null && input.homeSotConversion < 25;
+   914→  1759→  const awayCantFinish = input.awaySotConversion !== null && input.awaySotConversion < 25;
+   915→  1760→  if (homeCantFinish) score -= 1;
+   916→  1761→  if (awayCantFinish) score -= 1;
+   917→  1762→  checks.push({
+   918→  1763→    check: `Home SOT conversion ${homeCantFinish ? '< 25%' : '≥ 25%'}${input.homeSotConversion !== null ? ` (${input.homeSotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+   919→  1764→    points: -1,
+   920→  1765→    passed: !homeCantFinish,
+   921→  1766→  });
+   922→  1767→  checks.push({
+   923→  1768→    check: `Away SOT conversion ${awayCantFinish ? '< 25%' : '≥ 25%'}${input.awaySotConversion !== null ? ` (${input.awaySotConversion.toFixed(0)}%)` : ' (N/A)'}`,
+   924→  1769→    points: -1,
+   925→  1770→    passed: !awayCantFinish,
+   926→  1771→  });
+   927→  1772→
+   928→  1773→  // Determine tier
+   929→  1774→  let tier: GoalTier;
+   930→  1775→  let recommendation: string;
+   931→  1776→  if (score >= 6) {
+   932→  1777→    tier = 'GOAL RICH';
+   933→  1778→    recommendation = 'Full confidence on Over 2.5, consider Over 3.5';
+   934→  1779→  } else if (score >= 4) {
+   935→  1780→    tier = 'GOAL LIKELY';
+   936→  1781→    recommendation = 'Solid Over 2.5 bet';
+   937→  1782→  } else if (score >= 2) {
+   938→  1783→    tier = 'GOAL BORDERLINE';
+   939→  1784→    recommendation = 'Over 1.5 strong, Over 2.5 cautious';
+   940→  1785→  } else if (score >= 0) {
+   941→  1786→    tier = 'GOAL THIN';
+   942→  1787→    recommendation = 'Over 1.5 only, skip Over 2.5';
+   943→  1788→  } else {
+   944→  1789→    tier = 'GOAL STALL';
+   945→  1790→    recommendation = 'Likely 1-2 goals, avoid Over markets above 1.5';
+   946→  1791→  }
+   947→  1792→
+   948→  1793→  return { tier, score, breakdown: checks, recommendation };
+   949→  1794→}
+   950→  1795→
+   951→  1796→// ============================================================================
+   952→  1797→// Dominant Team Qualifier — Flags one-sided demolition games
+   953→  1798→// ============================================================================
+   954→  1799→// Catches games where one team is overwhelmingly stronger and likely to score
+   955→  1800→// 3+ goals regardless of opponent contribution. This is the anti-BTTS card —
+   956→  1801→// it identifies Elversberg 3-0, Furth 3-0, AZ 3-3 type profiles where Over
+   957→  1802→// markets hit but BTTS does NOT.
+   958→  1803→
+   959→  1804→export interface DominantTeamInput {
+   960→  1805→  favoriteOdds: number;
+   961→  1806→  favoriteAvgGoalsPerGame: number;
+   962→  1807→  underdogAvgConcededPerGame: number;
+   963→  1808→  favoriteXgPerGame: number;
+   964→  1809→  underdogXgPerGame: number;
+   965→  1810→  favoriteLast5Avg: number;
+   966→  1811→  favoriteSotPerGame: number | null;
+   967→  1812→  leagueAvgGoalsPerGame: number;
+   968→  1813→  underdogAwayBttsRate: number | null;
+   969→  1814→  favoriteLast3AllLow: boolean;  // true if last 3 games all < 1.5 total goals
+   970→  1815→}
+   971→  1816→
+   972→  1817→export type DominantTier = 'DOMINANT EXPECTED' | 'DOMINANT LIKELY' | 'DOMINANT POSSIBLE' | 'NOT DOMINANT';
+   973→  1818→
+   974→  1819→export interface DominantTeamResult {
+   975→  1820→  tier: DominantTier;
+   976→  1821→  score: number;
+   977→  1822→  breakdown: { check: string; points: number; passed: boolean }[];
+   978→  1823→  over25Rec: string;
+   979→  1824→  bttsRec: string;
+   980→  1825→}
+   981→  1826→
+   982→  1827→export function computeDominantTeamQualifier(input: DominantTeamInput): DominantTeamResult {
+   983→  1828→  let score = 0;
+   984→  1829→  const checks: { check: string; points: number; passed: boolean }[] = [];
+   985→  1830→
+   986→  1831→  // Positive checks
+   987→  1832→  const favOddsLow = input.favoriteOdds <= 1.40;
+   988→  1833→  if (favOddsLow) { score += 2; }
+   989→  1834→  checks.push({ check: `Favorite odds ${input.favoriteOdds.toFixed(2)} ${favOddsLow ? '<= 1.40' : '> 1.40'}`, points: 2, passed: favOddsLow });
+   990→  1835→
+   991→  1836→  const favHighAvg = input.favoriteAvgGoalsPerGame > 2.0;
+   992→  1837→  if (favHighAvg) { score += 2; }
+   993→  1838→  checks.push({ check: `Favorite avg ${input.favoriteAvgGoalsPerGame.toFixed(1)} goals/game ${favHighAvg ? '> 2.0' : '<= 2.0'}`, points: 2, passed: favHighAvg });
+   994→  1839→
+   995→  1840→  const underdogLeaks = input.underdogAvgConcededPerGame > 1.5;
+   996→  1841→  if (underdogLeaks) { score += 1; }
+   997→  1842→  checks.push({ check: `Underdog concedes ${input.underdogAvgConcededPerGame.toFixed(1)}/game ${underdogLeaks ? '> 1.5' : '<= 1.5'}`, points: 1, passed: underdogLeaks });
+   998→  1843→
+   999→  1844→  const xgGap = input.favoriteXgPerGame - input.underdogXgPerGame;
+  1000→  1845→  const hugeXgGap = xgGap > 1.0;
+  1001→  1846→  if (hugeXgGap) { score += 2; }
+  1002→  1847→  checks.push({ check: `xG gap ${xgGap.toFixed(1)} ${hugeXgGap ? '> 1.0' : '<= 1.0'}`, points: 2, passed: hugeXgGap });
+  1003→  1848→
+  1004→  1849→  const favLast5Hot = input.favoriteLast5Avg > 2.0;
+  1005→  1850→  if (favLast5Hot) { score += 1; }
+  1006→  1851→  checks.push({ check: `Favorite last 5 avg ${input.favoriteLast5Avg.toFixed(1)} ${favLast5Hot ? '> 2.0' : '<= 2.0'}`, points: 1, passed: favLast5Hot });
+  1007→  1852→
+  1008→  1853→  const favHighSot = input.favoriteSotPerGame !== null && input.favoriteSotPerGame > 6.0;
+  1009→  1854→  if (favHighSot) { score += 1; }
+  1010→  1855→  checks.push({ check: `Favorite SOT ${input.favoriteSotPerGame?.toFixed(1) ?? 'N/A'}/game ${favHighSot ? '> 6.0' : '<= 6.0'}`, points: 1, passed: favHighSot });
+  1011→  1856→
+  1012→  1857→  const variance = classifyLeagueVariance(input.leagueAvgGoalsPerGame);
+  1013→  1858→  const isHighVar = variance === 'high';
+  1014→  1859→  if (isHighVar) { score += 1; }
+  1015→  1860→  checks.push({ check: `High-variance league (${input.leagueAvgGoalsPerGame.toFixed(1)} avg)`, points: 1, passed: isHighVar });
+  1016→  1861→
+  1017→  1862→  const underdogBttsPoor = input.underdogAwayBttsRate !== null && input.underdogAwayBttsRate < 40;
+  1018→  1863→  if (underdogBttsPoor) { score += 1; }
+  1019→  1864→  checks.push({ check: `Underdog away BTTS ${input.underdogAwayBttsRate !== null ? `${input.underdogAwayBttsRate.toFixed(0)}%` : 'N/A'} ${underdogBttsPoor ? '< 40%' : '>= 40%'}`, points: 1, passed: underdogBttsPoor });
+  1020→  1865→
+  1021→  1866→  // Penalties
+  1022→  1867→  if (input.favoriteLast3AllLow) { score -= 2; }
+  1023→  1868→  checks.push({ check: 'Favorite cooling off (last 3 < 1.5 goals)', points: -2, passed: input.favoriteLast3AllLow });
+  1024→  1869→
+  1025→  1870→  // Determine tier
+  1026→  1871→  let tier: DominantTier;
+  1027→  1872→  let over25Rec: string;
+  1028→  1873→  let bttsRec: string;
+  1029→  1874→  if (score >= 6) {
+  1030→  1875→    tier = 'DOMINANT EXPECTED'; over25Rec = 'Strong Over 2.5'; bttsRec = 'BTTS NO (one-sided)';
+  1031→  1876→  } else if (score >= 4) {
+  1032→  1877→    tier = 'DOMINANT LIKELY'; over25Rec = 'Over 2.5'; bttsRec = 'BTTS NO';
+  1033→  1878→  } else if (score >= 2) {
+  1034→  1879→    tier = 'DOMINANT POSSIBLE'; over25Rec = 'Lean Over 2.5'; bttsRec = 'Depends on opponent';
+  1035→  1880→  } else {
+  1036→  1881→    tier = 'NOT DOMINANT'; over25Rec = 'N/A'; bttsRec = 'N/A';
+  1037→  1882→  }
+  1038→  1883→
+  1039→  1884→  return { tier, score, breakdown: checks, over25Rec, bttsRec };
+  1040→  1885→}
+  1041→  1886→
+  1042→  1887→// ============================================================================
+  1043→  1888→// BTTS BOTH HALVES DETECTOR
+  1044→  1889→// ============================================================================
+  1045→  1890→// Dedicated detector for "Both Teams Score in Both Halves" (BTTS-BH).
+  1046→  1891→// This is the rarest and most profitable goal pattern — ~5.2% base rate.
+  1047→  1892→//
+  1048→  1893→// Design: Lean 3-check system, calibrated on 24,057 matches across 7 leagues.
+  1049→  1894→// Only signals with proven discriminative power survive:
+  1050→  1895→//   1. O2.5 implied probability (bookmaker odds) — 1.38x lift, PRIMARY
+  1051→  1896→//   2. Draw probability < 25% — 1.21x lift, SECONDARY
+  1052→  1897→//   3. Rolling combined scoring >= 3.0 — 1.10x lift, TERTIARY
+  1053→  1898→//
+  1054→  1899→// All other model-derived signals (BTTS rate, O3.5 rate, O2.5 model rate,
+  1055→  1900→// league avg goals, elite O2.5) were tested and found flat (0.99-1.06x)
+  1056→  1901→// across 24K games. They were removed to reduce noise.
+  1057→  1902→//
+  1058→  1903→// Need 2 of 3 checks to qualify.
+  1059→  1904→// ============================================================================
+  1060→  1905→
+  1061→  1906→export type BTTSBothHalvesTier =
+  1062→  1907→  | 'BTTS-BH STRONG'
+  1063→  1908→  | 'BTTS-BH QUALIFIED'
+  1064→  1909→  | 'BTTS-BH BORDERLINE'
+  1065→  1910→  | 'BTTS-BH UNLIKELY';
+  1066→  1911→
+  1067→  1912→export interface BTTSBothHalvesInput {
+  1068→  1913→  o25Prob: number;              // O2.5 model/rolling probability (unused — kept for interface compat)
+  1069→  1914→  o35Prob: number;              // O3.5 rolling rate (unused — kept for interface compat)
+  1070→  1915→  bttsProb: number;             // BTTS rolling rate (unused — kept for interface compat)
+  1071→  1916→  rollingCombinedScoring: number;
+  1072→  1917→  o25ImpliedProb: number | null; // from bookmaker O2.5 odds
+  1073→  1918→  drawProb: number;             // draw probability from odds
+  1074→  1919→  avgGoalsPerGame: number;      // league average goals (unused — kept for interface compat)
+  1075→  1920→}
+  1076→  1921→
+  1077→  1922→export interface BTTSBothHalvesResult {
+  1078→  1923→  isBTTSBothHalves: boolean;
+  1079→  1924→  tier: BTTSBothHalvesTier;
+  1080→  1925→  score: number;
+  1081→  1926→  totalChecks: number;
+  1082→  1927→  breakdown: { check: string; passed: boolean; weight: string }[];
+  1083→  1928→  reasoning: string[];
+  1084→  1929→}
+  1085→  1930→
+  1086→  1931→/**
+  1087→  1932→ * Compute BTTS Both Halves indicator.
+  1088→  1933→ *
+  1089→  1934→ * Calibrated on 24,057 matches across 7 European leagues (10 seasons each).
+  1090→  1935→ * 1,249 BTTS-BH games (5.19% base rate).
+  1091→  1936→ *
+  1092→  1937→ * 3-check system — only signals with proven lift survive:
+  1093→  1938→ *   - O2.5 implied >= 65%: 1.38x lift (strongest single predictor)
+  1094→  1939→ *   - Draw prob < 25%:      1.21x lift (low draw = open, balanced play)
+  1095→  1940→ *   - Rolling scoring >= 3.0: 1.10x lift (recent form, independent)
+  1096→  1941→ *
+  1097→  1942→ * Tier system:
+  1098→  1943→ *   STRONG (3/3):    All signals aligned — rare, highest confidence
+  1099→  1944→ *   QUALIFIED (2/3): Core checks pass — actionable signal
+  1100→  1945→ *   BORDERLINE (1/3): One indicator only — watch list
+  1101→  1946→ *   UNLIKELY (0/3):  Insufficient evidence
+  1102→  1947→ */
+  1103→  1948→export function computeBTTSBothHalves(input: BTTSBothHalvesInput): BTTSBothHalvesResult {
+  1104→  1949→  const cfg = BTTS_BOTH_HALVES_CONFIG;
+  1105→  1950→  const reasoning: string[] = [];
+  1106→  1951→
+  1107→  1952→  const checks: { check: string; passed: boolean; weight: string }[] = [
+  1108→  1953→    // CHECK 1: O2.5 implied probability — THE strongest predictor (1.38x lift at 65%)
+  1109→  1954→    {
+  1110→  1955→      check: 'O2.5 Implied >= ' + cfg.o25Implied + '%',
+  1111→  1956→      passed: input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25Implied,
+  1112→  1957→      weight: 'CRITICAL',
+  1113→  1958→    },
+  1114→  1959→
+  1115→  1960→    // CHECK 2: Draw probability INVERTED — lower draw = better for BTTS-BH
+  1116→  1961→    // Multi-league calibration: draw < 25% gives 1.21x lift
+  1117→  1962→    {
+  1118→  1963→      check: 'Draw Prob < ' + cfg.drawProbMax + '%',
+  1119→  1964→      passed: input.drawProb < cfg.drawProbMax,
+  1120→  1965→      weight: 'HIGH',
+  1121→  1966→    },
+  1122→  1967→
+  1123→  1968→    // CHECK 3: Rolling combined scoring — both teams scoring recently
+  1124→  1969→    // 1.10x lift at 3.0, marginal but independent of bookmaker signals
+  1125→  1970→    {
+  1126→  1971→      check: 'Rolling Scoring >= ' + cfg.rollingScoring,
+  1127→  1972→      passed: input.rollingCombinedScoring >= cfg.rollingScoring,
+  1128→  1973→      weight: 'MEDIUM',
+  1129→  1974→    },
+  1130→  1975→  ];
+  1131→  1976→
+  1132→  1977→  const score = checks.filter(c => c.passed).length;
+  1133→  1978→
+  1134→  1979→  // Build reasoning
+  1135→  1980→  if (input.o25ImpliedProb !== null && input.o25ImpliedProb >= cfg.o25Implied) {
+  1136→  1981→    reasoning.push('Bookmakers imply high goal expectation (' + input.o25ImpliedProb.toFixed(0) + '% O2.5). This is the strongest BTTS-BH predictor (1.38x lift across 24K games).');
+  1137→  1982→  }
+  1138→  1983→  if (input.drawProb < cfg.drawProbMax) {
+  1139→  1984→    reasoning.push('Low draw probability (' + input.drawProb.toFixed(0) + '%) — balanced matchup favors open play over defensive draws (1.21x lift).');
+  1140→  1985→  }
+  1141→  1986→  if (input.rollingCombinedScoring >= cfg.rollingScoring) {
+  1142→  1987→    reasoning.push('Both teams showing recent scoring form (' + input.rollingCombinedScoring.toFixed(1) + ' combined goals last 5).');
+  1143→  1988→  }
+  1144→  1989→  if (reasoning.length === 0) {
+  1145→  1990→    reasoning.push('Insufficient signal alignment for BTTS in both halves. O2.5 implied probability is the primary gate.');
+  1146→  1991→  }
+  1147→  1992→
+  1148→  1993→  // Determine tier
+  1149→  1994→  let tier: BTTSBothHalvesTier;
+  1150→  1995→  if (score >= 3) {
+  1151→  1996→    tier = 'BTTS-BH STRONG';
+  1152→  1997→  } else if (score >= 2) {
+  1153→  1998→    tier = 'BTTS-BH QUALIFIED';
+  1154→  1999→  } else if (score >= 1) {
+  1155→  2000→    tier = 'BTTS-BH BORDERLINE';
+  1156→  2001→  } else {
+  1157→  2002→    tier = 'BTTS-BH UNLIKELY';
+  1158→  2003→  }
+  1159→  2004→
+  1160→  2005→  return {
+  1161→  2006→    isBTTSBothHalves: score >= cfg.requiredChecks,
+  1162→  2007→    tier,
+  1163→  2008→    score,
+  1164→  2009→    totalChecks: checks.length,
+  1165→  2010→    breakdown: checks,
+  1166→  2011→    reasoning,
+  1167→  2012→  };
+  1168→  2013→}
+  1169→  2014→

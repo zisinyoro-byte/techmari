@@ -459,7 +459,7 @@ export default function PredictionsTab({
                     else if (totalXgDiff >= 0.5) xgSignalQuick = 'Under';
                   }
 
-                  // Calculate Over 3.5 Checklist (9 auto-check criteria) using shared utility
+                  // Calculate Over 3.5 Checklist (4 proven checks) using shared utility
                   const over35ChecksQuickCount = computeOver35Checklist(bttsChecklistInput, resolved);
 
                   // Z-Score Signal - computed independently using Z-Score methodology
@@ -1101,7 +1101,7 @@ export default function PredictionsTab({
                           )}
                         </CardTitle>
                         <CardDescription>
-                          Backtest-optimized combo v2 — 7,230 + 7,110 matches (4 leagues x 5 seasons). 6 of 8 checks must pass.
+                          Lean 6-check combo — only proven predictors. 5 of 6 must pass.
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -1112,11 +1112,11 @@ export default function PredictionsTab({
                               {isGoalFest ? 'GOAL FEST DETECTED' : `${goalFestData.score}/${goalFestData.totalChecks} Checks`}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {isGoalFest ? '6 of 8 signals aligned — high-probability goal fest combo' : `Needs ${goalFestData.totalChecks > goalFestData.score ? (goalFestData.totalChecks - goalFestData.score) : 0} more check(s) for Goal Fest (${goalFestData.score}/${goalFestData.totalChecks})`}
+                              {isGoalFest ? '5 of 6 signals aligned — high-probability goal fest' : `Needs ${goalFestData.totalChecks > goalFestData.score ? (goalFestData.totalChecks - goalFestData.score) : 0} more check(s) for Goal Fest (${goalFestData.score}/${goalFestData.totalChecks})`}
                             </p>
                           </div>
 
-                          {/* Checklist - 8 items (v2) */}
+                          {/* Checklist - 6 items (lean) */}
                           <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
                             {goalFestData.breakdown.map((check, i) => (
                               <div key={i} className={`p-2 rounded-lg text-center ${check.passed ? 'bg-orange-100 dark:bg-orange-800/30 text-orange-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
@@ -1170,13 +1170,11 @@ export default function PredictionsTab({
                           </div>
 
                           <div className="p-3 rounded-lg bg-purple-100/50 dark:bg-purple-800/20 text-sm">
-                            <p className="font-semibold text-purple-700 dark:text-purple-300 mb-1">Backtest-Optimized Signal Checks:</p>
+                            <p className="font-semibold text-purple-700 dark:text-purple-300 mb-1">Lean 6-Check System:</p>
                             <ul className="text-xs text-muted-foreground space-y-1">
-                              <li>• Regression = <strong>Neutral or Under</strong> (normal variance or recently hot)</li>
-                              <li>• Z-Score = <strong>Neutral</strong> (universal goal-fest sweet spot)</li>
-                              <li>• xG = <strong>Over or Under</strong> (mild states beat extremes)</li>
-                              <li>• BTTS Checklist: <strong>6+/9</strong> + BTTS, O2.5, O3.5 probabilities</li>
-                              <li>• Updated from 7,230 + 7,110-match backtest across 4 leagues x 5 seasons</li>
+                              <li>Signal Divergence (xG vs Regression) + O2.5, BTTS, O3.5 probabilities</li>
+                              <li>O2.5 Implied + Rolling Combined Scoring</li>
+                              <li>Removed noise: xG mild (85%+ fire rate), Z-Score neutral, Regression neutral</li>
                             </ul>
                           </div>
                         </div>

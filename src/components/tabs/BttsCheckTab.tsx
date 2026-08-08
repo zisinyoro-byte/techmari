@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Target, CheckCircle, AlertTriangle, BarChart3 } from 'lucide-react'
 import type { BttsCheckTabProps } from './types'
 import { factorial } from '@/lib/utils'
-import { computeLeagueBaselines, resolveAllThresholds, getBttsDisplayThresholds } from '@/lib/betting-filters'
+import { computeLeagueBaselines, resolveAllThresholds, getBttsDisplayThresholds, O25_IMPLIED_THRESHOLDS, ROLLING_SCORING_THRESHOLDS } from '@/lib/betting-filters'
 
 export default function BttsCheckTab({
   results,
@@ -29,17 +29,18 @@ export default function BttsCheckTab({
             <CardHeader>
               <CardTitle className="text-xl flex items-center gap-2">
                 <Target className="w-6 h-6 text-purple-600" />
-                Top 10 BTTS Checklist
+                BTTS Checklist (4 Proven Checks)
               </CardTitle>
               <CardDescription>
-                Use this checklist to evaluate if a game is likely to have Both Teams To Score (BTTS)
+                Use this checklist to evaluate if a game is likely to have Both Teams To Score (BTTS).
+                Only checks with proven predictive power are included.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="p-4 bg-white/50 dark:bg-gray-800/50 rounded-lg">
                 <p className="text-sm text-muted-foreground">
-                  Check each factor below. The more checks you have, the higher the BTTS probability.
                   Based on <span className="font-bold text-foreground">{analytics.totalMatches} matches</span> from {selectedLeagueName}.
+                  Removed noise: league constants (zero match discrimination), season-average goals (stale), shot conversion (unverified).
                 </p>
               </div>
             </CardContent>
@@ -50,21 +51,18 @@ export default function BttsCheckTab({
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-green-600" />
-                BTTS Indicators Checklist
+                BTTS Indicators
               </CardTitle>
               <CardDescription>
-                Tick the boxes that apply to your match. Aim for 7+ checks for high BTTS confidence.
+                Each check below has proven lift in backtesting. The more that pass, the higher the BTTS confidence.
               </CardDescription>
             </CardHeader>
             <CardContent>
               {(() => {
-                // Compute league-adapted baselines and resolve thresholds
-                // (backtest-derived when available, hybrid fallback otherwise)
                 const baselines = computeLeagueBaselines(results, analytics);
                 const resolved = resolveAllThresholds(selectedLeague, baselines);
                 const displayT = getBttsDisplayThresholds(resolved);
 
-                // Calculate BTTS-related metrics from league data
                 const lambdaHome = analytics.avgHomeGoals
                 const lambdaAway = analytics.avgAwayGoals
                 const rho = -0.13 - ((analytics.under25Count / analytics.totalMatches) - 0.5) * 0.1
@@ -85,102 +83,59 @@ export default function BttsCheckTab({
 
                 let bttsProb = 0
                 let over25Prob = 0
-                let over15Prob = 0
                 for (let h = 0; h <= 6; h++) {
                   for (let a = 0; a <= 6; a++) {
                     const prob = dcProb(h, a)
                     if (h > 0 && a > 0) bttsProb += prob
                     if (h + a > 2.5) over25Prob += prob
-                    if (h + a > 1.5) over15Prob += prob
                   }
                 }
 
-                // Generate checklist items with dynamic values
+                // Calculate O2.5 implied probability
+                const homeOdds25 = results.filter(r => r.homeTeam && r.oddsAvgOver25)
+                  .sort((a, b) => b.date.localeCompare(a.date))[0]?.oddsAvgOver25
+                const o25ImpliedProb = homeOdds25 ? (1 / homeOdds25) * 100 : null
+
+                // Get rolling stats from prediction if available
+                const rollingStats = (prediction as any)?.rollingStats
+                const rollingCombinedScoring = rollingStats?.rollingCombinedScoring ?? (analytics.avgHomeGoals + analytics.avgAwayGoals)
+
                 const checklistItems = [
                   {
                     id: 1,
-                    label: `League Avg Goals Per Game ≥ ${displayT.leagueAvgGoals}`,
-                    description: `Current league average: ${analytics.avgGoalsPerGame.toFixed(2)} goals/game`,
-                    passing: analytics.avgGoalsPerGame >= displayT.leagueAvgGoals,
-                    value: analytics.avgGoalsPerGame.toFixed(2),
-                    threshold: `≥ ${displayT.leagueAvgGoals.toFixed(2)}`
+                    label: 'Model BTTS Probability >= ' + displayT.modelBttsProb.toFixed(0) + '%',
+                    description: 'Model predicts ' + (bttsProb * 100).toFixed(1) + '% BTTS chance',
+                    passing: bttsProb >= displayT.modelBttsProb / 100,
+                    value: (bttsProb * 100).toFixed(1) + '%',
+                    threshold: '>= ' + displayT.modelBttsProb.toFixed(0) + '%',
                   },
                   {
                     id: 2,
-                    label: `Over 2.5 Goals Rate ≥ ${displayT.leagueO25Rate}%`,
-                    description: `${analytics.over25Percent.toFixed(1)}% of league matches have 3+ goals`,
-                    passing: analytics.over25Percent >= displayT.leagueO25Rate,
-                    value: `${analytics.over25Percent.toFixed(1)}%`,
-                    threshold: `≥ ${displayT.leagueO25Rate}%`
+                    label: 'Model O2.5 Probability >= ' + displayT.modelO25Prob.toFixed(0) + '%',
+                    description: 'Model predicts ' + ((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1) + '% O2.5 chance',
+                    passing: (prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25 ?? 0) >= displayT.modelO25Prob,
+                    value: ((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1) + '%',
+                    threshold: '>= ' + displayT.modelO25Prob.toFixed(0) + '%',
                   },
                   {
                     id: 3,
-                    label: `Model BTTS Probability ≥ ${displayT.modelBttsProb.toFixed(0)}%`,
-                    description: `Model predicts ${(bttsProb * 100).toFixed(1)}% BTTS chance`,
-                    passing: bttsProb >= displayT.modelBttsProb / 100,
-                    value: `${(bttsProb * 100).toFixed(1)}%`,
-                    threshold: `≥ ${displayT.modelBttsProb.toFixed(0)}%`
+                    label: 'O2.5 Implied Probability >= ' + O25_IMPLIED_THRESHOLDS.btts + '%',
+                    description: 'Bookmaker odds imply ' + (o25ImpliedProb ? o25ImpliedProb.toFixed(1) + '% O2.5' : 'no odds available'),
+                    passing: o25ImpliedProb !== null && o25ImpliedProb >= O25_IMPLIED_THRESHOLDS.btts,
+                    value: o25ImpliedProb ? o25ImpliedProb.toFixed(1) + '%' : 'N/A',
+                    threshold: '>= ' + O25_IMPLIED_THRESHOLDS.btts + '%',
                   },
                   {
                     id: 4,
-                    label: "Both Teams Score in H2H History",
-                    description: "Check H2H tab for historical BTTS rate between these teams",
-                    passing: null, // Requires manual check
-                    value: "Manual",
-                    threshold: "≥ 50%"
+                    label: 'Rolling Combined Scoring >= ' + ROLLING_SCORING_THRESHOLDS.btts,
+                    description: 'Both teams recent scoring form: ' + rollingCombinedScoring.toFixed(1) + ' combined goals (last 5)',
+                    passing: rollingCombinedScoring >= ROLLING_SCORING_THRESHOLDS.btts,
+                    value: rollingCombinedScoring.toFixed(1),
+                    threshold: '>= ' + ROLLING_SCORING_THRESHOLDS.btts,
                   },
-                  {
-                    id: 5,
-                    label: `Home Team Avg Goals Scored ≥ ${displayT.homeAvgGoals.toFixed(2)}`,
-                    description: `League home teams avg ${analytics.avgHomeGoals.toFixed(2)} goals`,
-                    passing: analytics.avgHomeGoals >= displayT.homeAvgGoals,
-                    value: analytics.avgHomeGoals.toFixed(2),
-                    threshold: `≥ ${displayT.homeAvgGoals.toFixed(2)}`
-                  },
-                  {
-                    id: 6,
-                    label: `Away Team Avg Goals Scored ≥ ${displayT.awayAvgGoals.toFixed(2)}`,
-                    description: `League away teams avg ${analytics.avgAwayGoals.toFixed(2)} goals`,
-                    passing: analytics.avgAwayGoals >= displayT.awayAvgGoals,
-                    value: analytics.avgAwayGoals.toFixed(2),
-                    threshold: `≥ ${displayT.awayAvgGoals.toFixed(2)}`
-                  },
-                  {
-                    id: 7,
-                    label: `Model O2.5 Probability ≥ ${displayT.modelO25Prob.toFixed(0)}%`,
-                    description: `Model predicts ${((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1)}% O2.5 chance`,
-                    passing: (prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25 ?? 0) >= displayT.modelO25Prob,
-                    value: `${((prediction?.prediction?.calibrated?.over25 ?? prediction?.prediction?.over25) ?? 0).toFixed(1)}%`,
-                    threshold: `≥ ${displayT.modelO25Prob.toFixed(0)}%`
-                  },
-                  {
-                    id: 8,
-                    label: "Last H2H Was NOT 0-0",
-                    description: "Check H2H Tracker - 0-0 last meeting reduces BTTS chance",
-                    passing: null, // Requires manual check
-                    value: "Manual",
-                    threshold: "Not 0-0"
-                  },
-                  {
-                    id: 9,
-                    label: `Both Teams Have Decent Shot Conversion (≥ ${displayT.shotConversion.toFixed(0)}%)`,
-                    description: `League avg: ${analytics.overallShotConversion}% shot conversion`,
-                    passing: parseFloat(analytics.overallShotConversion) >= displayT.shotConversion,
-                    value: `${analytics.overallShotConversion}%`,
-                    threshold: `≥ ${displayT.shotConversion.toFixed(0)}%`
-                  },
-                  {
-                    id: 10,
-                    label: "Match Odds Suggest Open Game",
-                    description: "Check if O2.5 odds < 1.75 and BTTS odds < 1.80 (value indicators)",
-                    passing: null, // Requires manual check
-                    value: "Manual",
-                    threshold: "Check odds"
-                  }
                 ]
 
                 const passedCount = checklistItems.filter(item => item.passing === true).length
-                const manualCount = checklistItems.filter(item => item.passing === null).length
 
                 return (
                   <div className="space-y-4">
@@ -188,18 +143,17 @@ export default function BttsCheckTab({
                     <div className="p-4 rounded-lg bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 border border-purple-200">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-semibold text-purple-700 dark:text-purple-300">Auto-Checked Status</p>
-                          <p className="text-sm text-muted-foreground">{passedCount} of {checklistItems.length - manualCount} auto-checks passed</p>
+                          <p className="font-semibold text-purple-700 dark:text-purple-300">BTTS Checklist Status</p>
+                          <p className="text-sm text-muted-foreground">{passedCount} of {checklistItems.length} checks passed</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-3xl font-bold text-purple-600">{passedCount}/{checklistItems.length - manualCount}</p>
-                          <p className="text-xs text-muted-foreground">+ {manualCount} manual checks</p>
+                          <p className="text-3xl font-bold text-purple-600">{passedCount}/{checklistItems.length}</p>
                         </div>
                       </div>
                       <div className="mt-3 h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all ${passedCount >= 6 ? 'bg-green-500' : passedCount >= 4 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                          style={{ width: `${(passedCount / (checklistItems.length - manualCount)) * 100}%` }}
+                          className={'h-full rounded-full transition-all ' + (passedCount >= 3 ? 'bg-green-500' : passedCount >= 2 ? 'bg-yellow-500' : 'bg-red-500')}
+                          style={{ width: (passedCount / checklistItems.length) * 100 + '%' }}
                         />
                       </div>
                     </div>
@@ -209,24 +163,18 @@ export default function BttsCheckTab({
                       {checklistItems.map((item) => (
                         <div
                           key={item.id}
-                          className={`p-4 rounded-lg border-2 transition-all ${
+                          className={'p-4 rounded-lg border-2 transition-all ' + (
                             item.passing === true
                               ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700'
-                              : item.passing === false
-                              ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
-                              : 'bg-gray-50 dark:bg-gray-800/50 border-gray-300 dark:border-gray-700'
-                          }`}
+                              : 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
+                          )}
                         >
                           <div className="flex items-start gap-4">
                             <div className="flex-shrink-0 mt-1">
                               {item.passing === true ? (
                                 <CheckCircle className="w-6 h-6 text-green-600" />
-                              ) : item.passing === false ? (
-                                <AlertTriangle className="w-6 h-6 text-red-500" />
                               ) : (
-                                <div className="w-6 h-6 rounded border-2 border-gray-400 flex items-center justify-center">
-                                  <span className="text-xs text-gray-500">?</span>
-                                </div>
+                                <AlertTriangle className="w-6 h-6 text-red-500" />
                               )}
                             </div>
                             <div className="flex-1">
@@ -238,9 +186,7 @@ export default function BttsCheckTab({
                                     className={
                                       item.passing === true
                                         ? 'border-green-500 text-green-600'
-                                        : item.passing === false
-                                        ? 'border-red-500 text-red-600'
-                                        : 'border-gray-400 text-gray-500'
+                                        : 'border-red-500 text-red-600'
                                     }
                                   >
                                     {item.value}
@@ -256,42 +202,28 @@ export default function BttsCheckTab({
                     </div>
 
                     {/* Final Recommendation */}
-                    <div className={`p-6 rounded-xl border-2 ${
-                      passedCount >= 6
+                    <div className={'p-6 rounded-xl border-2 ' + (
+                      passedCount >= 3
                         ? 'bg-gradient-to-r from-green-100 to-emerald-100 border-green-400 dark:from-green-900/30 dark:to-emerald-900/30'
-                        : passedCount >= 4
+                        : passedCount >= 2
                         ? 'bg-gradient-to-r from-yellow-100 to-amber-100 border-yellow-400 dark:from-yellow-900/30 dark:to-amber-900/30'
                         : 'bg-gradient-to-r from-red-100 to-orange-100 border-red-400 dark:from-red-900/30 dark:to-orange-900/30'
-                    }`}>
+                    )}>
                       <div className="text-center">
                         <p className="font-bold text-lg mb-2">
-                          {passedCount >= 6
-                            ? '✅ HIGH BTTS CONFIDENCE'
-                            : passedCount >= 4
-                            ? '⚠️ MODERATE BTTS CONFIDENCE'
-                            : '❌ LOW BTTS CONFIDENCE'}
+                          {passedCount >= 3
+                            ? 'HIGH BTTS CONFIDENCE'
+                            : passedCount >= 2
+                            ? 'MODERATE BTTS CONFIDENCE'
+                            : 'LOW BTTS CONFIDENCE'}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {passedCount >= 6
+                          {passedCount >= 3
                             ? 'Strong indicators suggest BTTS is likely. Consider this a solid betting opportunity.'
-                            : passedCount >= 4
-                            ? 'Mixed signals. Check the manual items and team-specific form before deciding.'
+                            : passedCount >= 2
+                            ? 'Mixed signals. Check team-specific form before deciding.'
                             : 'Most indicators are negative. BTTS may not be the best choice for this match.'}
                         </p>
-                        <div className="mt-4 flex justify-center gap-4 text-xs">
-                          <div className="flex items-center gap-1">
-                            <div className="w-3 h-3 rounded-full bg-green-500" />
-                            <span>Pass</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <div className="w-3 h-3 rounded-full bg-red-500" />
-                            <span>Fail</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <div className="w-3 h-3 rounded-full bg-gray-400" />
-                            <span>Manual</span>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -300,7 +232,7 @@ export default function BttsCheckTab({
             </CardContent>
           </Card>
 
-          {/* Quick Stats for BTTS */}
+          {/* Quick Stats */}
           <Card className="shadow-md">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
