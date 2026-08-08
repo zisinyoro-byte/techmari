@@ -911,8 +911,8 @@ export default function ModelsTab({
                             ]
 
                             // Format check lists for export - matching display exactly
-                            const bttsChecklistExport = `${bttsChecks.length} of 9`;
-                            const over35ChecklistExport = `${over35Checks.length} of 9`;
+                            const bttsChecklistExport = `${bttsChecks.length} of 5`;
+                            const over35ChecklistExport = `${over35Checks.length} of 4`;
                             
                             const row = [
                               `"${selectedLeague}"`,
