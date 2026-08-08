@@ -985,6 +985,11 @@ export function deriveThresholdsFromBacktest(
 /**
  * Derive thresholds from backtest data using a simpler approach when model
  * predictions are not available — uses league averages as the predictor.
+ *
+ * Lean version: only derives the 2-field BTTS + 2-field O3.5 + StrongBet +
+ * GreyResult thresholds that match the current interface. All league-level
+ * constants (avg goals, O2.5 rate) and season-average goals/shot conversion
+ * checks were removed as noise.
  */
 export function deriveSimpleThresholdsFromBacktest(
   leagueName: string,
@@ -996,57 +1001,17 @@ export function deriveSimpleThresholdsFromBacktest(
 
   if (matches.length < minSampleSize) return null;
 
-  // Simple derivation: find the league-average-based thresholds that best
-  // separate BTTS from non-BTTS and O3.5 from non-O3.5 matches.
-  // This uses the Dixon-Coles probability approach: given league averages,
-  // the Poisson BTTS probability is already a strong predictor.
-
-  const bttsMatches = matches.filter(m => m.ftHomeGoals > 0 && m.ftAwayGoals > 0);
-  const over35Matches = matches.filter(m => m.ftHomeGoals + m.ftAwayGoals > 3.5);
-
-  // Derive BTTS probability threshold from league BTTS rate
-  // A match is "above average" if its BTTS prob > league BTTS rate
-  // Find the multiplier that gives best accuracy
-  let bestBttsMult = BTTS_HYBRID_THRESHOLDS.modelBttsProb.multiplier;
-  let bestBttsAcc = 0;
-  for (let mult = 1.0; mult <= 1.3; mult += 0.01) {
-    const threshold = Math.max(BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor, currentBaselines.bttsRate * mult);
-    const aboveCount = bttsMatches.filter(() => currentBaselines.bttsRate >= threshold).length;
-    // All BTTS matches have BTTS prob ~= league rate, so check hit rate
-    // For simple derivation, use the rate-based threshold directly
-    const estimatedAccuracy = bttsMatches.length > 0
-      ? bttsMatches.filter(() => currentBaselines.bttsRate >= threshold).length / Math.max(matches.length, 1)
-      : 0;
-    if (estimatedAccuracy > bestBttsAcc) {
-      bestBttsAcc = estimatedAccuracy;
-      bestBttsMult = mult;
-    }
-  }
-
   // For simple derivation without per-match predictions, use the hybrid formula
-  // with the derived multiplier, falling back to defaults.
-  const bttsFloor = BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor;
-  const bttsRate = currentBaselines.bttsRate;
-
+  // with default multipliers, matching the lean 2-field interfaces.
   return {
     leagueName,
-    bttsLeagueAvgGoals: BTTS_LEAGUE_THRESHOLDS.leagueAvgGoals,
-    bttsLeagueO25Rate: BTTS_LEAGUE_THRESHOLDS.leagueO25Rate,
-    o35LeagueAvgGoals: OVER35_LEAGUE_THRESHOLDS.leagueAvgGoals,
-    o35LeagueO25Rate: OVER35_LEAGUE_THRESHOLDS.leagueO25Rate,
     btts: {
-      modelBttsProb: Math.max(bttsFloor, bttsRate * bestBttsMult),
-      homeAvgGoals: Math.max(BTTS_HYBRID_THRESHOLDS.homeAvgGoals.floor, currentBaselines.avgHomeGoals * BTTS_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
-      awayAvgGoals: Math.max(BTTS_HYBRID_THRESHOLDS.awayAvgGoals.floor, currentBaselines.avgAwayGoals * BTTS_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
+      modelBttsProb: Math.max(BTTS_HYBRID_THRESHOLDS.modelBttsProb.floor, currentBaselines.bttsRate * BTTS_HYBRID_THRESHOLDS.modelBttsProb.multiplier),
       modelO25Prob: Math.max(BTTS_HYBRID_THRESHOLDS.modelO25Prob.floor, currentBaselines.over25Rate * BTTS_HYBRID_THRESHOLDS.modelO25Prob.multiplier),
-      shotConversion: Math.max(BTTS_HYBRID_THRESHOLDS.shotConversion.floor, currentBaselines.shotConversion * BTTS_HYBRID_THRESHOLDS.shotConversion.multiplier),
     },
     over35: {
       modelO35Prob: Math.max(OVER35_HYBRID_THRESHOLDS.modelO35Prob.floor, currentBaselines.over35Rate * OVER35_HYBRID_THRESHOLDS.modelO35Prob.multiplier),
       bttsProb: Math.max(OVER35_HYBRID_THRESHOLDS.bttsProb.floor, currentBaselines.bttsRate * OVER35_HYBRID_THRESHOLDS.bttsProb.multiplier),
-      homeAvgGoals: Math.max(OVER35_HYBRID_THRESHOLDS.homeAvgGoals.floor, currentBaselines.avgHomeGoals * OVER35_HYBRID_THRESHOLDS.homeAvgGoals.multiplier),
-      awayAvgGoals: Math.max(OVER35_HYBRID_THRESHOLDS.awayAvgGoals.floor, currentBaselines.avgAwayGoals * OVER35_HYBRID_THRESHOLDS.awayAvgGoals.multiplier),
-      shotConversion: Math.max(OVER35_HYBRID_THRESHOLDS.shotConversion.floor, currentBaselines.shotConversion * OVER35_HYBRID_THRESHOLDS.shotConversion.multiplier),
     },
     strongBet: {
       o25Prob: Math.max(STRONG_BET_HYBRID.o25Prob.floor, currentBaselines.over25Rate * STRONG_BET_HYBRID.o25Prob.multiplier),
