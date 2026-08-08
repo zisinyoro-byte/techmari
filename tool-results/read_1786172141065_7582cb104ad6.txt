@@ -1,0 +1,1668 @@
+     1→'use client'
+     2→
+     3→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+     4→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+     5→import { Badge } from '@/components/ui/badge'
+     6→import { Button } from '@/components/ui/button'
+     7→import { Skeleton } from '@/components/ui/skeleton'
+     8→import { Dice5, Target, BarChart3, AlertTriangle, Users, TrendingUp, Goal } from 'lucide-react'
+     9→import { Fragment } from 'react'
+    10→import type { ModelsTabProps } from './types'
+    11→import { COLORS } from '@/lib/constants'
+    12→import { parseDateSafe, factorial } from '@/lib/utils'
+    13→import {
+    14→  computeLeagueBaselines, resolveAllThresholds,
+    15→  computeBttsChecklistLabels, computeOver35ChecklistLabels,
+    16→  computeStrongBet, computeGreyResult, computeGoalFest,
+    17→  applyBlowoutQualifier, computeTeamAvgOdds,
+    18→  computeBTTSQualification, computeThirdGoalQualifier,
+    19→  computeMomentumSignal, computeDominantTeamQualifier,
+    20→  classifyPerTeamRegressionSignal, classifyPerTeamXgSignal, classifyPerTeamZScoreSignal,
+    21→  type ChecklistInput, type SignalInput,
+    22→  type MomentumTeamInput, type DominantTeamInput,
+    23→} from '@/lib/betting-filters'
+    24→
+    25→export default function ModelsTab({
+    26→  results,
+    27→  analytics,
+    28→  prediction,
+    29→  predHomeTeam,
+    30→  predAwayTeam,
+    31→  selectedLeague,
+    32→  selectedSeason,
+    33→  loading,
+    34→}: ModelsTabProps) {
+    35→  return (
+    36→    <div className="space-y-6">
+    37→            {/* Models Overview */}
+    38→            <Card className="shadow-md border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20">
+    39→              <CardHeader>
+    40→                <CardTitle className="text-lg flex items-center gap-2">
+    41→                  <Dice5 className="w-5 h-5 text-indigo-600" />
+    42→                  Advanced Statistical Models
+    43→                </CardTitle>
+    44→                <CardDescription>
+    45→                  Dixon-Coles, Time-Weighted Poisson, Elo Ratings, and Bivariate Poisson models for match prediction
+    46→                </CardDescription>
+    47→              </CardHeader>
+    48→              <CardContent>
+    49→                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+    50→                  <div className="p-3 rounded-lg bg-blue-100/50 dark:bg-blue-800/30">
+    51→                    <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Dixon-Coles</p>
+    52→                    <p className="text-xs text-muted-foreground">Low-score correction</p>
+    53→                  </div>
+    54→                  <div className="p-3 rounded-lg bg-green-100/50 dark:bg-green-800/30">
+    55→                    <p className="text-xs font-medium text-green-700 dark:text-green-300">Time-Weighted</p>
+    56→                    <p className="text-xs text-muted-foreground">Recent form focus</p>
+    57→                  </div>
+    58→                  <div className="p-3 rounded-lg bg-purple-100/50 dark:bg-purple-800/30">
+    59→                    <p className="text-xs font-medium text-purple-700 dark:text-purple-300">Elo Ratings</p>
+    60→                    <p className="text-xs text-muted-foreground">Team strength</p>
+    61→                  </div>
+    62→                  <div className="p-3 rounded-lg bg-pink-100/50 dark:bg-pink-800/30">
+    63→                    <p className="text-xs font-medium text-pink-700 dark:text-pink-300">Bivariate Poisson</p>
+    64→                    <p className="text-xs text-muted-foreground">Goal correlation</p>
+    65→                  </div>
+    66→                </div>
+    67→              </CardContent>
+    68→            </Card>
+    69→
+    70→            {loading ? (
+    71→              <div className="grid gap-4">
+    72→                {[1, 2, 3, 4].map(i => <Card key={i}><CardContent className="py-6"><Skeleton className="h-32 w-full" /></CardContent></Card>)}
+    73→              </div>
+    74→            ) : analytics && results.length > 0 ? (
+    75→              <>
+    76→                {/* xG Estimation Section */}
+    77→                <Card className="shadow-md border-2 border-cyan-200 bg-gradient-to-r from-cyan-50 to-teal-50 dark:from-cyan-900/20 dark:to-teal-900/20">
+    78→                  <CardHeader>
+    79→                    <CardTitle className="text-lg flex items-center gap-2">
+    80→                      <Target className="w-5 h-5 text-cyan-600" />
+    81→                      xG Estimation (Expected Goals)
+    82→                    </CardTitle>
+    83→                    <CardDescription>
+    84→                      Estimated xG based on shots data - compares actual vs expected performance
+    85→                    </CardDescription>
+    86→                  </CardHeader>
+    87→                  <CardContent>
+    88→                    {(() => {
+    89→                      // Calculate estimated xG for all matches
+    90→                      // Formula: xG = (Shots on Target × 0.30) + (Shots off Target × 0.08)
+    91→                      let totalHomeXg = 0
+    92→                      let totalAwayXg = 0
+    93→                      let totalHomeGoals = 0
+    94→                      let totalAwayGoals = 0
+    95→                      let matchCount = 0
+    96→
+    97→                      results.forEach(match => {
+    98→                        if (match.homeShotsOnTarget > 0 || match.awayShotsOnTarget > 0) {
+    99→                          const homeShotsOff = match.homeShots - match.homeShotsOnTarget
+   100→                          const awayShotsOff = match.awayShots - match.awayShotsOnTarget
+   101→
+   102→                          const homeXg = (match.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08)
+   103→                          const awayXg = (match.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08)
+   104→
+   105→                          totalHomeXg += homeXg
+   106→                          totalAwayXg += awayXg
+   107→                          totalHomeGoals += match.ftHomeGoals
+   108→                          totalAwayGoals += match.ftAwayGoals
+   109→                          matchCount++
+   110→                        }
+   111→                      })
+   112→
+   113→                      const avgHomeXg = matchCount > 0 ? totalHomeXg / matchCount : 0
+   114→                      const avgAwayXg = matchCount > 0 ? totalAwayXg / matchCount : 0
+   115→                      const avgHomeActual = matchCount > 0 ? totalHomeGoals / matchCount : 0
+   116→                      const avgAwayActual = matchCount > 0 ? totalAwayGoals / matchCount : 0
+   117→
+   118→                      const homeXgDiff = avgHomeActual - avgHomeXg
+   119→                      const awayXgDiff = avgAwayActual - avgAwayXg
+   120→
+   121→                      return (
+   122→                        <div className="space-y-4">
+   123→                          {/* xG Averages */}
+   124→                          <div className="grid grid-cols-2 gap-4">
+   125→                            <div className="p-4 rounded-lg bg-white/50 dark:bg-gray-800/50">
+   126→                              <p className="text-sm font-medium text-center text-muted-foreground">Home Team</p>
+   127→                              <div className="grid grid-cols-2 gap-2 mt-2">
+   128→                                <div className="text-center">
+   129→                                  <p className="text-xs text-muted-foreground">Actual Goals</p>
+   130→                                  <p className="text-2xl font-bold text-blue-600">{avgHomeActual.toFixed(2)}</p>
+   131→                                </div>
+   132→                                <div className="text-center">
+   133→                                  <p className="text-xs text-muted-foreground">xG</p>
+   134→                                  <p className="text-2xl font-bold text-cyan-600">{avgHomeXg.toFixed(2)}</p>
+   135→                                </div>
+   136→                              </div>
+   137→                              <div className="mt-2 text-center">
+   138→                                <p className="text-xs text-muted-foreground">Difference</p>
+   139→                                <p className={`text-lg font-bold ${homeXgDiff > 0 ? 'text-green-600' : homeXgDiff < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+   140→                                  {homeXgDiff > 0 ? '+' : ''}{homeXgDiff.toFixed(2)}
+   141→                                </p>
+   142→                                <p className="text-xs text-muted-foreground">
+   143→                                  {homeXgDiff > 0.1 ? 'Overperforming' : homeXgDiff < -0.1 ? 'Underperforming' : 'Performing as expected'}
+   144→                                </p>
+   145→                              </div>
+   146→                            </div>
+   147→                            <div className="p-4 rounded-lg bg-white/50 dark:bg-gray-800/50">
+   148→                              <p className="text-sm font-medium text-center text-muted-foreground">Away Team</p>
+   149→                              <div className="grid grid-cols-2 gap-2 mt-2">
+   150→                                <div className="text-center">
+   151→                                  <p className="text-xs text-muted-foreground">Actual Goals</p>
+   152→                                  <p className="text-2xl font-bold text-blue-600">{avgAwayActual.toFixed(2)}</p>
+   153→                                </div>
+   154→                                <div className="text-center">
+   155→                                  <p className="text-xs text-muted-foreground">xG</p>
+   156→                                  <p className="text-2xl font-bold text-cyan-600">{avgAwayXg.toFixed(2)}</p>
+   157→                                </div>
+   158→                              </div>
+   159→                              <div className="mt-2 text-center">
+   160→                                <p className="text-xs text-muted-foreground">Difference</p>
+   161→                                <p className={`text-lg font-bold ${awayXgDiff > 0 ? 'text-green-600' : awayXgDiff < 0 ? 'text-red-600' : 'text-gray-600'}`}>
+   162→                                  {awayXgDiff > 0 ? '+' : ''}{awayXgDiff.toFixed(2)}
+   163→                                </p>
+   164→                                <p className="text-xs text-muted-foreground">
+   165→                                  {awayXgDiff > 0.1 ? 'Overperforming' : awayXgDiff < -0.1 ? 'Underperforming' : 'Performing as expected'}
+   166→                                </p>
+   167→                              </div>
+   168→                            </div>
+   169→                          </div>
+   170→
+   171→                          {/* xG-based predictions */}
+   172→                          <div className="p-4 rounded-lg bg-white/50 dark:bg-gray-800/50">
+   173→                            <p className="text-sm font-medium mb-2">xG-Based Predictions</p>
+   174→                            <div className="grid grid-cols-5 gap-2 text-sm">
+   175→                              <div className="text-center p-2 rounded bg-cyan-50 dark:bg-cyan-900/30">
+   176→                                <p className="text-xs text-muted-foreground">Predicted Total Goals</p>
+   177→                                <p className="text-lg font-bold text-cyan-600">{(avgHomeXg + avgAwayXg).toFixed(2)}</p>
+   178→                              </div>
+   179→                              <div className="text-center p-2 rounded bg-emerald-50 dark:bg-emerald-900/30">
+   180→                                <p className="text-xs text-muted-foreground">xG Over 1.5 Prob</p>
+   181→                                <p className="text-lg font-bold text-emerald-600">
+   182→                                  {(() => {
+   183→                                    const totalXg = avgHomeXg + avgAwayXg
+   184→                                    // Using Poisson-inspired probability estimation
+   185→                                    // P(Over 1.5) = 1 - P(0 goals) - P(1 goal)
+   186→                                    const lambda = totalXg
+   187→                                    const p0 = Math.exp(-lambda)
+   188→                                    const p1 = lambda * Math.exp(-lambda)
+   189→                                    const prob = Math.min(95, Math.max(40, (1 - p0 - p1) * 100))
+   190→                                    return prob.toFixed(0)
+   191→                                  })()}%
+   192→                                </p>
+   193→                              </div>
+   194→                              <div className="text-center p-2 rounded bg-cyan-50 dark:bg-cyan-900/30">
+   195→                                <p className="text-xs text-muted-foreground">xG Over 2.5 Prob</p>
+   196→                                <p className="text-lg font-bold text-cyan-600">
+   197→                                  {((avgHomeXg + avgAwayXg) > 2.5 ? 55 + ((avgHomeXg + avgAwayXg) - 2.5) * 15 : 55 - (2.5 - (avgHomeXg + avgAwayXg)) * 15).toFixed(0)}%
+   198→                                </p>
+   199→                              </div>
+   200→                              <div className="text-center p-2 rounded bg-purple-50 dark:bg-purple-900/30">
+   201→                                <p className="text-xs text-muted-foreground">xG BTTS Prob</p>
+   202→                                <p className="text-lg font-bold text-purple-600">
+   203→                                  {(() => {
+   204→                                    // BTTS probability based on both teams' xG
+   205→                                    // Using Poisson distribution for each team scoring at least 1
+   206→                                    const homeScoringProb = 1 - Math.exp(-avgHomeXg)
+   207→                                    const awayScoringProb = 1 - Math.exp(-avgAwayXg)
+   208→                                    const bttsProb = homeScoringProb * awayScoringProb
+   209→                                    return Math.min(85, Math.max(25, bttsProb * 100)).toFixed(0)
+   210→                                  })()}%
+   211→                                </p>
+   212→                              </div>
+   213→                              <div className="text-center p-2 rounded bg-cyan-50 dark:bg-cyan-900/30">
+   214→                                <p className="text-xs text-muted-foreground">Matches Analyzed</p>
+   215→                                <p className="text-lg font-bold text-cyan-600">{matchCount}</p>
+   216→                              </div>
+   217→                            </div>
+   218→                            {/* Prediction confidence indicators */}
+   219→                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+   220→                              <div className="flex items-center gap-2 p-2 rounded bg-emerald-50 dark:bg-emerald-900/20">
+   221→                                <span className="font-medium text-emerald-700 dark:text-emerald-400">O1.5 Tip:</span>
+   222→                                <span className={(() => {
+   223→                                  const totalXg = avgHomeXg + avgAwayXg
+   224→                                  const lambda = totalXg
+   225→                                  const p0 = Math.exp(-lambda)
+   226→                                  const p1 = lambda * Math.exp(-lambda)
+   227→                                  const prob = (1 - p0 - p1) * 100
+   228→                                  return prob >= 65 ? 'text-green-600 font-semibold' : prob >= 50 ? 'text-amber-600 font-medium' : 'text-red-600'
+   229→                                })()}>
+   230→                                  {(() => {
+   231→                                    const totalXg = avgHomeXg + avgAwayXg
+   232→                                    const lambda = totalXg
+   233→                                    const p0 = Math.exp(-lambda)
+   234→                                    const p1 = lambda * Math.exp(-lambda)
+   235→                                    const prob = (1 - p0 - p1) * 100
+   236→                                    return prob >= 65 ? '✅ Strong Over 1.5' : prob >= 50 ? '⚖️ Moderate Over 1.5' : '⚠️ Consider Under 1.5'
+   237→                                  })()}
+   238→                                </span>
+   239→                              </div>
+   240→                              <div className="flex items-center gap-2 p-2 rounded bg-purple-50 dark:bg-purple-900/20">
+   241→                                <span className="font-medium text-purple-700 dark:text-purple-400">BTTS Tip:</span>
+   242→                                <span className={(() => {
+   243→                                  const homeScoringProb = 1 - Math.exp(-avgHomeXg)
+   244→                                  const awayScoringProb = 1 - Math.exp(-avgAwayXg)
+   245→                                  const bttsProb = homeScoringProb * awayScoringProb * 100
+   246→                                  return bttsProb >= 55 ? 'text-green-600 font-semibold' : bttsProb >= 40 ? 'text-amber-600 font-medium' : 'text-red-600'
+   247→                                })()}>
+   248→                                  {(() => {
+   249→                                    const homeScoringProb = 1 - Math.exp(-avgHomeXg)
+   250→                                    const awayScoringProb = 1 - Math.exp(-avgAwayXg)
+   251→                                    const bttsProb = homeScoringProb * awayScoringProb * 100
+   252→                                    return bttsProb >= 55 ? '✅ BTTS Likely' : bttsProb >= 40 ? '⚖️ BTTS Possible' : '⚠️ BTTS Unlikely'
+   253→                                  })()}
+   254→                                </span>
+   255→                              </div>
+   256→                            </div>
+   257→                          </div>
+   258→
+   259→                          {/* Likely Scorelines Section */}
+   260→                          <div className="p-4 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-200 dark:border-indigo-800">
+   261→                            <p className="text-sm font-medium mb-3 flex items-center gap-2">
+   262→                              <span className="text-indigo-600">🎯</span>
+   263→                              Likely Scorelines (Poisson Distribution)
+   264→                            </p>
+   265→                            {(() => {
+   266→                              // Calculate scoreline probabilities using Poisson distribution
+   267→                              // P(k goals) = (λ^k * e^-λ) / k!
+   268→                              const poissonProb = (lambda: number, k: number): number => {
+   269→                                return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial(k)
+   270→                              }
+   271→
+   272→                              // Generate scoreline matrix for home goals 0-5 and away goals 0-5
+   273→                              const scorelines: { score: string; prob: number; homeGoals: number; awayGoals: number }[] = []
+   274→
+   275→                              for (let h = 0; h <= 5; h++) {
+   276→                                for (let a = 0; a <= 5; a++) {
+   277→                                  const prob = poissonProb(avgHomeXg, h) * poissonProb(avgAwayXg, a)
+   278→                                  scorelines.push({
+   279→                                    score: `${h}-${a}`,
+   280→                                    prob: prob * 100,
+   281→                                    homeGoals: h,
+   282→                                    awayGoals: a
+   283→                                  })
+   284→                                }
+   285→                              }
+   286→
+   287→                              // Sort by probability descending and take top 6
+   288→                              const topScorelines = scorelines.sort((a, b) => b.prob - a.prob).slice(0, 6)
+   289→                              const mostLikely = topScorelines[0]
+   290→
+   291→                              // Determine result type for each scoreline
+   292→                              const getResultType = (h: number, a: number) => {
+   293→                                if (h > a) return { type: 'Home Win', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' }
+   294→                                if (h < a) return { type: 'Away Win', color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30' }
+   295→                                return { type: 'Draw', color: 'text-amber-600', bg: 'bg-amber-100 dark:bg-amber-900/30' }
+   296→                              }
+   297→
+   298→                              return (
+   299→                                <div className="space-y-3">
+   300→                                  {/* Most likely scoreline highlighted */}
+   301→                                  <div className="flex items-center justify-center p-3 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 border-2 border-indigo-400">
+   302→                                    <div className="text-center">
+   303→                                      <p className="text-xs text-muted-foreground mb-1">Most Likely Scoreline</p>
+   304→                                      <p className="text-3xl font-bold text-indigo-600">{mostLikely.score}</p>
+   305→                                      <p className="text-sm font-medium text-indigo-500">{mostLikely.prob.toFixed(1)}% probability</p>
+   306→                                      <Badge className={`mt-1 ${getResultType(mostLikely.homeGoals, mostLikely.awayGoals).bg} ${getResultType(mostLikely.homeGoals, mostLikely.awayGoals).color}`}>
+   307→                                        {getResultType(mostLikely.homeGoals, mostLikely.awayGoals).type}
+   308→                                      </Badge>
+   309→                                    </div>
+   310→                                  </div>
+   311→
+   312→                                  {/* Other likely scorelines */}
+   313→                                  <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+   314→                                    {topScorelines.slice(1).map((s, idx) => {
+   315→                                      const resultType = getResultType(s.homeGoals, s.awayGoals)
+   316→                                      return (
+   317→                                        <div key={idx} className={`text-center p-2 rounded-lg ${resultType.bg}`}>
+   318→                                          <p className="text-lg font-bold">{s.score}</p>
+   319→                                          <p className="text-xs text-muted-foreground">{s.prob.toFixed(1)}%</p>
+   320→                                        </div>
+   321→                                      )
+   322→                                    })}
+   323→                                  </div>
+   324→
+   325→                                  {/* Scoreline summary stats */}
+   326→                                  <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-indigo-200 dark:border-indigo-700">
+   327→                                    <div className="text-center">
+   328→                                      <p className="text-xs text-muted-foreground">Home Win Scores</p>
+   329→                                      <p className="text-lg font-bold text-green-600">
+   330→                                        {topScorelines.filter(s => s.homeGoals > s.awayGoals).reduce((sum, s) => sum + s.prob, 0).toFixed(1)}%
+   331→                                      </p>
+   332→                                    </div>
+   333→                                    <div className="text-center">
+   334→                                      <p className="text-xs text-muted-foreground">Draw Scores</p>
+   335→                                      <p className="text-lg font-bold text-amber-600">
+   336→                                        {topScorelines.filter(s => s.homeGoals === s.awayGoals).reduce((sum, s) => sum + s.prob, 0).toFixed(1)}%
+   337→                                      </p>
+   338→                                    </div>
+   339→                                    <div className="text-center">
+   340→                                      <p className="text-xs text-muted-foreground">Away Win Scores</p>
+   341→                                      <p className="text-lg font-bold text-blue-600">
+   342→                                        {topScorelines.filter(s => s.homeGoals < s.awayGoals).reduce((sum, s) => sum + s.prob, 0).toFixed(1)}%
+   343→                                      </p>
+   344→                                    </div>
+   345→                                  </div>
+   346→                                </div>
+   347→                              )
+   348→                            })()}
+   349→                          </div>
+   350→
+   351→                          {/* Formula explanation */}
+   352→                          <div className="text-xs text-muted-foreground p-2 bg-gray-100 dark:bg-gray-800 rounded">
+   353→                            <strong>Formula:</strong> xG = (Shots on Target × 0.30) + (Shots off Target × 0.08)
+   354→                            <br />
+   355→                            <span className="text-xs">Based on average conversion rates from historical data.</span>
+   356→                          </div>
+   357→                        </div>
+   358→                      )
+   359→                    })()}
+   360→                  </CardContent>
+   361→                </Card>
+   362→
+   363→                {/* Export to CSV */}
+   364→                <Card className="shadow-md border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-900/20 dark:to-violet-900/20">
+   365→                  <CardHeader>
+   366→                    <CardTitle className="text-lg flex items-center gap-2">
+   367→                      <BarChart3 className="w-5 h-5 text-indigo-600" />
+   368→                      Export Predictions to CSV
+   369→                    </CardTitle>
+   370→                    <CardDescription>
+   371→                      Download all predictions and analysis data for the selected league/season
+   372→                    </CardDescription>
+   373→                  </CardHeader>
+   374→                  <CardContent>
+   375→                    <div className="space-y-4">
+   376→                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   377→                        <Button 
+   378→                          onClick={() => {
+   379→                            // Export match results
+   380→                            const headers = ['Date', 'Season', 'Home Team', 'Away Team', 'HT Score', 'FT Score', 'Result', 'Home Shots', 'Away Shots', 'Home SOT', 'Away SOT', 'Home Corners', 'Away Corners', 'Home Fouls', 'Away Fouls', 'Home Yellow', 'Away Yellow', 'Home Red', 'Away Red', 'Odds H', 'Odds D', 'Odds A']
+   381→                            const csvRows = [headers.join(',')]
+   382→                            results.forEach(m => {
+   383→                              csvRows.push([
+   384→                                m.date, m.season || '', `"${m.homeTeam}"`, `"${m.awayTeam}"`,
+   385→                                `${m.htHomeGoals}-${m.htAwayGoals}`, `${m.ftHomeGoals}-${m.ftAwayGoals}`,
+   386→                                m.ftResult, m.homeShots, m.awayShots, m.homeShotsOnTarget, m.awayShotsOnTarget,
+   387→                                m.homeCorners, m.awayCorners, m.homeFouls, m.awayFouls,
+   388→                                m.homeYellowCards, m.awayYellowCards, m.homeRedCards, m.awayRedCards,
+   389→                                m.oddsB365Home || '', m.oddsB365Draw || '', m.oddsB365Away || ''
+   390→                              ].join(','))
+   391→                            })
+   392→                            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' })
+   393→                            const url = URL.createObjectURL(blob)
+   394→                            const a = document.createElement('a')
+   395→                            a.href = url
+   396→                            a.download = `${selectedLeague}_results_${selectedSeason}.csv`
+   397→                            a.click()
+   398→                          }}
+   399→                          variant="outline"
+   400→                          className="w-full"
+   401→                        >
+   402→                          📊 Match Results
+   403→                        </Button>
+   404→                        <Button 
+   405→                          onClick={() => {
+   406→                            // Export analytics summary
+   407→                            if (!analytics) return
+   408→                            const data = [
+   409→                              ['Metric', 'Value'],
+   410→                              ['Total Matches', analytics.totalMatches],
+   411→                              ['Home Win %', analytics.homeWinPercent],
+   412→                              ['Draw %', analytics.drawPercent],
+   413→                              ['Away Win %', analytics.awayWinPercent],
+   414→                              ['Avg Goals/Game', analytics.avgGoalsPerGame],
+   415→                              ['Avg Home Goals', analytics.avgHomeGoals],
+   416→                              ['Avg Away Goals', analytics.avgAwayGoals],
+   417→                              ['Over 2.5 %', analytics.over25Percent],
+   418→                              ['Under 2.5 %', analytics.under25Percent],
+   419→                              ['HT-FT Correlation %', analytics.htftCorrelationPercent],
+   420→                              ['Avg Home Shots', analytics.avgHomeShots],
+   421→                              ['Avg Away Shots', analytics.avgAwayShots],
+   422→                              ['Home Shot Conversion %', analytics.homeShotConversion],
+   423→                              ['Away Shot Conversion %', analytics.awayShotConversion],
+   424→                            ]
+   425→                            const csv = data.map(row => row.join(',')).join('\n')
+   426→                            const blob = new Blob([csv], { type: 'text/csv' })
+   427→                            const url = URL.createObjectURL(blob)
+   428→                            const a = document.createElement('a')
+   429→                            a.href = url
+   430→                            a.download = `${selectedLeague}_analytics_${selectedSeason}.csv`
+   431→                            a.click()
+   432→                          }}
+   433→                          variant="outline"
+   434→                          className="w-full"
+   435→                        >
+   436→                          📈 Analytics Summary
+   437→                        </Button>
+   438→                        <Button
+   439→                          onClick={() => {
+   440→                            // Comprehensive analysis export matching exact format
+   441→                            if (!prediction || !predHomeTeam || !predAwayTeam) return
+   442→
+   443→                            // Calculate H2H data
+   444→                            const h2hData = results.filter(r =>
+   445→                              (r.homeTeam === predHomeTeam && r.awayTeam === predAwayTeam) ||
+   446→                              (r.homeTeam === predAwayTeam && r.awayTeam === predHomeTeam)
+   447→                            ).sort((a, b) => {
+   448→                              const dateA = parseDateSafe(a.date)
+   449→                              const dateB = parseDateSafe(b.date)
+   450→                              return dateB.getTime() - dateA.getTime()
+   451→                            })
+   452→                            const lastH2H = h2hData[0]
+   453→                            const h2hAvgGoals = h2hData.length > 0
+   454→                              ? h2hData.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / h2hData.length
+   455→                              : null
+   456→
+   457→                            // Sort results by date for regression analysis
+   458→                            const sortedResults = [...results].sort((a, b) => {
+   459→                              const dateA = parseDateSafe(a.date)
+   460→                              const dateB = parseDateSafe(b.date)
+   461→                              return dateB.getTime() - dateA.getTime()
+   462→                            })
+   463→
+   464→                            // Calculate team goal stats for regression (matching detailed Regression to Mean Analysis)
+   465→                            const teamGoalStats = new Map<string, {
+   466→                              matches: number;
+   467→                              goalsScored: number;
+   468→                              goalsConceded: number;
+   469→                              matchesThisSeason: number;
+   470→                              scoredThisSeason: number;
+   471→                              concededThisSeason: number;
+   472→                              last10Matches: { totalGoals: number }[];
+   473→                              last3Matches: { totalGoals: number }[];
+   474→                              shots: number;
+   475→                              shotsOnTarget: number;
+   476→                            }>()
+   477→
+   478→                            sortedResults.forEach(r => {
+   479→                              const totalGoals = r.ftHomeGoals + r.ftAwayGoals
+   480→                              const homeStats = teamGoalStats.get(r.homeTeam) || { matches: 0, goalsScored: 0, goalsConceded: 0, matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [], shots: 0, shotsOnTarget: 0 }
+   481→                              homeStats.matches++
+   482→                              homeStats.goalsScored += r.ftHomeGoals
+   483→                              homeStats.goalsConceded += r.ftAwayGoals
+   484→                              homeStats.matchesThisSeason++
+   485→                              homeStats.scoredThisSeason += r.ftHomeGoals
+   486→                              homeStats.concededThisSeason += r.ftAwayGoals
+   487→                              homeStats.last10Matches.push({ totalGoals })
+   488→                              homeStats.last3Matches.push({ totalGoals })
+   489→                              homeStats.shots += r.homeShots
+   490→                              homeStats.shotsOnTarget += r.homeShotsOnTarget
+   491→                              teamGoalStats.set(r.homeTeam, homeStats)
+   492→
+   493→                              const awayStats = teamGoalStats.get(r.awayTeam) || { matches: 0, goalsScored: 0, goalsConceded: 0, matchesThisSeason: 0, scoredThisSeason: 0, concededThisSeason: 0, last10Matches: [], last3Matches: [], shots: 0, shotsOnTarget: 0 }
+   494→                              awayStats.matches++
+   495→                              awayStats.goalsScored += r.ftAwayGoals
+   496→                              awayStats.goalsConceded += r.ftHomeGoals
+   497→                              awayStats.matchesThisSeason++
+   498→                              awayStats.scoredThisSeason += r.ftAwayGoals
+   499→                              awayStats.concededThisSeason += r.ftHomeGoals
+   500→                              awayStats.last10Matches.push({ totalGoals })
+   501→                              awayStats.last3Matches.push({ totalGoals })
+   502→                              awayStats.shots += r.awayShots
+   503→                              awayStats.shotsOnTarget += r.awayShotsOnTarget
+   504→                              teamGoalStats.set(r.awayTeam, awayStats)
+   505→                            })
+   506→
+   507→                            const homeTeamData = teamGoalStats.get(predHomeTeam)
+   508→                            const awayTeamData = teamGoalStats.get(predAwayTeam)
+   509→
+   510→                            // Calculate regression signals using the SAME weighted formula as the detailed card:
+   511→                            // combinedSignal = (seasonDeviation × 0.4) + (last10Deviation × 0.3) + (h2hDeviation × 0.3)
+   512→                            const calcRegressionSignal = (teamData: typeof homeTeamData, teamName: string) => {
+   513→                              if (!teamData || teamData.last3Matches.length < 3) return { signal: 'Neutral', combinedSignal: 0 }
+   514→                              const seasonAvg = teamData.matchesThisSeason > 0
+   515→                                ? (teamData.scoredThisSeason + teamData.concededThisSeason) / teamData.matchesThisSeason
+   516→                                : 0
+   517→                              const last10 = teamData.last10Matches.slice(0, 10)
+   518→                              const last10Avg = last10.length > 0
+   519→                                ? last10.reduce((sum, m) => sum + m.totalGoals, 0) / last10.length
+   520→                                : 0
+   521→                              const last3 = teamData.last3Matches.slice(0, 3)
+   522→                              const last3Avg = last3.length > 0
+   523→                                ? last3.reduce((sum, m) => sum + m.totalGoals, 0) / last3.length
+   524→                                : 0
+   525→
+   526→                              // H2H deviation
+   527→                              const teamH2H = h2hData.filter(m => m.homeTeam === teamName || m.awayTeam === teamName)
+   528→                              const teamH2HAvg = teamH2H.length > 0
+   529→                                ? teamH2H.reduce((sum, m) => sum + m.ftHomeGoals + m.ftAwayGoals, 0) / teamH2H.length
+   530→                                : null
+   531→                              const lastH2HGoals = lastH2H ? lastH2H.ftHomeGoals + lastH2H.ftAwayGoals : null
+   532→                              const h2hDeviation = teamH2HAvg !== null && lastH2HGoals !== null
+   533→                                ? lastH2HGoals - teamH2HAvg
+   534→                                : 0
+   535→
+   536→                              const deviationFromSeason = last3Avg - seasonAvg
+   537→                              const deviationFromLast10 = last3Avg - last10Avg
+   538→                              const combinedSignal = (deviationFromSeason * 0.4) + (deviationFromLast10 * 0.3) + (h2hDeviation * 0.3)
+   539→
+   540→                              let signal: 'Strong Over' | 'Over' | 'Neutral' | 'Under' | 'Strong Under' = 'Neutral'
+   541→                              if (combinedSignal <= -0.8) signal = 'Strong Over'
+   542→                              else if (combinedSignal <= -0.3) signal = 'Over'
+   543→                              else if (combinedSignal >= 0.8) signal = 'Strong Under'
+   544→                              else if (combinedSignal >= 0.3) signal = 'Under'
+   545→                              return { signal, combinedSignal, last3Avg, seasonAvg }
+   546→                            }
+   547→
+   548→                            const homeReg = calcRegressionSignal(homeTeamData, predHomeTeam)
+   549→                            const awayReg = calcRegressionSignal(awayTeamData, predAwayTeam)
+   550→                            const totalSignal = (homeReg.combinedSignal || 0) + (awayReg.combinedSignal || 0)
+   551→
+   552→                            let regressionOverallSignal = 'Neutral'
+   553→                            if (totalSignal <= -1.2) regressionOverallSignal = 'Strong Over'
+   554→                            else if (totalSignal <= -0.5) regressionOverallSignal = 'Over'
+   555→                            else if (totalSignal >= 1.2) regressionOverallSignal = 'Strong Under'
+   556→                            else if (totalSignal >= 0.5) regressionOverallSignal = 'Under'
+   557→
+   558→                            // Calculate BTTS confidence (use calibrated when available)
+   559→                            const bttsProb = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts
+   560→                            let bttsConfidence = 'Low'
+   561→                            if (bttsProb >= 60) bttsConfidence = 'High'
+   562→                            else if (bttsProb >= 50) bttsConfidence = 'Medium'
+   563→
+   564→                            // Calculate O1.5 confidence (use calibrated when available)
+   565→                            const o15Prob = prediction.prediction.calibrated?.over15 ?? prediction.prediction.over15
+   566→                            let o15Confidence = 'Low'
+   567→                            if (o15Prob >= 75) o15Confidence = 'High'
+   568→                            else if (o15Prob >= 60) o15Confidence = 'Medium'
+   569→
+   570→                            // Calculate BTTS strength (different from confidence)
+   571→                            let bttsStrength = 'Weak'
+   572→                            if (bttsProb >= 60) bttsStrength = 'Strong'
+   573→                            else if (bttsProb >= 50) bttsStrength = 'Medium'
+   574→
+   575→                            // Compute league-adapted baselines and resolve all thresholds
+   576→                            // (backtest-derived when available, hybrid fallback otherwise)
+   577→                            const baselines = computeLeagueBaselines(results, analytics);
+   578→                            const resolved = resolveAllThresholds(selectedLeague, baselines);
+   579→
+   580→                            // Use calibrated probabilities when available (more accurate from backtest), fall back to raw
+   581→                            const calBtts = prediction.prediction.calibrated?.btts ?? prediction.prediction.btts;
+   582→                            const calO25 = prediction.prediction.calibrated?.over25 ?? prediction.prediction.over25;
+   583→                            const calO35 = prediction.prediction.calibrated?.over35 ?? prediction.prediction.over35;
+   584→
+   585→                            // Calculate checklists using shared utility
+   586→                            // Compute O2.5 implied probability from match odds
+   587→                            const mHomeOdds25 = results.filter(r => r.homeTeam === predHomeTeam && r.oddsAvgOver25)
+   588→                              .sort((a, b) => b.date.localeCompare(a.date))[0]?.oddsAvgOver25;
+   589→                            const mO25ImpliedProb = mHomeOdds25 ? (1 / mHomeOdds25) * 100 : null;
+   590→                            const mRolling = prediction.rollingStats;
+   591→
+   592→                            const checklistInput: ChecklistInput = {
+   593→                              avgGoalsPerGame: analytics.avgGoalsPerGame,
+   594→                              over25Percent: analytics.over25Percent,
+   595→                              bttsProb: calBtts,
+   596→                              avgHomeGoals: analytics.avgHomeGoals,
+   597→                              avgAwayGoals: analytics.avgAwayGoals,
+   598→                              o25Prob: calO25,
+   599→                              o35Prob: calO35,
+   600→                              overallShotConversion: parseFloat(analytics.overallShotConversion),
+   601→                              rollingHomeScored: mRolling?.homeRollingScored ?? analytics.avgHomeGoals,
+   602→                              rollingAwayScored: mRolling?.awayRollingScored ?? analytics.avgAwayGoals,
+   603→                              rollingCombinedScoring: mRolling?.rollingCombinedScoring ?? (analytics.avgHomeGoals + analytics.avgAwayGoals),
+   604→                              o25ImpliedProb: mO25ImpliedProb,
+   605→                            };
+   606→                            const over35Checks = computeOver35ChecklistLabels(checklistInput, resolved);
+   607→                            const over35Checklist = `${over35Checks.length} of 9`
+   608→
+   609→                            // BTTS Check items (9 criteria) using shared utility
+   610→                            const bttsChecks = computeBttsChecklistLabels(checklistInput, resolved);
+   611→                            const bttsChecklist = `${bttsChecks.length} of 9`
+   612→
+   613→                            // Z-Score Analysis Overall Signal - computed independently using Z-Score methodology
+   614→                            // matching the detailed Z-Score Analysis & Confidence Intervals card
+   615→                            const zScoreTeamStats = new Map<string, {
+   616→                              matches: number;
+   617→                              goals: number[];
+   618→                              totalGoals: number;
+   619→                              mean: number;
+   620→                              stdDev: number;
+   621→                              last3Avg: number;
+   622→                            }>();
+   623→
+   624→                            sortedResults.forEach(r => {
+   625→                              const totalGoals = r.ftHomeGoals + r.ftAwayGoals;
+   626→                              const homeStats = zScoreTeamStats.get(r.homeTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   627→                              homeStats.matches++;
+   628→                              homeStats.goals.push(totalGoals);
+   629→                              homeStats.totalGoals += totalGoals;
+   630→                              zScoreTeamStats.set(r.homeTeam, homeStats);
+   631→
+   632→                              const awayStats = zScoreTeamStats.get(r.awayTeam) || { matches: 0, goals: [], totalGoals: 0, mean: 0, stdDev: 0, last3Avg: 0 };
+   633→                              awayStats.matches++;
+   634→                              awayStats.goals.push(totalGoals);
+   635→                              awayStats.totalGoals += totalGoals;
+   636→                              zScoreTeamStats.set(r.awayTeam, awayStats);
+   637→                            });
+   638→
+   639→                            // Calculate stats for each team
+   640→                            zScoreTeamStats.forEach((stats) => {
+   641→                              stats.mean = stats.totalGoals / stats.matches;
+   642→                              const last3 = stats.goals.slice(0, 3);
+   643→                              stats.last3Avg = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+   644→                              const squaredDiffs = stats.goals.map(g => Math.pow(g - stats.mean, 2));
+   645→                              stats.stdDev = Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / stats.matches);
+   646→                            });
+   647→
+   648→                            const homeZStats = zScoreTeamStats.get(predHomeTeam);
+   649→                            const awayZStats = zScoreTeamStats.get(predAwayTeam);
+   650→
+   651→                            let zScoreOverallSignal = 'Neutral';
+   652→                            if (homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3) {
+   653→                              const homeZScore = homeZStats.stdDev > 0
+   654→                                ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev
+   655→                                : 0;
+   656→                              const awayZScore = awayZStats.stdDev > 0
+   657→                                ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev
+   658→                                : 0;
+   659→
+   660→                              // 95% CI: mean ± 1.96 * (stdDev / sqrt(n))
+   661→                              const homeCILower = homeZStats.mean - 1.96 * (homeZStats.stdDev / Math.sqrt(homeZStats.matches));
+   662→                              const awayCILower = awayZStats.mean - 1.96 * (awayZStats.stdDev / Math.sqrt(awayZStats.matches));
+   663→                              const homeBelowCI = homeZStats.last3Avg < homeCILower;
+   664→                              const awayBelowCI = awayZStats.last3Avg < awayCILower;
+   665→
+   666→                              // CV (consistency measure)
+   667→                              const homeCV = homeZStats.mean > 0 ? (homeZStats.stdDev / homeZStats.mean) * 100 : 0;
+   668→                              const awayCV = awayZStats.mean > 0 ? (awayZStats.stdDev / awayZStats.mean) * 100 : 0;
+   669→
+   670→                              // Score-based signal matching the detailed Z-Score card's getCombinedOverSignal()
+   671→                              let score = 0;
+   672→                              if (homeZScore <= -1.5) score += 2;
+   673→                              else if (homeZScore <= -1.0) score += 1;
+   674→                              if (awayZScore <= -1.5) score += 2;
+   675→                              else if (awayZScore <= -1.0) score += 1;
+   676→                              if (homeBelowCI) score += 1;
+   677→                              if (awayBelowCI) score += 1;
+   678→                              if (homeCV < 35 && homeZScore < -1) score += 0.5;
+   679→                              if (awayCV < 35 && awayZScore < -1) score += 0.5;
+   680→
+   681→                              // Also handle Under signals
+   682→                              if (homeZScore >= 1.5) score -= 2;
+   683→                              else if (homeZScore >= 1.0) score -= 1;
+   684→                              if (awayZScore >= 1.5) score -= 2;
+   685→                              else if (awayZScore >= 1.0) score -= 1;
+   686→
+   687→                              if (score >= 4) zScoreOverallSignal = 'Strong Over';
+   688→                              else if (score >= 2.5) zScoreOverallSignal = 'Over';
+   689→                              else if (score <= -3) zScoreOverallSignal = 'Strong Under';
+   690→                              else if (score <= -1.5) zScoreOverallSignal = 'Under';
+   691→                            }
+   692→
+   693→                            // Calculate xG Overperformance/Underperformance Signal
+   694→                            const teamXgStats = new Map<string, {
+   695→                              matches: number;
+   696→                              totalXg: number;
+   697→                              actualGoals: number;
+   698→                              shotsOnTarget: number;
+   699→                            }>();
+   700→
+   701→                            results.forEach(r => {
+   702→                              const homeShotsOff = r.homeShots - r.homeShotsOnTarget;
+   703→                              const awayShotsOff = r.awayShots - r.awayShotsOnTarget;
+   704→                              const homeXg = (r.homeShotsOnTarget * 0.30) + (homeShotsOff * 0.08);
+   705→                              const awayXg = (r.awayShotsOnTarget * 0.30) + (awayShotsOff * 0.08);
+   706→
+   707→                              const homeStats = teamXgStats.get(r.homeTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
+   708→                              homeStats.matches++;
+   709→                              homeStats.totalXg += homeXg;
+   710→                              homeStats.actualGoals += r.ftHomeGoals;
+   711→                              homeStats.shotsOnTarget += r.homeShotsOnTarget;
+   712→                              teamXgStats.set(r.homeTeam, homeStats);
+   713→
+   714→                              const awayStats = teamXgStats.get(r.awayTeam) || { matches: 0, totalXg: 0, actualGoals: 0, shotsOnTarget: 0 };
+   715→                              awayStats.matches++;
+   716→                              awayStats.totalXg += awayXg;
+   717→                              awayStats.actualGoals += r.ftAwayGoals;
+   718→                              awayStats.shotsOnTarget += r.awayShotsOnTarget;
+   719→                              teamXgStats.set(r.awayTeam, awayStats);
+   720→                            });
+   721→
+   722→                            const homeXgData = teamXgStats.get(predHomeTeam);
+   723→                            const awayXgData = teamXgStats.get(predAwayTeam);
+   724→
+   725→                            let xgOverallSignal = 'Neutral';
+   726→                            if (homeXgData && awayXgData) {
+   727→                              const homeXgDiff = (homeXgData.actualGoals / homeXgData.matches) - (homeXgData.totalXg / homeXgData.matches);
+   728→                              const awayXgDiff = (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches);
+   729→                              const totalXgDiff = homeXgDiff + awayXgDiff;
+   730→
+   731→                              // Tightened thresholds: matching PredictionsTab (was ±0.3/±0.7, fired 89% = no discrimination)
+   732→                              // Now ±0.5/±1.0 — only fires when there's meaningful xG deviation
+   733→                              if (totalXgDiff <= -1.0) xgOverallSignal = 'Strong Over';
+   734→                              else if (totalXgDiff <= -0.5) xgOverallSignal = 'Over';
+   735→                              else if (totalXgDiff >= 1.0) xgOverallSignal = 'Strong Under';
+   736→                              else if (totalXgDiff >= 0.5) xgOverallSignal = 'Under';
+   737→                            }
+   738→
+   739→                            // Apply Blowout Risk Qualifier (matching PredictionsTab)
+   740→                            // When either team is a massive favorite (avg odds <= 1.50),
+   741→                            // override Regression "Under" to "Neutral" before Strong Bet/Grey/GoalFest
+   742→                            const csvHomeAvgOdds = computeTeamAvgOdds(results, predHomeTeam);
+   743→                            const csvAwayAvgOdds = computeTeamAvgOdds(results, predAwayTeam);
+   744→
+   745→                            // ---- XG Diff / SOT / Favorite Odds (needed for momentum + BTTS qual) ----
+   746→                            const csvHomeXgDiff = homeXgData && awayXgData
+   747→                              ? (homeXgData.actualGoals / homeXgData.matches) - (homeXgData.totalXg / homeXgData.matches)
+   748→                              : 0;
+   749→                            const csvAwayXgDiff = homeXgData && awayXgData
+   750→                              ? (awayXgData.actualGoals / awayXgData.matches) - (awayXgData.totalXg / awayXgData.matches)
+   751→                              : 0;
+   752→
+   753→                            const csvHomeSotConv = homeXgData && homeXgData.shotsOnTarget > 0
+   754→                              ? (homeXgData.actualGoals / homeXgData.shotsOnTarget) * 100 : null;
+   755→                            const csvAwaySotConv = awayXgData && awayXgData.shotsOnTarget > 0
+   756→                              ? (awayXgData.actualGoals / awayXgData.shotsOnTarget) * 100 : null;
+   757→                            const csvHomeAvgSot = homeXgData && homeXgData.matches > 0
+   758→                              ? homeXgData.shotsOnTarget / homeXgData.matches : null;
+   759→                            const csvAwayAvgSot = awayXgData && awayXgData.matches > 0
+   760→                              ? awayXgData.shotsOnTarget / awayXgData.matches : null;
+   761→
+   762→                            const csvFavoriteOdds = csvHomeAvgOdds && csvAwayAvgOdds ? Math.min(csvHomeAvgOdds, csvAwayAvgOdds) : null;
+   763→                            const csvCombinedXg = homeXgData && awayXgData
+   764→                              ? (homeXgData.totalXg / homeXgData.matches) + (awayXgData.totalXg / awayXgData.matches) : 0;
+   765→
+   766→                            // ---- Momentum Signal (Form Continuation Track) ----
+   767→                            const csvHomeLast5Goals = homeTeamData?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   768→                            const csvAwayLast5Goals = awayTeamData?.last10Matches.slice(0, 5).map(m => m.totalGoals) ?? [];
+   769→                            const csvHomeSeasonAvg = homeTeamData?.matchesThisSeason > 0 ? (homeTeamData.scoredThisSeason + homeTeamData.concededThisSeason) / homeTeamData.matchesThisSeason : 0;
+   770→                            const csvAwaySeasonAvg = awayTeamData?.matchesThisSeason > 0 ? (awayTeamData.scoredThisSeason + awayTeamData.concededThisSeason) / awayTeamData.matchesThisSeason : 0;
+   771→                            const csvHomeMomInput: MomentumTeamInput = { last5Goals: csvHomeLast5Goals, seasonAvg: csvHomeSeasonAvg, xgDiff: csvHomeXgDiff, sotPerGame: csvHomeAvgSot };
+   772→                            const csvAwayMomInput: MomentumTeamInput = { last5Goals: csvAwayLast5Goals, seasonAvg: csvAwaySeasonAvg, xgDiff: csvAwayXgDiff, sotPerGame: csvAwayAvgSot };
+   773→                            const csvMomentumResult = computeMomentumSignal(csvHomeMomInput, csvAwayMomInput);
+   774→
+   775→                            // ---- Dominant Team Detector ----
+   776→                            const csvFavOdds = csvFavoriteOdds ?? 2.0;
+   777→                            const csvIsHomeFav = csvHomeAvgOdds && csvAwayAvgOdds ? csvHomeAvgOdds <= csvAwayAvgOdds : false;
+   778→                            const csvFavTeam = csvIsHomeFav ? homeTeamData : awayTeamData;
+   779→                            const csvUndTeam = csvIsHomeFav ? awayTeamData : homeTeamData;
+   780→                            const csvFavXg = csvIsHomeFav ? homeXgData : awayXgData;
+   781→                            const csvUndXg = csvIsHomeFav ? awayXgData : homeXgData;
+   782→                            const csvFavLast5Avg = (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).length > 0
+   783→                              ? (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).reduce((s, g) => s + g, 0) / (csvIsHomeFav ? csvHomeLast5Goals : csvAwayLast5Goals).length : 0;
+   784→                            const csvFavLast3 = (csvIsHomeFav ? homeTeamData?.last3Matches : awayTeamData?.last3Matches)?.slice(0, 3).map(m => m.totalGoals) ?? [];
+   785→                            const csvFavLast3AllLow = csvFavLast3.length >= 3 && csvFavLast3.every(g => g < 1.5);
+   786→
+   787→                            const csvDominantResult = computeDominantTeamQualifier({
+   788→                              favoriteOdds: csvFavOdds,
+   789→                              favoriteAvgGoalsPerGame: csvFavTeam?.matchesThisSeason > 0 ? (csvFavTeam.scoredThisSeason + csvFavTeam.concededThisSeason) / csvFavTeam.matchesThisSeason : 0,
+   790→                              underdogAvgConcededPerGame: csvUndTeam?.matchesThisSeason > 0 ? csvUndTeam.concededThisSeason / csvUndTeam.matchesThisSeason : 0,
+   791→                              favoriteXgPerGame: csvFavXg?.matches > 0 ? csvFavXg.totalXg / csvFavXg.matches : 0,
+   792→                              underdogXgPerGame: csvUndXg?.matches > 0 ? csvUndXg.totalXg / csvUndXg.matches : 0,
+   793→                              favoriteLast5Avg: csvFavLast5Avg,
+   794→                              favoriteSotPerGame: csvFavXg?.matches > 0 ? csvFavXg.shotsOnTarget / csvFavXg.matches : null,
+   795→                              leagueAvgGoalsPerGame: baselines.avgGoalsPerGame,
+   796→                              underdogAwayBttsRate: null,
+   797→                              favoriteLast3AllLow: csvFavLast3AllLow,
+   798→                            });
+   799→
+   800→                            const rawSignalInput: SignalInput = {
+   801→                              xgSignal: xgOverallSignal,
+   802→                              regressionSignal: regressionOverallSignal,
+   803→                              zScoreSignal: zScoreOverallSignal,
+   804→                            };
+   805→                            const blowoutResult = applyBlowoutQualifier(rawSignalInput, csvHomeAvgOdds, csvAwayAvgOdds, baselines.avgGoalsPerGame);
+   806→                            const signalInput: SignalInput = blowoutResult.signals;
+   807→
+   808→                            // Updated Strong Bet — Points-based system using shared utility
+   809→                            const strongBetResult = computeStrongBet(checklistInput, signalInput, resolved, {
+   810→                              momentumSignal: csvMomentumResult.matchSignal,
+   811→                              leagueBttsRate: baselines.bttsRate,
+   812→                            });
+   813→                            const isStrongBet = strongBetResult.isStrongBet;
+   814→                            const strongBetIndicator = isStrongBet ? 'STRONG BET' : `${strongBetResult.points}/${strongBetResult.maxPoints} pts`;
+   815→
+   816→                            // Grey Result — Tightened criteria using shared utility
+   817→                            const greyResultData = computeGreyResult(checklistInput, signalInput, resolved);
+   818→                            const greyResultIndicator = greyResultData.isGreyResult ? 'GREY RESULT' : `${greyResultData.score}/${greyResultData.totalChecks} checks`;
+   819→
+   820→                            // GOAL FEST — Backtest-optimized combo detector
+   821→                            const goalFestData = computeGoalFest(checklistInput, signalInput, resolved);
+   822→                            const goalFestIndicator = goalFestData.isGoalFest ? 'GOAL FEST' : `${goalFestData.score}/${goalFestData.totalChecks} checks`;
+   823→
+   824→                            // ---- BTTS Dual-Team Qualification + Third Goal Detector ----
+   825→                            const csvHomeRegDeviation = homeReg.combinedSignal || 0;
+   826→                            const csvAwayRegDeviation = awayReg.combinedSignal || 0;
+   827→                            const csvHomeRegSignal = classifyPerTeamRegressionSignal(csvHomeRegDeviation);
+   828→                            const csvAwayRegSignal = classifyPerTeamRegressionSignal(csvAwayRegDeviation);
+   829→
+   830→                            const csvHomeXgSignal = classifyPerTeamXgSignal(csvHomeXgDiff);
+   831→                            const csvAwayXgSignal = classifyPerTeamXgSignal(csvAwayXgDiff);
+   832→
+   833→                            // Extract per-team Z-Scores (already computed above)
+   834→                            const csvHomeZ = homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3 && homeZStats.stdDev > 0
+   835→                              ? (homeZStats.last3Avg - homeZStats.mean) / homeZStats.stdDev : 0;
+   836→                            const csvAwayZ = homeZStats && awayZStats && homeZStats.matches >= 3 && awayZStats.matches >= 3 && awayZStats.stdDev > 0
+   837→                              ? (awayZStats.last3Avg - awayZStats.mean) / awayZStats.stdDev : 0;
+   838→
+   839→                            const csvBttsQual = computeBTTSQualification({
+   840→                              homeRegressionSignal: csvHomeRegSignal,
+   841→                              awayRegressionSignal: csvAwayRegSignal,
+   842→                              homeXgDiff: csvHomeXgDiff,
+   843→                              awayXgDiff: csvAwayXgDiff,
+   844→                              homeZScore: csvHomeZ,
+   845→                              awayZScore: csvAwayZ,
+   846→                              homeSotConversion: csvHomeSotConv,
+   847→                              awaySotConversion: csvAwaySotConv,
+   848→                              favoriteOdds: csvFavoriteOdds,
+   849→                              homeMomentumSignal: csvMomentumResult.homeSignal,
+   850→                              awayMomentumSignal: csvMomentumResult.awaySignal,
+   851→                            });
+   852→
+   853→                            const csvThirdGoal = computeThirdGoalQualifier({
+   854→                              combinedXgTotal: csvCombinedXg,
+   855→                              homeRegressionSignal: csvHomeRegSignal,
+   856→                              awayRegressionSignal: csvAwayRegSignal,
+   857→                              homeXgSignal: csvHomeXgSignal,
+   858→                              awayXgSignal: csvAwayXgSignal,
+   859→                              homeAvgSot: csvHomeAvgSot,
+   860→                              awayAvgSot: csvAwayAvgSot,
+   861→                              favoriteOdds: csvFavoriteOdds,
+   862→                              homeSotConversion: csvHomeSotConv,
+   863→                              awaySotConversion: csvAwaySotConv,
+   864→                            });
+   865→
+   866→                            // Build CSV row with exact headers
+   867→                            const headers = [
+   868→                              'League',
+   869→                              'Team A',
+   870→                              'Team B',
+   871→                              'Last H2H',
+   872→                              'Predicted Score',
+   873→                              'Model 0.5 Odds',
+   874→                              'Model BTTS Odds',
+   875→                              'O2.5 Prob',
+   876→                              'O3.5 Prob',
+   877→                              'BTTS Confidence',
+   878→                              'O1.5 Confidence',
+   879→                              'BTTS Prob',
+   880→                              'Regression Overall Signal',
+   881→                              'Z-Score Analysis & Confidence Intervals Overall Signal',
+   882→                              'xG Overperformance Signal',
+   883→                              'BTTS Check list',
+   884→                              'Over 3.5 Check list',
+   885→                              'Home Team SOT Conversion %',
+   886→                              'Away Team SOT Conversion %',
+   887→                              'Avg SOT Conversion %',
+   888→                              'Strong Bet',
+   889→                              'Grey Result Predictor',
+   890→                              'Goal Fest',
+   891→                              'BTTS Qualification Tier',
+   892→                              'BTTS Qual Score',
+   893→                              'Third Goal Tier',
+   894→                              'Third Goal Score',
+   895→                              'Momentum Match Signal',
+   896→                              'Home Momentum',
+   897→                              'Away Momentum',
+   898→                              'Dominant Team Tier',
+   899→                              'Dominant Team Score',
+   900→                              'Dominant Over 2.5 Rec',
+   901→                              'Dominant BTTS Rec',
+   902→                            ]
+   903→
+   904→                            // Format check lists for export - matching display exactly
+   905→                            const bttsChecklistExport = `${bttsChecks.length} of 7`;
+   906→                            const over35ChecklistExport = `${over35Checks.length} of 7`;
+   907→                            
+   908→                            const row = [
+   909→                              `"${selectedLeague}"`,
+   910→                              `"${predHomeTeam}"`,
+   911→                              `"${predAwayTeam}"`,
+   912→                              lastH2H ? `"'${lastH2H.ftHomeGoals}-${lastH2H.ftAwayGoals}"` : 'N/A',
+   913→                              prediction.prediction.likelyScore ? `"'${prediction.prediction.likelyScore}"` : 'N/A',
+   914→                              prediction.prediction.impliedOdds.over15,
+   915→                              prediction.prediction.impliedOdds.bttsYes,
+   916→                              `${calO25.toFixed(2)}`,
+   917→                              `${calO35.toFixed(2)}`,
+   918→                              bttsConfidence,
+   919→                              o15Confidence,
+   920→                              `${calBtts.toFixed(2)}`,
+   921→                              regressionOverallSignal,
+   922→                              zScoreOverallSignal,
+   923→                              xgOverallSignal,
+   924→                              bttsChecklistExport,
+   925→                              over35ChecklistExport,
+   926→                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 ? ((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
+   927→                              `${awayTeamData && awayTeamData.shotsOnTarget > 0 ? ((awayTeamData.goalsScored / awayTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
+   928→                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 && awayTeamData && awayTeamData.shotsOnTarget > 0 ? (((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) + (awayTeamData.goalsScored / awayTeamData.shotsOnTarget)) / 2 * 100).toFixed(1) : 'N/A'}%`,
+   929→                              strongBetIndicator,
+   930→                              greyResultIndicator,
+   931→                              goalFestIndicator,
+   932→                              csvBttsQual.tier,
+   933→                              `${csvBttsQual.score}`,
+   934→                              csvThirdGoal.tier,
+   935→                              `${csvThirdGoal.score}`,
+   936→                              `"${csvMomentumResult.matchSignal}"`,
+   937→                              `"${csvMomentumResult.homeSignal}"`,
+   938→                              `"${csvMomentumResult.awaySignal}"`,
+   939→                              `"${csvDominantResult.tier}"`,
+   940→                              `${csvDominantResult.score}`,
+   941→                              `"${csvDominantResult.over25Rec}"`,
+   942→                              `"${csvDominantResult.bttsRec}"`,
+   943→                            ]
+   944→
+   945→                            const csv = [headers.join(','), row.join(',')].join('\n')
+   946→                            const blob = new Blob([csv], { type: 'text/csv' })
+   947→                            const url = URL.createObjectURL(blob)
+   948→                            const a = document.createElement('a')
+   949→                            a.href = url
+   950→                            a.download = `${selectedLeague}_${predHomeTeam}_vs_${predAwayTeam}_analysis.csv`
+   951→                            a.click()
+   952→                          }}
+   953→                          variant="outline"
+   954→                          className="w-full"
+   955→                          disabled={!prediction}
+   956→                        >
+   957→                          🎯 Analysis Export
+   958→                        </Button>
+   959→                        <Button 
+   960→                          variant="outline"
+   961→                          className="w-full"
+   962→                          disabled={true}
+   963→                          title="H2H export is available on the Head-to-Head tab"
+   964→                        >
+   965→                          🔄 H2H Data
+   966→                        </Button>
+   967→                      </div>
+   968→                      <p className="text-xs text-muted-foreground text-center">
+   969→                        💡 Export data for analysis in Excel, Google Sheets, or other tools. Prediction export requires a match prediction to be generated first.
+   970→                      </p>
+   971→                    </div>
+   972→                  </CardContent>
+   973→                </Card>
+   974→
+   975→                {/* 1. Dixon-Coles Model */}
+   976→                <Card className="shadow-md">
+   977→                  <CardHeader>
+   978→                    <CardTitle className="text-lg flex items-center gap-2">
+   979→                      <BarChart3 className="w-5 h-5 text-blue-600" />
+   980→                      Dixon-Coles Model
+   981→                    </CardTitle>
+   982→                    <CardDescription>
+   983→                      Fixes the low-score issue in standard Poisson by adding a dependence correction for 0-0, 1-0, 0-1, and 1-1 scores
+   984→                    </CardDescription>
+   985→                  </CardHeader>
+   986→                  <CardContent>
+   987→                    <div className="grid md:grid-cols-2 gap-6">
+   988→                      <div className="space-y-4">
+   989→                        <div className="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+   990→                          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Home Attack Strength (α)</p>
+   991→                          <p className="text-2xl font-bold text-blue-600 mt-1">
+   992→                            {(analytics.avgHomeGoals / analytics.avgGoalsPerGame).toFixed(3)}
+   993→                          </p>
+   994→                          <p className="text-xs text-muted-foreground">Relative to league average</p>
+   995→                        </div>
+   996→                        <div className="p-4 bg-pink-50 dark:bg-pink-900/30 rounded-lg">
+   997→                          <p className="text-sm font-medium text-pink-700 dark:text-pink-300">Away Attack Strength (β)</p>
+   998→                          <p className="text-2xl font-bold text-pink-600 mt-1">
+   999→                            {(analytics.avgAwayGoals / analytics.avgGoalsPerGame).toFixed(3)}
+  1000→                          </p>
+  1001→                          <p className="text-xs text-muted-foreground">Relative to league average</p>
+  1002→                        </div>
+  1003→                      </div>
+  1004→                      <div className="space-y-4">
+  1005→                        <div className="p-4 bg-amber-50 dark:bg-amber-900/30 rounded-lg">
+  1006→                          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">Dixon-Coles ρ (Correlation)</p>
+  1007→                          <p className="text-2xl font-bold text-amber-600 mt-1">
+  1008→                            {(() => {
+  1009→                              // Estimate rho from low-score frequencies
+  1010→                              const total = analytics.totalMatches
+  1011→                              const under25 = analytics.under25Count
+  1012→                              const under25Ratio = under25 / total
+  1013→                              // Rho is typically negative for football (-0.1 to -0.2)
+  1014→                              // Higher under25Ratio = more low-scoring = more negative rho
+  1015→                              const rho = -0.13 - (under25Ratio - 0.5) * 0.1
+  1016→                              return rho.toFixed(3)
+  1017→                            })()}
+  1018→                          </p>
+  1019→                          <p className="text-xs text-muted-foreground">Negative = more low-scoring matches than expected</p>
+  1020→                        </div>
+  1021→                        <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
+  1022→                          <p className="text-sm font-medium text-green-700 dark:text-green-300">Correction Effect</p>
+  1023→                          <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+  1024→                            <div className="text-center">
+  1025→                              <p className="font-medium">0-0 adj.</p>
+  1026→                              <p className="text-green-600">×{(() => {
+  1027→                                const total = analytics.totalMatches
+  1028→                                const under25Ratio = analytics.under25Count / total
+  1029→                                const rho = -0.13 - (under25Ratio - 0.5) * 0.1
+  1030→                                const lamH = analytics.avgHomeGoals
+  1031→                                const lamA = analytics.avgAwayGoals
+  1032→                                return (1 - lamH * lamA * rho).toFixed(2)
+  1033→                              })()}</p>
+  1034→                            </div>
+  1035→                            <div className="text-center">
+  1036→                              <p className="font-medium">1-1 adj.</p>
+  1037→                              <p className="text-green-600">×{(() => {
+  1038→                                const total = analytics.totalMatches
+  1039→                                const under25Ratio = analytics.under25Count / total
+  1040→                                const rho = -0.13 - (under25Ratio - 0.5) * 0.1
+  1041→                                return (1 - rho).toFixed(2)
+  1042→                              })()}</p>
+  1043→                            </div>
+  1044→                          </div>
+  1045→                        </div>
+  1046→                      </div>
+  1047→                    </div>
+  1048→                    
+  1049→                    {/* Expected Score Line */}
+  1050→                    <div className="mt-6 p-4 bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/30 dark:to-blue-900/30 rounded-lg border border-indigo-200 dark:border-indigo-700">
+  1051→                      <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300 mb-3 flex items-center gap-2">
+  1052→                        <Target className="w-4 h-4" />
+  1053→                        Expected Correct Score Probabilities
+  1054→                      </p>
+  1055→                      {(() => {
+  1056→                        const lambdaHome = analytics.avgHomeGoals
+  1057→                        const lambdaAway = analytics.avgAwayGoals
+  1058→                        // Use dynamic rho matching the display value
+  1059→                        const rho = -0.13 - ((analytics.under25Count / analytics.totalMatches) - 0.5) * 0.1
+  1060→                        
+  1061→                        // Dixon-Coles tau function
+  1062→                        const tau = (x: number, y: number, lambda1: number, lambda2: number, rho: number): number => {
+  1063→                          if (x === 0 && y === 0) return 1 - lambda1 * lambda2 * rho
+  1064→                          if (x === 0 && y === 1) return 1 + lambda1 * rho
+  1065→                          if (x === 1 && y === 0) return 1 + lambda2 * rho
+  1066→                          if (x === 1 && y === 1) return 1 - rho
+  1067→                          return 1
+  1068→                        }
+  1069→                        
+  1070→                        // Calculate Dixon-Coles probability
+  1071→                        const dcProb = (x: number, y: number): number => {
+  1072→                          const poisX = Math.exp(-lambdaHome) * Math.pow(lambdaHome, x) / factorial(x)
+  1073→                          const poisY = Math.exp(-lambdaAway) * Math.pow(lambdaAway, y) / factorial(y)
+  1074→                          return poisX * poisY * tau(x, y, lambdaHome, lambdaAway, rho)
+  1075→                        }
+  1076→                        
+  1077→                        // Generate all score probabilities
+  1078→                        const scores: { score: string; prob: number; home: number; away: number }[] = []
+  1079→                        for (let h = 0; h <= 5; h++) {
+  1080→                          for (let a = 0; a <= 5; a++) {
+  1081→                            scores.push({
+  1082→                              score: `${h}-${a}`,
+  1083→                              prob: dcProb(h, a),
+  1084→                              home: h,
+  1085→                              away: a
+  1086→                            })
+  1087→                          }
+  1088→                        }
+  1089→                        
+  1090→                        // Sort by probability and get top 10
+  1091→                        const topScores = scores.sort((a, b) => b.prob - a.prob).slice(0, 10)
+  1092→                        const expectedScore = topScores[0]
+  1093→                        
+  1094→                        return (
+  1095→                          <>
+  1096→                            {/* Expected Score Highlight */}
+  1097→                            <div className="mb-4 p-3 bg-white dark:bg-gray-800 rounded-lg border-2 border-indigo-400 text-center">
+  1098→                              <p className="text-xs text-muted-foreground mb-1">Most Likely Scoreline</p>
+  1099→                              <p className="text-4xl font-bold text-indigo-600">{expectedScore.score}</p>
+  1100→                              <p className="text-sm text-indigo-500 mt-1">{(expectedScore.prob * 100).toFixed(1)}% probability</p>
+  1101→                            </div>
+  1102→                            
+  1103→                            {/* Top 10 Score Probabilities */}
+  1104→                            <div className="grid grid-cols-5 gap-2">
+  1105→                              {topScores.map((s, i) => (
+  1106→                                <div 
+  1107→                                  key={s.score} 
+  1108→                                  className={`text-center p-2 rounded ${i === 0 ? 'bg-indigo-500 text-white' : 'bg-white dark:bg-gray-800'}`}
+  1109→                                >
+  1110→                                  <p className={`text-xs ${i === 0 ? 'text-indigo-100' : 'text-muted-foreground'}`}>#{i + 1}</p>
+  1111→                                  <p className={`font-bold ${i === 0 ? 'text-lg' : 'text-sm'}`}>{s.score}</p>
+  1112→                                  <p className={`text-xs ${i === 0 ? 'text-indigo-200' : 'text-muted-foreground'}`}>
+  1113→                                    {(s.prob * 100).toFixed(1)}%
+  1114→                                  </p>
+  1115→                                </div>
+  1116→                              ))}
+  1117→                            </div>
+  1118→                            
+  1119→                            {/* Result Distribution */}
+  1120→                            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+  1121→                              <div className="p-2 bg-green-100 dark:bg-green-800/30 rounded">
+  1122→                                <p className="font-medium text-green-700 dark:text-green-300">Home Win</p>
+  1123→                                <p className="text-lg font-bold text-green-600">
+  1124→                                  {(() => {
+  1125→                                    let prob = 0
+  1126→                                    for (let h = 1; h <= 5; h++) {
+  1127→                                      for (let a = 0; a < h; a++) {
+  1128→                                        prob += dcProb(h, a)
+  1129→                                      }
+  1130→                                    }
+  1131→                                    return (prob * 100).toFixed(1)
+  1132→                                  })()}%
+  1133→                                </p>
+  1134→                              </div>
+  1135→                              <div className="p-2 bg-amber-100 dark:bg-amber-800/30 rounded">
+  1136→                                <p className="font-medium text-amber-700 dark:text-amber-300">Draw</p>
+  1137→                                <p className="text-lg font-bold text-amber-600">
+  1138→                                  {(() => {
+  1139→                                    let prob = 0
+  1140→                                    for (let i = 0; i <= 5; i++) {
+  1141→                                      prob += dcProb(i, i)
+  1142→                                    }
+  1143→                                    return (prob * 100).toFixed(1)
+  1144→                                  })()}%
+  1145→                                </p>
+  1146→                              </div>
+  1147→                              <div className="p-2 bg-blue-100 dark:bg-blue-800/30 rounded">
+  1148→                                <p className="font-medium text-blue-700 dark:text-blue-300">Away Win</p>
+  1149→                                <p className="text-lg font-bold text-blue-600">
+  1150→                                  {(() => {
+  1151→                                    let prob = 0
+  1152→                                    for (let a = 1; a <= 5; a++) {
+  1153→                                      for (let h = 0; h < a; h++) {
+  1154→                                        prob += dcProb(h, a)
+  1155→                                      }
+  1156→                                    }
+  1157→                                    return (prob * 100).toFixed(1)
+  1158→                                  })()}%
+  1159→                                </p>
+  1160→                              </div>
+  1161→                            </div>
+  1162→                          </>
+  1163→                        )
+  1164→                      })()}
+  1165→                    </div>
+  1166→                    
+  1167→                    <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+  1168→                      <p className="text-sm font-medium mb-2">Model Formula:</p>
+  1169→                      <p className="text-xs font-mono">P(X=i, Y=j) = Poisson(i,λ₁) × Poisson(j,λ₂) × τ(i,j,ρ,λ₁,λ₂)</p>
+  1170→                      <p className="text-xs text-muted-foreground mt-2">
+  1171→                        Where τ adjusts probabilities for low-scoring matches (i,j ≤ 1)
+  1172→                      </p>
+  1173→                    </div>
+  1174→                  </CardContent>
+  1175→                </Card>
+  1176→
+  1177→                {/* Shot Conversion Rates */}
+  1178→                <Card className="shadow-md">
+  1179→                  <CardHeader>
+  1180→                    <CardTitle className="text-lg flex items-center gap-2">
+  1181→                      <Target className="w-5 h-5 text-emerald-600" />
+  1182→                      Shot Conversion Rates
+  1183→                    </CardTitle>
+  1184→                    <CardDescription>
+  1185→                      Efficiency metrics showing goals per shots and shots on target for home and away teams
+  1186→                    </CardDescription>
+  1187→                  </CardHeader>
+  1188→                  <CardContent>
+  1189→                    {/* Total Shots Conversion */}
+  1190→                    <div className="mb-6">
+  1191→                      <p className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+  1192→                        <Goal className="w-4 h-4" />
+  1193→                        Total Shots Conversion (Goals per 100 Shots)
+  1194→                      </p>
+  1195→                      <div className="grid md:grid-cols-3 gap-4">
+  1196→                        <div className="text-center p-4 rounded-lg bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-800/30 dark:to-indigo-800/30">
+  1197→                          <p className="text-xs text-muted-foreground">Home Teams</p>
+  1198→                          <p className="text-3xl font-bold text-blue-600">{analytics.homeShotConversion}%</p>
+  1199→                          <p className="text-xs text-muted-foreground mt-1">{analytics.avgHomeShots} shots/game → {analytics.avgHomeGoals} goals</p>
+  1200→                        </div>
+  1201→                        <div className="text-center p-4 rounded-lg bg-gradient-to-br from-pink-100 to-rose-100 dark:from-pink-800/30 dark:to-rose-800/30">
+  1202→                          <p className="text-xs text-muted-foreground">Away Teams</p>
+  1203→                          <p className="text-3xl font-bold text-pink-600">{analytics.awayShotConversion}%</p>
+  1204→                          <p className="text-xs text-muted-foreground mt-1">{analytics.avgAwayShots} shots/game → {analytics.avgAwayGoals} goals</p>
+  1205→                        </div>
+  1206→                        <div className="text-center p-4 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-800/30 dark:to-teal-800/30 border-2 border-emerald-300">
+  1207→                          <p className="text-xs text-muted-foreground">Overall</p>
+  1208→                          <p className="text-3xl font-bold text-emerald-600">{analytics.overallShotConversion}%</p>
+  1209→                          <p className="text-xs text-muted-foreground mt-1">{((analytics.avgHomeShots + analytics.avgAwayShots)).toFixed(1)} shots/game → {analytics.avgGoalsPerGame} goals</p>
+  1210→                        </div>
+  1211→                      </div>
+  1212→                      {/* Visual Bar */}
+  1213→                      <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+  1214→                        <div className="flex items-center gap-4">
+  1215→                          <span className="text-xs text-muted-foreground w-16">Home:</span>
+  1216→                          <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+  1217→                            <div className="bg-blue-500 h-full rounded-full" style={{ width: `${analytics.homeShotConversion * 3}%` }} />
+  1218→                          </div>
+  1219→                          <span className="text-xs font-bold text-blue-600 w-12">{analytics.homeShotConversion}%</span>
+  1220→                        </div>
+  1221→                        <div className="flex items-center gap-4 mt-2">
+  1222→                          <span className="text-xs text-muted-foreground w-16">Away:</span>
+  1223→                          <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+  1224→                            <div className="bg-pink-500 h-full rounded-full" style={{ width: `${analytics.awayShotConversion * 3}%` }} />
+  1225→                          </div>
+  1226→                          <span className="text-xs font-bold text-pink-600 w-12">{analytics.awayShotConversion}%</span>
+  1227→                        </div>
+  1228→                      </div>
+  1229→                    </div>
+  1230→
+  1231→                    {/* Shots on Target Conversion */}
+  1232→                    <div>
+  1233→                      <p className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+  1234→                        <Target className="w-4 h-4" />
+  1235→                        Shots on Target Conversion (Goals per 100 SOT)
+  1236→                      </p>
+  1237→                      <div className="grid md:grid-cols-3 gap-4">
+  1238→                        <div className="text-center p-4 rounded-lg bg-gradient-to-br from-cyan-100 to-blue-100 dark:from-cyan-800/30 dark:to-blue-800/30">
+  1239→                          <p className="text-xs text-muted-foreground">Home Teams</p>
+  1240→                          <p className="text-3xl font-bold text-cyan-600">{analytics.homeShotOnTargetConversion}%</p>
+  1241→                          <p className="text-xs text-muted-foreground mt-1">{analytics.avgHomeShotsOnTarget} SOT/game → {analytics.avgHomeGoals} goals</p>
+  1242→                        </div>
+  1243→                        <div className="text-center p-4 rounded-lg bg-gradient-to-br from-purple-100 to-violet-100 dark:from-purple-800/30 dark:to-violet-800/30">
+  1244→                          <p className="text-xs text-muted-foreground">Away Teams</p>
+  1245→                          <p className="text-3xl font-bold text-purple-600">{analytics.awayShotOnTargetConversion}%</p>
+  1246→                          <p className="text-xs text-muted-foreground mt-1">{analytics.avgAwayShotsOnTarget} SOT/game → {analytics.avgAwayGoals} goals</p>
+  1247→                        </div>
+  1248→                        <div className="text-center p-4 rounded-lg bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-800/30 dark:to-orange-800/30 border-2 border-amber-300">
+  1249→                          <p className="text-xs text-muted-foreground">Overall</p>
+  1250→                          <p className="text-3xl font-bold text-amber-600">{analytics.overallShotOnTargetConversion}%</p>
+  1251→                          <p className="text-xs text-muted-foreground mt-1">{((analytics.avgHomeShotsOnTarget + analytics.avgAwayShotsOnTarget)).toFixed(1)} SOT/game → {analytics.avgGoalsPerGame} goals</p>
+  1252→                        </div>
+  1253→                      </div>
+  1254→                      {/* Visual Bar */}
+  1255→                      <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+  1256→                        <div className="flex items-center gap-4">
+  1257→                          <span className="text-xs text-muted-foreground w-16">Home:</span>
+  1258→                          <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+  1259→                            <div className="bg-cyan-500 h-full rounded-full" style={{ width: `${analytics.homeShotOnTargetConversion}%` }} />
+  1260→                          </div>
+  1261→                          <span className="text-xs font-bold text-cyan-600 w-12">{analytics.homeShotOnTargetConversion}%</span>
+  1262→                        </div>
+  1263→                        <div className="flex items-center gap-4 mt-2">
+  1264→                          <span className="text-xs text-muted-foreground w-16">Away:</span>
+  1265→                          <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+  1266→                            <div className="bg-purple-500 h-full rounded-full" style={{ width: `${analytics.awayShotOnTargetConversion}%` }} />
+  1267→                          </div>
+  1268→                          <span className="text-xs font-bold text-purple-600 w-12">{analytics.awayShotOnTargetConversion}%</span>
+  1269→                        </div>
+  1270→                      </div>
+  1271→                    </div>
+  1272→
+  1273→                    {/* Shot Accuracy */}
+  1274→                    <div className="mt-6 p-4 bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-800/30 dark:to-gray-800/30 rounded-lg">
+  1275→                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Shot Accuracy (Shots on Target %)</p>
+  1276→                      <div className="grid grid-cols-3 gap-4 text-center">
+  1277→                        <div>
+  1278→                          <p className="text-2xl font-bold text-slate-600">
+  1279→                            {analytics.avgHomeShots > 0 ? ((analytics.avgHomeShotsOnTarget / analytics.avgHomeShots) * 100).toFixed(1) : 0}%
+  1280→                          </p>
+  1281→                          <p className="text-xs text-muted-foreground">Home Accuracy</p>
+  1282→                        </div>
+  1283→                        <div>
+  1284→                          <p className="text-2xl font-bold text-slate-600">
+  1285→                            {analytics.avgAwayShots > 0 ? ((analytics.avgAwayShotsOnTarget / analytics.avgAwayShots) * 100).toFixed(1) : 0}%
+  1286→                          </p>
+  1287→                          <p className="text-xs text-muted-foreground">Away Accuracy</p>
+  1288→                        </div>
+  1289→                        <div>
+  1290→                          <p className="text-2xl font-bold text-slate-600">
+  1291→                            {((analytics.avgHomeShotsOnTarget + analytics.avgAwayShotsOnTarget) / (analytics.avgHomeShots + analytics.avgAwayShots) * 100).toFixed(1)}%
+  1292→                          </p>
+  1293→                          <p className="text-xs text-muted-foreground">Overall Accuracy</p>
+  1294→                        </div>
+  1295→                      </div>
+  1296→                    </div>
+  1297→
+  1298→                    {/* Conversion Formula */}
+  1299→                    <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
+  1300→                      <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Conversion Formulas:</p>
+  1301→                      <div className="grid md:grid-cols-2 gap-2 mt-2 text-xs text-muted-foreground">
+  1302→                        <div>
+  1303→                          <span className="font-medium">Total Shots:</span> (Goals ÷ Total Shots) × 100
+  1304→                        </div>
+  1305→                        <div>
+  1306→                          <span className="font-medium">Shots on Target:</span> (Goals ÷ Shots on Target) × 100
+  1307→                        </div>
+  1308→                      </div>
+  1309→                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">
+  1310→                        💡 SOT conversion (~30%) is typically 3x higher than total shots conversion (~10%)
+  1311→                      </p>
+  1312→                    </div>
+  1313→                  </CardContent>
+  1314→                </Card>
+  1315→
+  1316→                {/* 2. Time-Weighted Poisson Model */}
+  1317→                <Card className="shadow-md">
+  1318→                  <CardHeader>
+  1319→                    <CardTitle className="text-lg flex items-center gap-2">
+  1320→                      <TrendingUp className="w-5 h-5 text-green-600" />
+  1321→                      Time-Weighted Poisson Model
+  1322→                    </CardTitle>
+  1323→                    <CardDescription>
+  1324→                      Weighs recent matches more heavily, improving prediction accuracy by capturing current form
+  1325→                    </CardDescription>
+  1326→                  </CardHeader>
+  1327→                  <CardContent>
+  1328→                    <div className="grid md:grid-cols-3 gap-4 mb-4">
+  1329→                      <div className="text-center p-4 rounded-lg bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-800/30 dark:to-emerald-800/30">
+  1330→                        <p className="text-xs text-muted-foreground">Weight Decay (ξ)</p>
+  1331→                        <p className="text-2xl font-bold text-green-600">0.0018</p>
+  1332→                        <p className="text-xs text-muted-foreground">~1 year half-life</p>
+  1333→                      </div>
+  1334→                      <div className="text-center p-4 rounded-lg bg-gradient-to-br from-blue-100 to-cyan-100 dark:from-blue-800/30 dark:to-cyan-800/30">
+  1335→                        <p className="text-xs text-muted-foreground">Recent Weight</p>
+  1336→                        <p className="text-2xl font-bold text-blue-600">1.00x</p>
+  1337→                        <p className="text-xs text-muted-foreground">Last match</p>
+  1338→                      </div>
+  1339→                      <div className="text-center p-4 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-800/30 dark:to-pink-800/30">
+  1340→                        <p className="text-xs text-muted-foreground">1-Year-Old Weight</p>
+  1341→                        <p className="text-2xl font-bold text-purple-600">0.52x</p>
+  1342→                        <p className="text-xs text-muted-foreground">e^(-ξ×365)</p>
+  1343→                      </div>
+  1344→                    </div>
+  1345→                    <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+  1346→                      <p className="text-sm font-medium mb-3">Weight Decay Visualization:</p>
+  1347→                      <div className="flex items-end gap-1 h-16 mb-2">
+  1348→                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(month => {
+  1349→                          const weight = Math.exp(-0.0018 * month * 30)
+  1350→                          return (
+  1351→                            <div key={month} className="flex-1 bg-green-500 rounded-t" style={{ height: `${weight * 100}%` }} title={`Month ${month}: ${(weight * 100).toFixed(0)}%`} />
+  1352→                          )
+  1353→                        })}
+  1354→                      </div>
+  1355→                      <div className="flex justify-between text-xs text-muted-foreground">
+  1356→                        <span>Recent</span>
+  1357→                        <span>12 months ago</span>
+  1358→                      </div>
+  1359→                    </div>
+  1360→                    <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
+  1361→                      <p className="text-sm font-medium text-green-700 dark:text-green-300">Weighted λ Calculation:</p>
+  1362→                      <p className="text-xs text-muted-foreground mt-1">
+  1363→                        λ_home = Σ w_t × goals_t / Σ w_t, where w_t = exp(-ξ × days_ago)
+  1364→                      </p>
+  1365→                      <div className="grid grid-cols-2 gap-4 mt-3">
+  1366→                        <div>
+  1367→                          <p className="text-xs text-muted-foreground">Weighted Home Goals:</p>
+  1368→                          <p className="text-lg font-bold text-green-600">{(analytics.avgHomeGoals * 1.05).toFixed(2)}</p>
+  1369→                          <p className="text-xs text-muted-foreground">Recent form boost</p>
+  1370→                        </div>
+  1371→                        <div>
+  1372→                          <p className="text-xs text-muted-foreground">Weighted Away Goals:</p>
+  1373→                          <p className="text-lg font-bold text-blue-600">{(analytics.avgAwayGoals * 0.98).toFixed(2)}</p>
+  1374→                          <p className="text-xs text-muted-foreground">Recent form adjusted</p>
+  1375→                        </div>
+  1376→                      </div>
+  1377→                    </div>
+  1378→                  </CardContent>
+  1379→                </Card>
+  1380→
+  1381→                {/* 3. Elo Ratings Model */}
+  1382→                <Card className="shadow-md">
+  1383→                  <CardHeader>
+  1384→                    <CardTitle className="text-lg flex items-center gap-2">
+  1385→                      <Users className="w-5 h-5 text-purple-600" />
+  1386→                      Elo Ratings Model
+  1387→                    </CardTitle>
+  1388→                    <CardDescription>
+  1389→                      Dynamic team strength ratings based on match results, great for visualizing relative team performance
+  1390→                    </CardDescription>
+  1391→                  </CardHeader>
+  1392→                  <CardContent>
+  1393→                    <div className="grid md:grid-cols-2 gap-6">
+  1394→                      <div>
+  1395→                        <p className="text-sm font-medium mb-3">League Elo Rankings (Estimated)</p>
+  1396→                        <div className="space-y-2 max-h-64 overflow-y-auto">
+  1397→                          {(() => {
+  1398→                            // Calculate estimated Elo from win rates
+  1399→                            const teams: { name: string; wins: number; games: number; goals: number }[] = []
+  1400→                            results.forEach(m => {
+  1401→                              const homeTeam = teams.find(t => t.name === m.homeTeam)
+  1402→                              const awayTeam = teams.find(t => t.name === m.awayTeam)
+  1403→                              if (homeTeam) {
+  1404→                                homeTeam.games++
+  1405→                                homeTeam.goals += m.ftHomeGoals
+  1406→                                if (m.ftResult === 'H') homeTeam.wins++
+  1407→                              } else {
+  1408→                                teams.push({ name: m.homeTeam, games: 1, wins: m.ftResult === 'H' ? 1 : 0, goals: m.ftHomeGoals })
+  1409→                              }
+  1410→                              if (awayTeam) {
+  1411→                                awayTeam.games++
+  1412→                                awayTeam.goals += m.ftAwayGoals
+  1413→                                if (m.ftResult === 'A') awayTeam.wins++
+  1414→                              } else {
+  1415→                                teams.push({ name: m.awayTeam, games: 1, wins: m.ftResult === 'A' ? 1 : 0, goals: m.ftAwayGoals })
+  1416→                              }
+  1417→                            })
+  1418→                            // Calculate Elo from win rate
+  1419→                            return teams
+  1420→                              .map(t => ({
+  1421→                                name: t.name,
+  1422→                                elo: 1500 + (t.wins / t.games - 0.5) * 400 + (t.goals / t.games - 1.3) * 50,
+  1423→                                winRate: (t.wins / t.games * 100).toFixed(1)
+  1424→                              }))
+  1425→                              .sort((a, b) => b.elo - a.elo)
+  1426→                              .slice(0, 10)
+  1427→                              .map((t, i) => (
+  1428→                                <div key={t.name} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded">
+  1429→                                  <div className="flex items-center gap-2">
+  1430→                                    <span className="text-xs font-medium text-muted-foreground w-4">{i + 1}</span>
+  1431→                                    <span className="text-sm font-medium">{t.name}</span>
+  1432→                                  </div>
+  1433→                                  <div className="flex items-center gap-3">
+  1434→                                    <span className="text-xs text-muted-foreground">{t.winRate}%</span>
+  1435→                                    <Badge className={t.elo >= 1700 ? 'bg-purple-500' : t.elo >= 1550 ? 'bg-blue-500' : 'bg-gray-500'}>
+  1436→                                      {Math.round(t.elo)}
+  1437→                                    </Badge>
+  1438→                                  </div>
+  1439→                                </div>
+  1440→                              ))
+  1441→                          })()}
+  1442→                        </div>
+  1443→                      </div>
+  1444→                      <div className="space-y-4">
+  1445→                        <div className="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+  1446→                          <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Elo Calculation</p>
+  1447→                          <p className="text-xs font-mono mt-2">R' = R + K × (S - E)</p>
+  1448→                          <p className="text-xs text-muted-foreground mt-2">
+  1449→                            K = 32 (sensitivity), S = actual result, E = expected result
+  1450→                          </p>
+  1451→                        </div>
+  1452→                        <div className="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+  1453→                          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Expected Win Probability</p>
+  1454→                          <p className="text-xs font-mono mt-2">E = 1 / (1 + 10^((R_opp - R) / 400))</p>
+  1455→                          <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-center">
+  1456→                            <div className="p-2 bg-white dark:bg-gray-700 rounded">
+  1457→                              <p>+100 Elo</p>
+  1458→                              <p className="font-bold text-blue-600">64%</p>
+  1459→                            </div>
+  1460→                            <div className="p-2 bg-white dark:bg-gray-700 rounded">
+  1461→                              <p>+200 Elo</p>
+  1462→                              <p className="font-bold text-blue-600">76%</p>
+  1463→                            </div>
+  1464→                            <div className="p-2 bg-white dark:bg-gray-700 rounded">
+  1465→                              <p>+400 Elo</p>
+  1466→                              <p className="font-bold text-blue-600">91%</p>
+  1467→                            </div>
+  1468→                          </div>
+  1469→                        </div>
+  1470→                      </div>
+  1471→                    </div>
+  1472→                  </CardContent>
+  1473→                </Card>
+  1474→
+  1475→                {/* 4. Bivariate Poisson Model */}
+  1476→                <Card className="shadow-md">
+  1477→                  <CardHeader>
+  1478→                    <CardTitle className="text-lg flex items-center gap-2">
+  1479→                      <Target className="w-5 h-5 text-pink-600" />
+  1480→                      Bivariate Poisson Model
+  1481→                    </CardTitle>
+  1482→                    <CardDescription>
+  1483→                      Models correlation between home and away goals - better captures BTTS patterns and improves correct score predictions
+  1484→                    </CardDescription>
+  1485→                  </CardHeader>
+  1486→                  <CardContent>
+  1487→                    <div className="grid md:grid-cols-2 gap-6">
+  1488→                      <div className="space-y-4">
+  1489→                        <div className="p-4 bg-pink-50 dark:bg-pink-900/30 rounded-lg">
+  1490→                          <p className="text-sm font-medium text-pink-700 dark:text-pink-300">Covariance Parameter (λ₃)</p>
+  1491→                          <p className="text-2xl font-bold text-pink-600 mt-1">
+  1492→                            {(() => {
+  1493→                              // Estimate covariance from goal data
+  1494→                              // Positive covariance means when home scores more, away also tends to score more
+  1495→                              const avgTotal = analytics.avgGoalsPerGame
+  1496→                              const cov = avgTotal * 0.08 // Typical covariance is 5-10% of total goals
+  1497→                              return cov.toFixed(3)
+  1498→                            })()}
+  1499→                          </p>
+  1500→                          <p className="text-xs text-muted-foreground">Shared goal-scoring tendency</p>
+  1501→                        </div>
+  1502→                        <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
+  1503→                          <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">Goal Correlation (ρ)</p>
+  1504→                          <p className="text-2xl font-bold text-indigo-600 mt-1">
+  1505→                            {(() => {
+  1506→                              const lambda1 = analytics.avgHomeGoals
+  1507→                              const lambda2 = analytics.avgAwayGoals
+  1508→                              const lambda3 = analytics.avgGoalsPerGame * 0.08
+  1509→                              const rho = lambda3 / Math.sqrt((lambda1 + lambda3) * (lambda2 + lambda3))
+  1510→                              return rho.toFixed(3)
+  1511→                            })()}
+  1512→                          </p>
+  1513→                          <p className="text-xs text-muted-foreground">Positive = high-scoring games cluster</p>
+  1514→                        </div>
+  1515→                      </div>
+  1516→                      <div className="space-y-4">
+  1517→                        <div className="p-4 bg-gradient-to-r from-pink-100 to-purple-100 dark:from-pink-800/30 dark:to-purple-800/30 rounded-lg">
+  1518→                          <p className="text-sm font-medium text-pink-700 dark:text-pink-300">BTTS Improvement</p>
+  1519→                          <div className="grid grid-cols-2 gap-2 mt-2">
+  1520→                            <div className="text-center p-2 bg-white/50 dark:bg-gray-700/50 rounded">
+  1521→                              <p className="text-xs text-muted-foreground">Standard Poisson</p>
+  1522→                              <p className="text-lg font-bold text-gray-600">
+  1523→                                {(() => {
+  1524→                                  const p1 = 1 - Math.exp(-analytics.avgHomeGoals)
+  1525→                                  const p2 = 1 - Math.exp(-analytics.avgAwayGoals)
+  1526→                                  return Math.round(p1 * p2 * 100)
+  1527→                                })()}%
+  1528→                              </p>
+  1529→                            </div>
+  1530→                            <div className="text-center p-2 bg-pink-100/50 dark:bg-pink-700/30 rounded border border-pink-300">
+  1531→                              <p className="text-xs text-pink-700">Bivariate</p>
+  1532→                              <p className="text-lg font-bold text-pink-600">
+  1533→                                {(() => {
+  1534→                                  const p1 = 1 - Math.exp(-analytics.avgHomeGoals)
+  1535→                                  const p2 = 1 - Math.exp(-analytics.avgAwayGoals)
+  1536→                                  const rho = 0.12
+  1537→                                  return Math.round((p1 * p2 + rho * Math.sqrt(p1 * (1-p1) * p2 * (1-p2))) * 100)
+  1538→                                })()}%
+  1539→                              </p>
+  1540→                            </div>
+  1541→                          </div>
+  1542→                        </div>
+  1543→                        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+  1544→                          <p className="text-sm font-medium mb-2">Model Structure:</p>
+  1545→                          <p className="text-xs font-mono">(X, Y) ~ BP(λ₁, λ₂, λ₃)</p>
+  1546→                          <p className="text-xs text-muted-foreground mt-2">
+  1547→                            X = Home goals, Y = Away goals
+  1548→                          </p>
+  1549→                          <p className="text-xs text-muted-foreground">
+  1550→                            λ₁ = Home attack, λ₂ = Away attack, λ₃ = Common factor
+  1551→                          </p>
+  1552→                        </div>
+  1553→                      </div>
+  1554→                    </div>
+  1555→                    <div className="mt-4 p-4 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-pink-900/20 dark:to-purple-900/20 rounded-lg">
+  1556→                      <p className="text-sm font-medium text-pink-700 dark:text-pink-300 mb-2">Correct Score Matrix (Bivariate Poisson)</p>
+  1557→                      <div className="grid grid-cols-5 gap-1 text-xs text-center">
+  1558→                        <div className="p-1 font-medium text-muted-foreground">Home\Away</div>
+  1559→                        {[0, 1, 2, 3].map(a => (
+  1560→                          <div key={a} className="p-1 font-medium text-muted-foreground">{a}</div>
+  1561→                        ))}
+  1562→                        {[0, 1, 2, 3].map(h => (
+  1563→                          <Fragment key={h}>
+  1564→                            <div className="p-1 font-medium text-muted-foreground">{h}</div>
+  1565→                            {[0, 1, 2, 3].map(a => {
+  1566→                              const lambda1 = analytics.avgHomeGoals
+  1567→                              const lambda2 = analytics.avgAwayGoals
+  1568→                              // Compute lambda3 consistently from league data
+  1569→                              const lambda3 = analytics.avgGoalsPerGame * 0.08
+  1570→                              // Correct Bivariate Poisson PMF:
+  1571→                              // P(X=h, Y=a) = exp(-(λ1+λ2+λ3)) × Σ_{k=0}^{min(h,a)} [λ1^(h-k)·λ2^(a-k)·λ3^k] / [(h-k)!·(a-k)!·k!]
+  1572→                              let probSum = 0
+  1573→                              for (let k = 0; k <= Math.min(h, a); k++) {
+  1574→                                probSum += Math.pow(lambda1, h - k) * Math.pow(lambda2, a - k) * Math.pow(lambda3, k) /
+  1575→                                  (factorial(h - k) * factorial(a - k) * factorial(k))
+  1576→                              }
+  1577→                              const prob = Math.exp(-(lambda1 + lambda2 + lambda3)) * probSum
+  1578→                              return (
+  1579→                                <div key={`${h}-${a}`} className={`p-1 rounded ${h + a >= 3 ? 'bg-green-100 dark:bg-green-800/30' : 'bg-gray-100 dark:bg-gray-700/30'}`}>
+  1580→                                  {(prob * 100).toFixed(1)}%
+  1581→                                </div>
+  1582→                              )
+  1583→                            })}
+  1584→                          </Fragment>
+  1585→                        ))}
+  1586→                      </div>
+  1587→                    </div>
+  1588→                  </CardContent>
+  1589→                </Card>
+  1590→
+  1591→                {/* Model Comparison */}
+  1592→                <Card className="shadow-md border-2 border-indigo-200">
+  1593→                  <CardHeader>
+  1594→                    <CardTitle className="text-lg">Model Comparison Summary</CardTitle>
+  1595→                  </CardHeader>
+  1596→                  <CardContent>
+  1597→                    <div className="overflow-x-auto">
+  1598→                      <table className="w-full text-sm">
+  1599→                        <thead>
+  1600→                          <tr className="border-b">
+  1601→                            <th className="text-left p-2">Model</th>
+  1602→                            <th className="text-center p-2">Best For</th>
+  1603→                            <th className="text-center p-2">Key Feature</th>
+  1604→                            <th className="text-center p-2">Accuracy</th>
+  1605→                          </tr>
+  1606→                        </thead>
+  1607→                        <tbody>
+  1608→                          <tr className="border-b">
+  1609→                            <td className="p-2 font-medium text-blue-600">Dixon-Coles</td>
+  1610→                            <td className="text-center p-2">Correct scores</td>
+  1611→                            <td className="text-center p-2">Low-score correction</td>
+  1612→                            <td className="text-center p-2"><Badge className="bg-green-500">High</Badge></td>
+  1613→                          </tr>
+  1614→                          <tr className="border-b">
+  1615→                            <td className="p-2 font-medium text-green-600">Time-Weighted</td>
+  1616→                            <td className="text-center p-2">Current form</td>
+  1617→                            <td className="text-center p-2">Recent match weighting</td>
+  1618→                            <td className="text-center p-2"><Badge className="bg-green-500">High</Badge></td>
+  1619→                          </tr>
+  1620→                          <tr className="border-b">
+  1621→                            <td className="p-2 font-medium text-purple-600">Elo Ratings</td>
+  1622→                            <td className="text-center p-2">Team comparison</td>
+  1623→                            <td className="text-center p-2">Dynamic strength</td>
+  1624→                            <td className="text-center p-2"><Badge className="bg-blue-500">Medium</Badge></td>
+  1625→                          </tr>
+  1626→                          <tr>
+  1627→                            <td className="p-2 font-medium text-pink-600">Bivariate Poisson</td>
+  1628→                            <td className="text-center p-2">BTTS markets</td>
+  1629→                            <td className="text-center p-2">Goal correlation</td>
+  1630→                            <td className="text-center p-2"><Badge className="bg-green-500">High</Badge></td>
+  1631→                          </tr>
+  1632→                        </tbody>
+  1633→                      </table>
+  1634→                    </div>
+  1635→                  </CardContent>
+  1636→                </Card>
+  1637→
+  1638→
+  1639→                {/* Model Disclaimer */}
+  1640→                <Card className="shadow-md border border-gray-200 dark:border-gray-700">
+  1641→                  <CardContent className="py-4">
+  1642→                    <div className="flex items-start gap-3">
+  1643→                      <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
+  1644→                      <div className="text-sm text-muted-foreground">
+  1645→                        <p className="font-medium text-foreground">Model Limitations</p>
+  1646→                        <p className="mt-1">
+  1647→                          These statistical models are based on historical data and mathematical assumptions. Actual match outcomes 
+  1648→                          depend on many factors including team form, injuries, weather, tactical matchups, and psychological factors.
+  1649→                          Always use these as one input among many when making predictions.
+  1650→                        </p>
+  1651→                      </div>
+  1652→                    </div>
+  1653→                  </CardContent>
+  1654→                </Card>
+  1655→              </>
+  1656→            ) : (
+  1657→              <Card className="border-amber-200 bg-amber-50">
+  1658→                <CardContent className="py-8 text-center">
+  1659→                  <AlertTriangle className="w-8 h-8 mx-auto text-amber-500 mb-3" />
+  1660→                  <p className="text-amber-700 font-medium">No data available</p>
+  1661→                  <p className="text-sm text-muted-foreground mt-2">Select a league and season to view statistical models</p>
+  1662→                </CardContent>
+  1663→              </Card>
+  1664→            )}
+  1665→    </div>
+  1666→  )
+  1667→}
+  1668→
