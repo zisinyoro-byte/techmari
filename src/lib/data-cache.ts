@@ -67,7 +67,7 @@ export async function fetchWithRetry(
 // ---------------------------------------------------------------------------
 // parseCSV – turn a football-data.co.uk CSV string into MatchResult[]
 // ---------------------------------------------------------------------------
-export function parseCSV(csvText: string, season: string): MatchResult[] {
+export function parseCSV(csvText: string, season: string, expectedLeague?: string): MatchResult[] {
   const lines = csvText.trim().split('\n');
   if (lines.length < 2) return [];
 
@@ -79,6 +79,9 @@ export function parseCSV(csvText: string, season: string): MatchResult[] {
   header.forEach((col, idx) => {
     colIndex[col.trim()] = idx;
   });
+
+  // Detect if the Div column exists for league validation
+  const hasDivCol = colIndex['Div'] !== undefined;
 
   const results: MatchResult[] = [];
 
@@ -108,6 +111,13 @@ export function parseCSV(csvText: string, season: string): MatchResult[] {
 
     // Skip incomplete records
     if (!homeTeam || !awayTeam) continue;
+
+    // Validate Div column matches expected league (prevents redirect contamination)
+    // football-data.co.uk redirects non-existent season CSVs to other leagues' data
+    if (expectedLeague && hasDivCol) {
+      const div = (values[colIndex['Div']] || '').trim();
+      if (div !== expectedLeague) continue;
+    }
 
     results.push({
       date: values[colIndex['Date']] || '',
@@ -187,7 +197,7 @@ export async function fetchSeasonData(
     }
 
     const csvText = await response.text();
-    const results = parseCSV(csvText, season);
+    const results = parseCSV(csvText, season, league);
 
     cache.set(cacheKey, { data: results, timestamp: Date.now() });
     return results;
