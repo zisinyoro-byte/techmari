@@ -28,6 +28,7 @@ import { optimizeDixonColes, type DixonColesParams } from './dixon-coles-optimiz
 import { getCalibration, applyCalibration } from './calibration-store';
 import { applyBookieOddsDampener, computeTeamAvgOdds } from '@/lib/betting-filters';
 import { weightedAverage } from './season-weighting';
+import { estimateMatchupDispersion, estimateMatchupHtFtRatio } from './dispersion-estimator';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,6 +59,11 @@ export interface PredictOptions {
   /** Walk-forward cutoff: only consider matches with date < beforeDate for H2H blending.
    *  Used by backtest to prevent look-ahead bias. Production leaves this undefined. */
   beforeDate?: string;
+  /** Use per-matchup dispersion estimation (filters historical matches by similar
+   *  strength differential). Default: false — currently disabled because it interacts
+   *  badly with the Jensen-gap BTTS correction (which was tuned for league-wide
+   *  dispersion). Enable experimentally if you also re-tune the Jensen correction. */
+  useMatchupDispersion?: boolean;
   /** Log DC optimization progress to console. Default: false */
   verbose?: boolean;
 }
@@ -316,6 +322,7 @@ export function generatePredictionCore(
     applyCalibration: doCalibration = true,
     applyDampener: doDampener = true,
     beforeDate,
+    useMatchupDispersion = false, // disabled by default — see PredictOptions docs
     verbose = false,
   } = options;
 
@@ -429,12 +436,38 @@ export function generatePredictionCore(
   // -----------------------------------------------------------------------
   // Phase 2f: Negative Binomial dispersion estimation
   // -----------------------------------------------------------------------
-  const allTotalGoals = allMatches.map(m => m.ftHomeGoals + m.ftAwayGoals);
-  const dispersion = estimateDispersion(allTotalGoals);
+  // Item 2: per-matchup dispersion estimation (OFF by default).
+  //
+  // When `useMatchupDispersion` is true, the dispersion parameter `r` is
+  // estimated from historical matches with a similar strength differential
+  // to the target matchup. This better captures the fact that mismatched
+  // matchups have fatter tails (higher variance) than balanced matchups.
+  //
+  // DEFAULT: disabled. When enabled, it interacts badly with the Jensen-gap
+  // BTTS correction (which was tuned for league-wide dispersion). To use it
+  // safely, you must also re-tune `bttsJensenCorrection` per league. The
+  // infrastructure is in place — flip the flag in predict/route.ts and
+  // backtest/route.ts to enable experimentally.
+  //
+  // When disabled, falls back to league-wide dispersion (original behavior).
+  const dispersion = useMatchupDispersion
+    ? estimateMatchupDispersion(allMatches, teamStats, homeTeam, awayTeam, league)
+    : estimateDispersion(allMatches.map(m => m.ftHomeGoals + m.ftAwayGoals));
 
   // -----------------------------------------------------------------------
   // Phase 2d + 2f: Monte Carlo simulation with NB dispersion and DC rho
   // -----------------------------------------------------------------------
+  // Item 1 fix: pass per-league BTTS Jensen correction factor.
+  // Item 3 fix: pass per-matchup HT/FT ratio (computed from league baseline
+  //             + matchup scoring/mismatch adjustments).
+  const htFtRatio = estimateMatchupHtFtRatio(
+    league,
+    adjustedLambdaHome,
+    adjustedLambdaAway,
+    homeStats.attack,
+    awayStats.attack,
+  );
+
   const iterations = useMonteCarlo ? mcIterations : 10000; // smaller default for analytical
   const prediction = runMonteCarlo(
     adjustedLambdaHome,
@@ -442,6 +475,11 @@ export function generatePredictionCore(
     iterations,
     effectiveRho,
     dispersion,
+    {
+      bttsJensenCorrection: undefined, // let runMonteCarlo look up league default
+      htFtRatio,
+      league,
+    },
   );
 
   // -----------------------------------------------------------------------

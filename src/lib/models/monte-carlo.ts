@@ -1,5 +1,6 @@
 import { poissonRandom, goalRandom } from './poisson';
 import type { PredictionResult } from '@/lib/types';
+import { getLeagueTuning } from './league-configs';
 
 /**
  * Calculate implied decimal odds from a probability percentage.
@@ -26,19 +27,46 @@ function calculateImpliedOdds(probability: number): number {
  *   football where strong teams can run up high scores against weak ones.
  *   Falls back to Poisson when dispersion is Infinity or > 100.
  *
+ * Item 1 (BTTS Jensen-gap): bttsJensenCorrection is now a per-league
+ *   parameter (was hard-coded 0.55). 0 disables the correction entirely.
+ *
+ * Item 3 (HT lambda ratio): htFtRatio replaces the hard-coded 0.45.
+ *   Caller can pass a matchup-specific value (e.g. from
+ *   `estimateMatchupHtFtRatio`); otherwise falls back to league default.
+ *
  * @param lambdaHome  - Expected home goals
  * @param lambdaAway  - Expected away goals
  * @param iterations  - Number of Monte Carlo simulations (default 100,000)
  * @param rho         - Dixon-Coles correlation parameter (0 = no correction)
  * @param dispersion  - NB dispersion parameter r (Infinity = Poisson fallback)
+ * @param options     - Optional tuning: bttsJensenCorrection, htFtRatio, league
  */
 export function runMonteCarlo(
   lambdaHome: number,
   lambdaAway: number,
   iterations: number = 100000,
   rho: number = 0,
-  dispersion: number = Infinity
+  dispersion: number = Infinity,
+  options: {
+    /** Per-league BTTS Jensen correction scaling factor (default: 0.55 = old behavior).
+     *  Set to 0 to disable the Jensen-gap correction entirely. */
+    bttsJensenCorrection?: number;
+    /** Halftime/full-time goal ratio (default: 0.45 = old behavior).
+     *  Pass a matchup-specific value from estimateMatchupHtFtRatio for better HT predictions. */
+    htFtRatio?: number;
+    /** League code (used for default tuning lookup if specific values not provided) */
+    league?: string;
+  } = {},
 ): PredictionResult {
+  // Resolve tuning: explicit parameter > league-specific default > old hardcoded value
+  const leagueTuning = options.league ? getLeagueTuning(options.league) : null;
+  const bttsJensenCorrection = options.bttsJensenCorrection ??
+    leagueTuning?.bttsJensenCorrection ??
+    0.55;
+  const htFtRatio = options.htFtRatio ??
+    leagueTuning?.htFtRatio ??
+    0.45;
+
   let homeWins = 0;
   let draws = 0;
   let awayWins = 0;
@@ -50,9 +78,9 @@ export function runMonteCarlo(
 
   const scoreCounts = new Map<string, number>();
 
-  // Halftime simulation (typically ~45% of full-time goals)
-  const htLambdaHome = lambdaHome * 0.45;
-  const htLambdaAway = lambdaAway * 0.45;
+  // Halftime simulation — ratio now configurable per league/matchup (Item 3)
+  const htLambdaHome = lambdaHome * htFtRatio;
+  const htLambdaAway = lambdaAway * htFtRatio;
 
   let htHomeWins = 0;
   let htDraws = 0;
@@ -209,11 +237,17 @@ export function runMonteCarlo(
   // Jensen-gap correction for BTTS (applies to both rho=0 and rho>0 paths)
   // See predictions.ts for full explanation. The MC simulation uses the same
   // high-variance lambdas, so it suffers the same concavity artifact.
-  if (!useNB) { // Only for Poisson; NB has different distribution properties
+  //
+  // Item 1 fix: the 0.55 constant is now a per-league calibrated parameter
+  // (`bttsJensenCorrection`). Some leagues need more correction (defensive,
+  // low-BTTS-rate leagues like Serie A) and others need less (high-scoring
+  // leagues like Eredivisie where the model already overestimates BTTS).
+  // See src/lib/models/league-configs.ts for the per-league values.
+  if (!useNB && bttsJensenCorrection > 0) { // Only for Poisson; NB has different distribution properties
     const balancedLambda = (lambdaHome + lambdaAway) / 2;
     const bttsBalanced = (1 - Math.exp(-balancedLambda)) * (1 - Math.exp(-balancedLambda));
     const lambdaImbalance = Math.abs(lambdaHome - lambdaAway) / (lambdaHome + lambdaAway + 0.001);
-    const correctionFraction = 0.55 * lambdaImbalance;
+    const correctionFraction = bttsJensenCorrection * lambdaImbalance;
     adjustedBtts = adjustedBtts + (bttsBalanced * 100 - adjustedBtts) * correctionFraction;
   }
 
