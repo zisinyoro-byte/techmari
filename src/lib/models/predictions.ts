@@ -245,6 +245,26 @@ function calculateBacktestTeamStats(
  * Generate backtest predictions using Negative Binomial-based model (with Poisson
  * fallback) with form adjustment and bidirectional home advantage.
  *
+ * @deprecated Use `generatePredictionCore()` from `@/lib/models/predict-core`
+ *             instead. That function is the SINGLE SOURCE OF TRUTH shared by
+ *             both the predict route and the backtest route. This legacy
+ *             function is kept ONLY for backward compatibility with standalone
+ *             scripts in /scripts/*.ts that have not yet been migrated.
+ *
+ *             Differences from `generatePredictionCore`:
+ *               - Uses simple team stats (no within-season recency decay)
+ *               - No Dixon-Coles gradient descent optimization
+ *               - No H2H-informed lambda blending
+ *               - Uses analytical NB probabilities (not Monte Carlo)
+ *               - No Dixon-Coles rho correction to score matrix
+ *               - Applies a `formAdjustment` post-hoc to 1X2 probabilities
+ *                 (the core function does not — it relies on recency-weighted
+ *                 team stats and DC fit instead)
+ *
+ *             Backtest numbers computed via this function WILL NOT match
+ *             production. Use `generatePredictionCore` with `applyCalibration:
+ *             false, applyDampener: false` for like-for-like validation.
+ *
  * Phase 2f: When training data shows overdispersion, uses Negative Binomial
  * instead of Poisson for more accurate goal probability estimation.
  *

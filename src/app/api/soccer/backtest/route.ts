@@ -6,10 +6,19 @@ import type {
   ModelAccuracy,
   BacktestResult,
   LeagueAverages,
+  MatchResult,
 } from '@/lib/types';
 import { EUROPEAN_SEASONS } from '@/lib/constants';
 import { calculateSeasonWeights } from '@/lib/models/season-weighting';
-import { calculateLeagueAverages, generateBacktestPredictions } from '@/lib/models/predictions';
+import { calculateTeamStats } from '@/lib/models/team-stats';
+import { calculateLeagueAverages } from '@/lib/models/predictions';
+import {
+  generatePredictionCore,
+  combineWeightedTeamStats,
+  extractBacktestShape,
+  type SeasonStatsEntry,
+  clearDixonColesCache,
+} from '@/lib/models/predict-core';
 import { saveCalibration } from '@/lib/models/calibration-store';
 import {
   deriveThresholdsFromBacktest,
@@ -165,15 +174,22 @@ function calculateMetrics(predictions: PredictionRecord[]): { metrics: ModelAccu
     sumPredictedDraw += pred.predicted.draw;
     sumPredictedAwayWin += pred.predicted.awayWin;
 
-    // O3.5 predicted: compute from totalXg using Poisson CDF complement
-    // P(total > 3) = 1 - P(0) - P(1) - P(2) - P(3)
-    const txg = pred.predicted.totalXg;
-    if (txg > 0) {
-      const p0 = Math.exp(-txg);
-      const p1 = txg * Math.exp(-txg);
-      const p2 = (txg * txg / 2) * Math.exp(-txg);
-      const p3 = (txg * txg * txg / 6) * Math.exp(-txg);
-      sumPredictedO35 += (1 - p0 - p1 - p2 - p3) * 100;
+    // O3.5 predicted: comes directly from the Monte Carlo simulation now
+    // (the core function returns it as `prediction.over35`). Previously we
+    // re-derived it inline via Poisson CDF complement, which diverged from
+    // production. Using the MC value ensures like-for-like.
+    if (pred.predicted.over35 !== undefined) {
+      sumPredictedO35 += pred.predicted.over35;
+    } else {
+      // Fallback for legacy records (shouldn't occur post-refactor)
+      const txg = pred.predicted.totalXg;
+      if (txg > 0) {
+        const p0 = Math.exp(-txg);
+        const p1 = txg * Math.exp(-txg);
+        const p2 = (txg * txg / 2) * Math.exp(-txg);
+        const p3 = (txg * txg * txg / 6) * Math.exp(-txg);
+        sumPredictedO35 += (1 - p0 - p1 - p2 - p3) * 100;
+      }
     }
   }
 
@@ -269,12 +285,40 @@ export async function GET(request: NextRequest) {
     console.log(`[Backtest API] Fetching training data: ${training.join(', ')}`);
     const trainingPromises = training.map(s => fetchSeasonData(league, s));
     const trainingResults = await Promise.all(trainingPromises);
-    const trainingData = trainingResults.flat();
-    console.log(`[Backtest API] Training data: ${trainingData.length} matches`);
+    console.log(`[Backtest API] Training data: ${trainingResults.flat().length} matches`);
 
-    // Apply season weights to training data
+    // Apply season weights to training data (exponential decay across seasons)
     const seasonWeights = calculateSeasonWeights(training);
     console.log(`[Backtest API] Season weights: ${JSON.stringify(Array.from(seasonWeights.entries()))}`);
+
+    // -----------------------------------------------------------------------
+    // Compute team stats the production way: per-season stats → combineWeightedTeamStats
+    // -----------------------------------------------------------------------
+    // Previously the backtest used a separate `calculateBacktestTeamStats` with
+    // simple averages + match duplication. The production path uses
+    // `combineWeightedTeamStats` over per-season `calculateTeamStats` (which
+    // itself applies within-season 0.92^n recency decay over the last 20 games).
+    //
+    // We now use the same path so backtest matches production exactly.
+    const seasonTeamStats: SeasonStatsEntry[] = trainingResults.map((matches, i) => ({
+      season: training[i],
+      weight: seasonWeights.get(training[i]) || 0,
+      stats: calculateTeamStats(matches),
+    }));
+    const teamStats = combineWeightedTeamStats(seasonTeamStats);
+
+    // Flat-merged training matches (used for H2H, dispersion, DC fit)
+    const trainingData: MatchResult[] = trainingResults.flat();
+
+    // League averages (for threshold derivation baselines)
+    const leagueAvgs: LeagueAverages = calculateLeagueAverages(trainingData);
+
+    // Pre-compute league home/away averages used by the core function
+    const leagueHomeAvg = trainingData.reduce((sum, m) => sum + m.ftHomeGoals, 0) / Math.max(trainingData.length, 1);
+    const leagueAwayAvg = trainingData.reduce((sum, m) => sum + m.ftAwayGoals, 0) / Math.max(trainingData.length, 1);
+
+    // Clear DC params cache so a fresh training snapshot gets fresh params
+    clearDixonColesCache();
 
     // Fetch test data
     console.log(`[Backtest API] Fetching test data: ${testSeason}`);
@@ -289,14 +333,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Calculate league averages from training data
-    const leagueAvgs: LeagueAverages = calculateLeagueAverages(trainingData);
-
     // Combine all data for H2H lookup (training + test data before current match)
     const allData = [...trainingData, ...testData];
 
     // Generate predictions for each test match
     const predictions: PredictionRecord[] = [];
+    let predictionCount = 0;
 
     for (const match of testData) {
       // Only predict if both teams have historical data
@@ -305,8 +347,56 @@ export async function GET(request: NextRequest) {
 
       if (!homeTeamInTraining || !awayTeamInTraining) continue;
 
-      // Pass season weights for recency-weighted training stats
-      const predicted = generateBacktestPredictions(trainingData, match.homeTeam, match.awayTeam, leagueAvgs, seasonWeights);
+      // Hoisted outside try-block so subsequent code can reference it.
+      let predicted: ReturnType<typeof extractBacktestShape> | null = null;
+
+      try {
+        // -------------------------------------------------------------------
+        // Core prediction — SAME function as production (predict-core.ts)
+        // -------------------------------------------------------------------
+        // Flags:
+        //   - useDixonColes: true   (production uses DC when converged)
+        //   - useH2HBlend:   true   (production blends 30% H2H if ≥4 meetings)
+        //   - useMonteCarlo:  true   (production uses 100K MC iterations)
+        //   - applyCalibration: false  (backtest is MEASURING the raw model)
+        //   - applyDampener:    false  (dampener depends on calibration)
+        //   - beforeDate: match.date  (walk-forward: only H2H matches BEFORE
+        //                               this test match, prevents leakage)
+        //   - mcIterations: 10000     (10x fewer than production's 100K for
+        //                              backtest speed; ~±0.3pp noise acceptable)
+        const predictionResult = generatePredictionCore(
+          {
+            allMatches: trainingData,
+            teamStats,
+            leagueHomeAvg,
+            leagueAwayAvg,
+            league,
+          },
+          match.homeTeam,
+          match.awayTeam,
+          {
+            useDixonColes: true,
+            useH2HBlend: true,
+            useMonteCarlo: true,
+            mcIterations: 10000,
+            applyCalibration: false,
+            applyDampener: false,
+            beforeDate: match.date,
+            verbose: false,
+          },
+        );
+        predicted = extractBacktestShape(predictionResult);
+        predictionCount++;
+        if (predictionCount % 50 === 0) {
+          console.log(`[Backtest API] Generated ${predictionCount} predictions...`);
+        }
+      } catch (predError) {
+        // Skip matches that fail to predict (e.g. team with no stats) but log it
+        console.warn(`[Backtest API] Prediction failed for ${match.homeTeam} vs ${match.awayTeam} (${match.date}):`, predError);
+        continue;
+      }
+
+      if (!predicted) continue; // type-safety guard, should never hit
 
       // Calculate 2nd half result
       const shHomeGoals = match.ftHomeGoals - match.htHomeGoals;
@@ -396,17 +486,10 @@ export async function GET(request: NextRequest) {
           ? ((matchData!.ftHomeGoals + matchData!.ftAwayGoals) / totalShots) * 100
           : undefined;
 
-        // Compute over35 probability from Poisson using totalXg
-        // over35 = 1 - P(0 goals) - P(1) - P(2) - P(3)
-        const totalXg = pred.predicted.totalXg;
-        let over35Prob: number | undefined;
-        if (totalXg > 0) {
-          const p0 = Math.exp(-totalXg);
-          const p1 = totalXg * Math.exp(-totalXg);
-          const p2 = (totalXg * totalXg / 2) * Math.exp(-totalXg);
-          const p3 = (totalXg * totalXg * totalXg / 6) * Math.exp(-totalXg);
-          over35Prob = (1 - p0 - p1 - p2 - p3) * 100;
-        }
+        // Compute over35 probability from the prediction result (MC-simulated)
+        // Previously this was re-derived inline via Poisson CDF on totalXg,
+        // which diverged from production. Now we use the actual MC value.
+        const over35Prob = pred.predicted.over35;
 
         return {
           ftHomeGoals: pred.actual.homeGoals,

@@ -484,6 +484,13 @@ export interface PredictionRecord {
     over25: number;
     btts: number;
     totalXg: number;
+    /**
+     * O3.5 probability — now populated directly by `generatePredictionCore`
+     * (the unified prediction engine). Older records may not have this field
+     * populated; access via optional chaining or fall back to inline Poisson
+     * re-derivation if you need to support legacy data.
+     */
+    over35?: number;
   };
   actual: {
     homeGoals: number;
