@@ -383,6 +383,18 @@ export interface PredictionResult {
     matches: number;
     brierScore: number;
   };
+  // Kelly criterion stake sizing (fraction of bankroll per market)
+  // Only populated when bookie odds are provided to the prediction engine
+  kellyStakes?: {
+    homeWin: number;
+    draw: number;
+    awayWin: number;
+    over25: number;
+    btts: number;
+    over35: number;
+  };
+  // Whether analytical Dixon-Coles was used for 1X2 (vs MC approximation)
+  analyticalDC?: boolean;
 }
 
 export interface PatternAnalysis {

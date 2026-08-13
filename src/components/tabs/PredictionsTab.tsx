@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3, TrendingUp, Shield, Flame, Trophy } from 'lucide-react'
+import { Target, RefreshCw, Sparkles, CheckCircle, AlertTriangle, Zap, Goal, DollarSign, BarChart3, TrendingUp, Shield, Flame, Trophy, Wallet } from 'lucide-react'
 import type { PredictionsTabProps } from './types'
 import { COLORS, SEASON_NAMES } from '@/lib/constants'
 import { parseDateSafe } from '@/lib/utils'
@@ -1711,6 +1711,52 @@ export default function PredictionsTab({
                     </CardContent>
                   </Card>
                 </div>
+
+                {/* Kelly Criterion Stakes */}
+                {prediction.prediction.kellyStakes && (
+                  <Card className="shadow-md border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Wallet className="w-5 h-5 text-emerald-600" />
+                        Kelly Criterion Stakes
+                        <Badge variant="outline" className="text-xs font-normal ml-auto">Quarter Kelly (25%)</Badge>
+                      </CardTitle>
+                      <CardDescription>Recommended bankroll allocation per market — 0% = no edge, skip the bet</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                        {([
+                          { key: 'homeWin' as const, label: 'Home Win', color: 'text-green-600 bg-green-50' },
+                          { key: 'draw' as const, label: 'Draw', color: 'text-amber-600 bg-amber-50' },
+                          { key: 'awayWin' as const, label: 'Away Win', color: 'text-blue-600 bg-blue-50' },
+                          { key: 'over25' as const, label: 'Over 2.5', color: 'text-purple-600 bg-purple-50' },
+                          { key: 'btts' as const, label: 'BTTS Yes', color: 'text-pink-600 bg-pink-50' },
+                          { key: 'over35' as const, label: 'Over 3.5', color: 'text-indigo-600 bg-indigo-50' },
+                        ]).map(({ key, label, color }) => {
+                          const stake = prediction.prediction.kellyStakes![key];
+                          const hasEdge = stake > 0;
+                          return (
+                            <div key={key} className={`text-center p-3 rounded-lg border ${hasEdge ? color + ' border-current/20' : 'bg-gray-50 border-gray-200'}`}>
+                              <p className="text-xs text-muted-foreground">{label}</p>
+                              <p className={`text-lg font-bold mt-1 ${hasEdge ? color.split(' ')[0] : 'text-gray-400'}`}>
+                                {hasEdge ? `${(stake * 100).toFixed(1)}%` : '0%'}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {hasEdge ? `${(stake * 10000).toFixed(0)} per 10k` : 'No edge'}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {prediction.prediction.analyticalDC && (
+                        <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3 text-emerald-500" />
+                          1X2 probabilities computed via exact Dixon-Coles matrix (not Monte Carlo approximation)
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Halftime Predictions */}
                 <Card className="shadow-md border-2 border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50">

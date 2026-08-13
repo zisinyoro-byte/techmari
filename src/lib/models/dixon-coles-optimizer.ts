@@ -451,6 +451,52 @@ export function optimizeDixonColes(
     console.log(`[DixonColes] Max iterations reached (${maxIterations}): NLL=${prevNLL.toFixed(2)}, rho=${currentRho.toFixed(4)}, homeAdv=${currentHomeAdv.toFixed(4)}`);
   }
 
+  // -----------------------------------------------------------------------
+  // Shrinkage: James-Stein-style regression toward the mean (1.0)
+  // -----------------------------------------------------------------------
+  // Teams with few matches have noisy parameter estimates. We shrink
+   // attack/defense toward 1.0 (league average) based on sample size.
+  //
+  // shrunk = (n * observed + k * prior) / (n + k)
+  //   where n = games played, k = shrinkage strength (default 15)
+  //   k=15 means a team with 15 games gets 50% weight on prior.
+  //   A team with 60+ games is barely shrunk (<20% toward mean).
+  //
+  // This dramatically improves early-season predictions where a team
+   // with 3-5 games might show attack=2.5 purely from luck.
+  // -----------------------------------------------------------------------
+
+  const SHRINKAGE_K = 15; // games equivalent for prior weight
+  const teamGames = new Map<string, number>();
+  for (const team of teams) {
+    const count = matches.filter(m => m.homeTeam === team || m.awayTeam === team).length;
+    teamGames.set(team, count);
+  }
+
+  for (const team of teams) {
+    const n = teamGames.get(team) ?? 0;
+    const shrinkFactor = n / (n + SHRINKAGE_K); // 0 for 0 games, ~1 for many
+
+    const shrunkAttack = shrinkFactor * (currentAttack.get(team) ?? 1) + (1 - shrinkFactor) * 1;
+    const shrunkDefense = shrinkFactor * (currentDefense.get(team) ?? 1) + (1 - shrinkFactor) * 1;
+
+    currentAttack.set(team, Math.min(Math.max(shrunkAttack, 0.3), 3.0));
+    currentDefense.set(team, Math.min(Math.max(shrunkDefense, 0.3), 3.0));
+  }
+
+  // Re-normalize: ensure average attack and defense = 1.0
+  // This prevents the shrinkage from shifting the overall level
+  const avgAttack = Array.from(currentAttack.values()).reduce((s, v) => s + v, 0) / (currentAttack.size || 1);
+  const avgDefense = Array.from(currentDefense.values()).reduce((s, v) => s + v, 0) / (currentDefense.size || 1);
+  for (const team of teams) {
+    currentAttack.set(team, (currentAttack.get(team) ?? 1) / avgAttack);
+    currentDefense.set(team, (currentDefense.get(team) ?? 1) / avgDefense);
+  }
+
+  if (verbose) {
+    console.log(`[DixonColes] Shrinkage applied (k=${SHRINKAGE_K}), normalized avgAttack=${avgAttack.toFixed(4)} → 1.0, avgDefense=${avgDefense.toFixed(4)} → 1.0`);
+  }
+
   return {
     attack: currentAttack,
     defense: currentDefense,

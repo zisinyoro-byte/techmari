@@ -29,6 +29,7 @@ import { getCalibration, applyCalibration } from './calibration-store';
 import { applyBookieOddsDampener, computeTeamAvgOdds } from '@/lib/betting-filters';
 import { weightedAverage } from './season-weighting';
 import { estimateMatchupDispersion, estimateMatchupHtFtRatio } from './dispersion-estimator';
+import { computeAnalyticalDC, computeKellyStakes } from './analytical-dc';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +65,16 @@ export interface PredictOptions {
    *  badly with the Jensen-gap BTTS correction (which was tuned for league-wide
    *  dispersion). Enable experimentally if you also re-tune the Jensen correction. */
   useMatchupDispersion?: boolean;
+  /** Bookmaker odds for Kelly criterion calculation (decimal). When provided,
+   *  the prediction output will include kellyStakes. */
+  bookieOdds?: {
+    home?: number | null;
+    draw?: number | null;
+    away?: number | null;
+    over25?: number | null;
+    bttsYes?: number | null;
+    over35?: number | null;
+  };
   /** Log DC optimization progress to console. Default: false */
   verbose?: boolean;
 }
@@ -473,7 +484,8 @@ export function generatePredictionCore(
     adjustedLambdaHome,
     adjustedLambdaAway,
     iterations,
-    effectiveRho,
+    // Pass 0 for rho in MC — analytical DC handles 1X2 below
+    0,
     dispersion,
     {
       bttsJensenCorrection: undefined, // let runMonteCarlo look up league default
@@ -481,6 +493,35 @@ export function generatePredictionCore(
       league,
     },
   );
+
+  // -----------------------------------------------------------------------
+  // Phase 2j: Analytical Dixon-Coles for exact 1X2 probabilities
+  // -----------------------------------------------------------------------
+  // The MC simulation above generates goal markets (O2.5, BTTS, O3.5) using
+  // NB dispersion. But for 1X2, we compute exact DC probabilities by
+  // enumerating the full bivariate probability matrix with tau baked in.
+  // This is mathematically correct — the MC post-hoc approach only
+  // covered ~76% of probability mass and was an approximation.
+  //
+  // When rho ≈ 0, the analytical result is nearly identical to MC.
+  // When rho is meaningful (0.05-0.15), this gives materially better 1X2.
+  if (effectiveRho !== 0) {
+    const dc = computeAnalyticalDC(adjustedLambdaHome, adjustedLambdaAway, effectiveRho, dispersion);
+    prediction.homeWin = dc.homeWin;
+    prediction.draw = dc.draw;
+    prediction.awayWin = dc.awayWin;
+    // Also update BTTS from analytical (more accurate than MC + Jensen correction)
+    prediction.btts = dc.btts;
+    // Re-derive implied odds for 1X2 from exact probabilities
+    prediction.impliedOdds.homeWin = prediction.homeWin > 0 ? Math.round((100 / prediction.homeWin) * 100) / 100 : 999;
+    prediction.impliedOdds.draw = prediction.draw > 0 ? Math.round((100 / prediction.draw) * 100) / 100 : 999;
+    prediction.impliedOdds.awayWin = prediction.awayWin > 0 ? Math.round((100 / prediction.awayWin) * 100) / 100 : 999;
+    prediction.impliedOdds.bttsYes = prediction.btts > 0 ? Math.round((100 / prediction.btts) * 100) / 100 : 999;
+    prediction.impliedOdds.bttsNo = (100 - prediction.btts) > 0 ? Math.round((100 / (100 - prediction.btts)) * 100) / 100 : 999;
+    if (verbose) {
+      console.log(`[PredictCore] Analytical DC: H=${dc.homeWin}% D=${dc.draw}% A=${dc.awayWin}% BTTS=${dc.btts}% (matrix mass=${dc.totalMass})`);
+    }
+  }
 
   // -----------------------------------------------------------------------
   // Phase 2h: Calibration correction
@@ -542,6 +583,28 @@ export function generatePredictionCore(
       }
     }
   }
+
+  // -----------------------------------------------------------------------
+  // Phase 2k: Kelly criterion stake sizing
+  // -----------------------------------------------------------------------
+  if (options.bookieOdds) {
+    const kelly = computeKellyStakes(
+      {
+        homeWin: prediction.homeWin,
+        draw: prediction.draw,
+        awayWin: prediction.awayWin,
+        over25: prediction.over25,
+        btts: prediction.btts,
+        over35: prediction.over35,
+      },
+      options.bookieOdds,
+      0.25, // quarter Kelly for safety
+    );
+    prediction.kellyStakes = kelly;
+  }
+
+  // Flag whether analytical DC was used
+  prediction.analyticalDC = effectiveRho !== 0;
 
   return prediction;
 }

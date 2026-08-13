@@ -103,6 +103,25 @@ export async function GET(request: NextRequest) {
     // Core prediction — single source of truth (predict-core.ts)
     // -----------------------------------------------------------------------
     // Production passes all flags true (default). Verbose logs DC progress.
+    // Pass bookie odds from the most recent match for Kelly criterion.
+    const latestHomeMatch = [...allMatches].filter(m => m.homeTeam === homeTeam).sort((a, b) => {
+      const da = a.date.split('/'); const db = b.date.split('/');
+      return `${db[2] ?? ''}-${db[1] ?? ''}-${db[0] ?? ''}`.localeCompare(`${da[2] ?? ''}-${da[1] ?? ''}-${da[0] ?? ''}`);
+    })[0];
+    const latestAwayMatch = [...allMatches].filter(m => m.awayTeam === awayTeam).sort((a, b) => {
+      const da = a.date.split('/'); const db = b.date.split('/');
+      return `${db[2] ?? ''}-${db[1] ?? ''}-${db[0] ?? ''}`.localeCompare(`${da[2] ?? ''}-${da[1] ?? ''}-${da[0] ?? ''}`);
+    })[0];
+    // Use average odds from the latest matches as proxy for current market odds
+    const bookieOdds = {
+      home: latestHomeMatch?.oddsAvgHome ?? latestHomeMatch?.oddsB365Home ?? null,
+      draw: latestHomeMatch?.oddsAvgDraw ?? latestHomeMatch?.oddsB365Draw ?? null,
+      away: latestHomeMatch?.oddsAvgAway ?? latestHomeMatch?.oddsB365Away ?? null,
+      over25: latestHomeMatch?.oddsAvgOver25 ?? latestHomeMatch?.oddsOver25 ?? null,
+      bttsYes: null, // not available in football-data.co.uk CSVs
+      over35: null, // not available in football-data.co.uk CSVs
+    };
+
     const prediction = generatePredictionCore(
       {
         allMatches,
@@ -121,6 +140,7 @@ export async function GET(request: NextRequest) {
         applyCalibration: true,
         applyDampener: true,
         verbose: true,
+        bookieOdds,
       },
     );
 
