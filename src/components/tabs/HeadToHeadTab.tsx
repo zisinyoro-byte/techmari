@@ -7,9 +7,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Search, Users, Target, TrendingUp, Zap, BarChart3, DollarSign, AlertTriangle } from 'lucide-react'
+import { Search, Users, Target, TrendingUp, Zap, BarChart3, DollarSign, AlertTriangle, Shield, ChevronDown, ChevronUp } from 'lucide-react'
 import type { HeadToHeadTabProps } from './types'
 import { COLORS, SEASON_NAMES } from '@/lib/constants'
+import { TIER_COLORS, TIER_DESCRIPTIONS } from '@/lib/models/streak-quality'
+import { useState } from 'react'
 
 export default function HeadToHeadTab({
   results,
@@ -173,34 +175,49 @@ export default function HeadToHeadTab({
                         ))}
                       </SelectContent>
                     </Select>
-                    {team1 && teamForm.has(team1) && (
-                      <div className="mt-2 flex items-center gap-2">
-                        {teamForm.get(team1)?.inForm ? (
-                          <Badge className="bg-green-500 text-white">
-                            <TrendingUp className="w-3 h-3 mr-1" />
-                            In Form
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-red-500 text-white">
-                            <TrendingUp className="w-3 h-3 mr-1 rotate-180" />
-                            Not In Form
-                          </Badge>
-                        )}
-                        <div className="flex gap-1">
-                          {teamForm.get(team1)?.form.map((r, i) => (
-                            <span
-                              key={i}
-                              className={`w-5 h-5 rounded text-xs flex items-center justify-center text-white font-bold ${
-                                r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
-                              }`}
-                            >
-                              {r}
-                            </span>
-                          ))}
+                    {team1 && teamForm.has(team1) && (() => {
+                      const tf = teamForm.get(team1)!
+                      const sq = tf.streakQuality
+                      const tierColors = sq ? TIER_COLORS[sq.tier] : null
+                      return (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            {sq && tierColors ? (
+                              <Badge className={`${tierColors.bg} ${tierColors.text} ${tierColors.border} border`}>
+                                <Shield className="w-3 h-3 mr-1" />
+                                {sq.tier} ({sq.score})
+                              </Badge>
+                            ) : tf.inForm ? (
+                              <Badge className="bg-green-500 text-white">
+                                <TrendingUp className="w-3 h-3 mr-1" />
+                                In Form
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-red-500 text-white">
+                                <TrendingUp className="w-3 h-3 mr-1 rotate-180" />
+                                Not In Form
+                              </Badge>
+                            )}
+                            <div className="flex gap-1">
+                              {tf.form.map((r, i) => (
+                                <span
+                                  key={i}
+                                  className={`w-5 h-5 rounded text-xs flex items-center justify-center text-white font-bold ${
+                                    r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
+                                  }`}
+                                >
+                                  {r}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-xs text-muted-foreground">({tf.points} pts)</span>
+                          </div>
+                          {sq && (
+                            <StreakQualityBreakdown sq={sq} />
+                          )}
                         </div>
-                        <span className="text-xs text-muted-foreground">({teamForm.get(team1)?.points} pts)</span>
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
 
                   <div className="text-2xl font-bold text-muted-foreground pb-2">VS</div>
@@ -217,34 +234,49 @@ export default function HeadToHeadTab({
                         ))}
                       </SelectContent>
                     </Select>
-                    {team2 && teamForm.has(team2) && (
-                      <div className="mt-2 flex items-center gap-2">
-                        {teamForm.get(team2)?.inForm ? (
-                          <Badge className="bg-green-500 text-white">
-                            <TrendingUp className="w-3 h-3 mr-1" />
-                            In Form
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-red-500 text-white">
-                            <TrendingUp className="w-3 h-3 mr-1 rotate-180" />
-                            Not In Form
-                          </Badge>
-                        )}
-                        <div className="flex gap-1">
-                          {teamForm.get(team2)?.form.map((r, i) => (
-                            <span
-                              key={i}
-                              className={`w-5 h-5 rounded text-xs flex items-center justify-center text-white font-bold ${
-                                r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
-                              }`}
-                            >
-                              {r}
-                            </span>
-                          ))}
+                    {team2 && teamForm.has(team2) && (() => {
+                      const tf = teamForm.get(team2)!
+                      const sq = tf.streakQuality
+                      const tierColors = sq ? TIER_COLORS[sq.tier] : null
+                      return (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            {sq && tierColors ? (
+                              <Badge className={`${tierColors.bg} ${tierColors.text} ${tierColors.border} border`}>
+                                <Shield className="w-3 h-3 mr-1" />
+                                {sq.tier} ({sq.score})
+                              </Badge>
+                            ) : tf.inForm ? (
+                              <Badge className="bg-green-500 text-white">
+                                <TrendingUp className="w-3 h-3 mr-1" />
+                                In Form
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-red-500 text-white">
+                                <TrendingUp className="w-3 h-3 mr-1 rotate-180" />
+                                Not In Form
+                              </Badge>
+                            )}
+                            <div className="flex gap-1">
+                              {tf.form.map((r, i) => (
+                                <span
+                                  key={i}
+                                  className={`w-5 h-5 rounded text-xs flex items-center justify-center text-white font-bold ${
+                                    r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-amber-500' : 'bg-red-500'
+                                  }`}
+                                >
+                                  {r}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-xs text-muted-foreground">({tf.points} pts)</span>
+                          </div>
+                          {sq && (
+                            <StreakQualityBreakdown sq={sq} />
+                          )}
                         </div>
-                        <span className="text-xs text-muted-foreground">({teamForm.get(team2)?.points} pts)</span>
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
 
                   <Button onClick={fetchH2H} disabled={h2hLoading || !team1 || !team2}>
@@ -1135,6 +1167,57 @@ export default function HeadToHeadTab({
                 </div>
               </>
             )}
+    </div>
+  )
+}
+
+// --- Streak Quality Breakdown Component ---
+
+function StreakQualityBreakdown({ sq }: { sq: import('@/lib/models/streak-quality').StreakQualityResult }) {
+  const [expanded, setExpanded] = useState(false)
+  const barColor = (score: number) => {
+    if (score >= 70) return 'bg-emerald-500'
+    if (score >= 50) return 'bg-blue-500'
+    if (score >= 35) return 'bg-amber-500'
+    return 'bg-red-500'
+  }
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {TIER_DESCRIPTIONS[sq.tier]}
+      </button>
+      {expanded && (
+        <div className="mt-1.5 space-y-1.5 p-2 rounded-lg bg-muted/50 border">
+          <ComponentBar label="Opp Strength" weight="30%" score={sq.components.opponentStrength.score} detail={sq.components.opponentStrength.detail} barColor={barColor(sq.components.opponentStrength.score)} />
+          <ComponentBar label="Market Difficulty" weight="30%" score={sq.components.marketDifficulty.score} detail={sq.components.marketDifficulty.detail} barColor={barColor(sq.components.marketDifficulty.score)} />
+          <ComponentBar label="Model Surprise" weight="30%" score={sq.components.modelSurprise.score} detail={sq.components.modelSurprise.detail} barColor={barColor(sq.components.modelSurprise.score)} />
+          <ComponentBar label="Opp Position" weight="10%" score={sq.components.opponentPosition.score} detail={sq.components.opponentPosition.detail} barColor={barColor(sq.components.opponentPosition.score)} />
+          <div className="pt-1 mt-1 border-t flex justify-between items-center">
+            <span className="text-xs font-semibold">Composite Score</span>
+            <span className="text-xs font-bold">{sq.score}/100</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ComponentBar({ label, weight, score, detail, barColor }: { label: string; weight: string; score: number; detail: string; barColor: string }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="flex justify-between items-center">
+        <span className="text-xs font-medium">{label} <span className="text-muted-foreground font-normal">({weight})</span></span>
+        <span className="text-xs font-medium">{score}</span>
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-muted">
+        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${score}%` }} />
+      </div>
+      <p className="text-[10px] text-muted-foreground leading-tight">{detail}</p>
     </div>
   )
 }

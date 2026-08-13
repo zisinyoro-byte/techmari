@@ -1,6 +1,7 @@
 'use client'
 
 import type { League, MatchResult, Analytics, PredictionResponse, H2HMatch, H2HAnalytics } from '@/lib/types'
+import type { StreakQualityResult } from '@/lib/models/streak-quality'
 
 // Props for BacktestTab
 export interface BacktestTabProps {
@@ -84,7 +85,7 @@ export interface HeadToHeadTabProps {
   selectedLeague: string
   selectedSeason: string
   isAllSeasons: boolean
-  teamForm: Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>
+  teamForm: Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number; streakQuality?: StreakQualityResult }>
   filteredH2HResults: {
     score00: { teams: string; score: string; date: string; season?: string }[]
     score10: { teams: string; score: string; date: string; winner: string; season?: string }[]
@@ -117,7 +118,7 @@ export interface PredictionsTabProps {
   selectedLeague: string
   selectedSeason: string
   isAllSeasons: boolean
-  teamForm: Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>
+  teamForm: Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number; streakQuality?: StreakQualityResult }>
   onComboReady?: (combo: string) => void
 }
 

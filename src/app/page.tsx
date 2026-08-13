@@ -20,9 +20,11 @@ import BttsCheckTab from '@/components/tabs/BttsCheckTab'
 import Over35Tab from '@/components/tabs/Over35Tab'
 import SummaryTab from '@/components/tabs/SummaryTab'
 
-import type { League, MatchResult, Analytics, PredictionResponse, H2HMatch, H2HAnalytics } from '@/lib/types'
+import type { League, MatchResult, Analytics, PredictionResponse, H2HMatch, H2HAnalytics, TeamStats } from '@/lib/types'
 import { seasons, COLORS, PIE_COLORS } from '@/lib/constants'
 import { parseDateSafe, factorial } from '@/lib/utils'
+import { computeStreakQuality, type StreakQualityResult } from '@/lib/models/streak-quality'
+import { calculateTeamStats } from '@/lib/models/team-stats'
 
 export default function Home() {
   const [leagues, setLeagues] = useState<League[]>([])
@@ -265,28 +267,26 @@ export default function Home() {
     }
   }, [lastH2HResults, h2hTrackerSearch])
 
-  // Calculate team form based on last 5 matches
+  // Calculate streak-quality-adjusted team form
+  const teamStatsMap = useMemo(() => calculateTeamStats(results), [results])
+  const leagueHomeAvg = analytics ? analytics.avgHomeGoals : 1.5
+  const leagueAwayAvg = analytics ? analytics.avgAwayGoals : 1.2
+
   const teamForm = useMemo(() => {
-    if (results.length === 0) return new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>()
-    const teamMatches = new Map<string, Array<{ date: string; isHome: boolean; goalsFor: number; goalsAgainst: number; result: 'W' | 'D' | 'L' }>>()
-    const sortedResults = [...results].sort((a, b) => parseDateSafe(b.date).getTime() - parseDateSafe(a.date).getTime())
-    for (const match of sortedResults) {
-      const homeMatches = teamMatches.get(match.homeTeam) || []
-      homeMatches.push({ date: match.date, isHome: true, goalsFor: match.ftHomeGoals, goalsAgainst: match.ftAwayGoals, result: match.ftResult === 'H' ? 'W' : match.ftResult === 'D' ? 'D' : 'L' })
-      teamMatches.set(match.homeTeam, homeMatches)
-      const awayMatches = teamMatches.get(match.awayTeam) || []
-      awayMatches.push({ date: match.date, isHome: false, goalsFor: match.ftAwayGoals, goalsAgainst: match.ftHomeGoals, result: match.ftResult === 'A' ? 'W' : match.ftResult === 'D' ? 'D' : 'L' })
-      teamMatches.set(match.awayTeam, awayMatches)
+    if (results.length === 0) return new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number; streakQuality?: StreakQualityResult }>()
+    const formMap = new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number; streakQuality?: StreakQualityResult }>()
+    const allTeams = new Set(results.flatMap(m => [m.homeTeam, m.awayTeam]))
+    for (const team of allTeams) {
+      const sq = computeStreakQuality(team, results, teamStatsMap, leagueHomeAvg, leagueAwayAvg)
+      formMap.set(team, {
+        form: sq.form,
+        inForm: sq.score >= 50 && sq.rawPoints >= 7,
+        points: sq.rawPoints,
+        streakQuality: sq,
+      })
     }
-    const formMap = new Map<string, { form: ('W' | 'D' | 'L')[]; inForm: boolean; points: number }>()
-    teamMatches.forEach((matches, team) => {
-      const last5 = matches.slice(0, 5)
-      const form = last5.map(m => m.result)
-      const points = last5.reduce((acc, m) => acc + (m.result === 'W' ? 3 : m.result === 'D' ? 1 : 0), 0)
-      formMap.set(team, { form, inForm: points >= 7, points })
-    })
     return formMap
-  }, [results])
+  }, [results, teamStatsMap, leagueHomeAvg, leagueAwayAvg])
 
   const selectedLeagueName = leagues.find(l => l.code === selectedLeague)?.name || 'Premier League'
   const selectedSeasonName = selectedSeason === 'all' ? 'All Seasons' : (seasons.find(s => s.code === selectedSeason)?.name || '2025-26')
