@@ -344,15 +344,15 @@ export default function Home() {
         </Card>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-8 max-w-5xl mx-auto">
-            <TabsTrigger value="overview" className="flex items-center gap-2"><Trophy className="w-4 h-4" />League Overview</TabsTrigger>
-            <TabsTrigger value="h2h" className="flex items-center gap-2"><Users className="w-4 h-4" />Head to Head</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-4 md:grid-cols-8 max-w-5xl mx-auto">
+            <TabsTrigger value="overview" className="flex items-center gap-2"><Trophy className="w-4 h-4" />Overview</TabsTrigger>
+            <TabsTrigger value="h2h" className="flex items-center gap-2"><Users className="w-4 h-4" />H2H</TabsTrigger>
             <TabsTrigger value="predict" className="flex items-center gap-2"><Sparkles className="w-4 h-4" />Predictions</TabsTrigger>
             <TabsTrigger value="models" className="flex items-center gap-2"><Dice5 className="w-4 h-4" />Models</TabsTrigger>
             <TabsTrigger value="backtest" className="flex items-center gap-2"><FlaskConical className="w-4 h-4" />Backtest</TabsTrigger>
             <TabsTrigger value="btts-checklist" className="flex items-center gap-2"><Target className="w-4 h-4" />BTTS Check</TabsTrigger>
             <TabsTrigger value="over35-checklist" className="flex items-center gap-2"><Goal className="w-4 h-4" />Over 3.5</TabsTrigger>
-            <TabsTrigger value="summary" className="flex items-center gap-2"><History className="w-4 h-4" />Match Backtest</TabsTrigger>
+            <TabsTrigger value="summary" className="flex items-center gap-2"><History className="w-4 h-4" />Summary</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
