@@ -14,7 +14,12 @@ import { registerBacktestThresholds } from '@/lib/betting-filters'
 
 export default function BacktestTab({ selectedLeague, setSelectedLeague, leagues }: BacktestTabProps) {
   const [backtestTraining, setBacktestTraining] = useState<string>('5')
-  const [backtestTestSeason, setBacktestTestSeason] = useState<string>('2324')
+  // Default to "the season before the current" — i.e. EUROPEAN_SEASONS[1].
+  // EUROPEAN_SEASONS[0] is the current/in-progress season; we want the most
+  // recent completed season as the default test season. This is dynamic so
+  // when a new season code is added at the top of the list, the default
+  // automatically updates.
+  const [backtestTestSeason, setBacktestTestSeason] = useState<string>(EUROPEAN_SEASONS[1] ?? '2526')
   const [backtestLoading, setBacktestLoading] = useState(false)
   const [backtestResult, setBacktestResult] = useState<{
     success: boolean
