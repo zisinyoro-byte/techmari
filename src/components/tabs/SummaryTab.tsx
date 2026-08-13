@@ -12,10 +12,15 @@ interface BacktestResult {
   isFuzzy: boolean
   requestedCombo: string
   totalMatches: number
+  comboMatches: number
+  fuzzyMatches: number
+  scanMs: number
   stats: {
     exactScoreline: { hits: number; total: number; pct: string }
     over25: { hits: number; total: number; pct: string }
+    over35: { hits: number; total: number; pct: string }
     btts: { hits: number; total: number; pct: string }
+    bttsBothHalves: { hits: number; total: number; pct: string }
     results: { homeWins: number; draws: number; awayWins: number }
   }
   topScores: { score: string; count: number; pct: string }[]
@@ -30,7 +35,22 @@ interface BacktestResult {
     predicted: string
     total: number
     o25: number
+    o35: number
     btts: number
+    htHomeGoals: number
+    htAwayGoals: number
+    shHomeGoals: number
+    shAwayGoals: number
+    signals?: {
+      sb: 'Y' | 'N'
+      gr: 'Y' | 'N'
+      gf: 'Y' | 'N'
+      btts: string
+      goal: string
+      mom: string
+      fp1: 'Y' | 'N'
+      bh: string
+    }
   }[]
 }
 
@@ -178,7 +198,7 @@ export default function SummaryTab({
             Match Backtest Results
           </CardTitle>
           <CardDescription>
-            Historical performance of matches with the same signal combination
+            Historical performance of matches with the same signal combination · computed live with the current prediction engine
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -188,35 +208,42 @@ export default function SummaryTab({
               <div className="flex flex-wrap gap-1">
                 {matchedCombo.split(' | ').map(function(part, i) {
                   return (
-                    <Badge key={i} variant={part.includes(':Y') ? 'default' : 'secondary'} className="text-xs">
+                    <Badge key={i} variant={part.includes(':Y') || part.includes('Strong') || part.includes('Qualified') || part.includes('Rich') || part.includes('Likely') || part.includes('OVER') ? 'default' : 'secondary'} className="text-xs">
                       {part}
                     </Badge>
                   )
                 })}
               </div>
             </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span><strong className="text-foreground">{totalMatches}</strong> historical matches found</span>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+              <span><strong className="text-foreground">{totalMatches}</strong> matches scanned</span>
+              <span><strong className="text-foreground">{backtestData.comboMatches}</strong> exact combo matches</span>
+              {backtestData.fuzzyMatches > 0 ? (
+                <span><strong className="text-foreground">{backtestData.fuzzyMatches}</strong> fuzzy matches</span>
+              ) : null}
               {isFuzzy ? (
                 <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
                   Fuzzy match
                 </Badge>
               ) : null}
+              <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50">
+                Computed in {(backtestData.scanMs / 1000).toFixed(1)}s
+              </Badge>
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Key Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card className="shadow-sm">
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center gap-2 mb-1">
               <Target className="w-4 h-4 text-purple-500" />
-              <p className="text-xs text-muted-foreground">Exact Scoreline</p>
+              <p className="text-xs text-muted-foreground">1X2 Accuracy</p>
             </div>
             <p className="text-2xl font-bold text-purple-600">{stats.exactScoreline.pct}%</p>
-            <p className="text-xs text-muted-foreground">{stats.exactScoreline.hits}/{stats.exactScoreline.total} matches</p>
+            <p className="text-xs text-muted-foreground">{stats.exactScoreline.hits}/{stats.exactScoreline.total}</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
@@ -226,7 +253,17 @@ export default function SummaryTab({
               <p className="text-xs text-muted-foreground">Over 2.5 Rate</p>
             </div>
             <p className="text-2xl font-bold text-orange-600">{stats.over25.pct}%</p>
-            <p className="text-xs text-muted-foreground">{stats.over25.hits}/{stats.over25.total} matches</p>
+            <p className="text-xs text-muted-foreground">{stats.over25.hits}/{stats.over25.total}</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="w-4 h-4 text-red-500" />
+              <p className="text-xs text-muted-foreground">Over 3.5 Rate</p>
+            </div>
+            <p className="text-2xl font-bold text-red-600">{stats.over35.pct}%</p>
+            <p className="text-xs text-muted-foreground">{stats.over35.hits}/{stats.over35.total}</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
@@ -236,7 +273,17 @@ export default function SummaryTab({
               <p className="text-xs text-muted-foreground">BTTS Rate</p>
             </div>
             <p className="text-2xl font-bold text-blue-600">{stats.btts.pct}%</p>
-            <p className="text-xs text-muted-foreground">{stats.btts.hits}/{stats.btts.total} matches</p>
+            <p className="text-xs text-muted-foreground">{stats.btts.hits}/{stats.btts.total}</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <BarChart3 className="w-4 h-4 text-cyan-500" />
+              <p className="text-xs text-muted-foreground">BTTS-BH Rate</p>
+            </div>
+            <p className="text-2xl font-bold text-cyan-600">{stats.bttsBothHalves.pct}%</p>
+            <p className="text-xs text-muted-foreground">{stats.bttsBothHalves.hits}/{stats.bttsBothHalves.total}</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
@@ -349,31 +396,38 @@ export default function SummaryTab({
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="max-h-96 overflow-y-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">League</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Date</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Match</th>
-                  <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">Predicted</th>
-                  <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">Actual</th>
-                  <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">O2.5</th>
-                  <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">BTTS</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
+          <CardContent>
+            <div className="max-h-96 overflow-y-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">League</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Date</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Match</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">Pred</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">Actual</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">O2.5</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">O3.5</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">BTTS</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">BH</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
                 {filteredMatches.map(function(m, i) {
                   var isExact = m.predicted === m.score
                   var predOver = m.o25 > 50
                   var actOver = m.total > 2
                   var o25Hit = predOver === actOver
+                  var predOver35 = (m.o35 || 0) > 35
+                  var actOver35 = m.total > 3
+                  var o35Hit = predOver35 === actOver35
                   var ps = m.predicted.split('-')
                   var predBoth = parseInt(ps[0]) > 0 && parseInt(ps[1]) > 0
                   var as2 = m.score.split('-')
                   var actBoth = parseInt(as2[0]) > 0 && parseInt(as2[1]) > 0
                   var bttsHit = predBoth === actBoth
+                  // BTTS-BH: both scored in both halves
+                  var actBttsBh = m.htHomeGoals > 0 && m.htAwayGoals > 0 && m.shHomeGoals > 0 && m.shAwayGoals > 0
 
                   return (
                     <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -395,8 +449,18 @@ export default function SummaryTab({
                         </Badge>
                       </td>
                       <td className="px-3 py-2 text-center">
+                        <Badge variant={o35Hit ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
+                          {actOver35 ? 'OVER' : 'UNDER'}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 text-center">
                         <Badge variant={bttsHit ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
                           {actBoth ? 'YES' : 'NO'}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <Badge variant={actBttsBh ? 'default' : 'outline'} className="text-[10px] px-1.5 py-0">
+                          {actBttsBh ? 'BH' : '-'}
                         </Badge>
                       </td>
                     </tr>
@@ -404,15 +468,15 @@ export default function SummaryTab({
                 })}
                 {filteredMatches.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground text-sm">
+                    <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground text-sm">
                       No matches found for this filter
                     </td>
                   </tr>
                 ) : null}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
       </Card>
 
       {/* Disclaimer */}
@@ -421,8 +485,9 @@ export default function SummaryTab({
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-muted-foreground">
-              Historical backtest based on Poisson model signals across EPL, Bundesliga, Serie A, La Liga, and Ligue 1 (2023-25).
-              Past performance does not guarantee future results.
+              Live backtest computed with the current prediction engine (Dixon-Coles + H2H blend + per-league Jensen tuning + per-matchup HT ratio)
+              across all 7 European leagues (EPL, La Liga, Serie A, Bundesliga, Ligue 1, Eredivisie, Primeira Liga) over 12 seasons (2015–2026).
+              Walk-forward: each match's signals are computed using only data available before that match. Past performance does not guarantee future results.
             </p>
           </div>
         </CardContent>
