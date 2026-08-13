@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Trophy, Goal, TrendingUp, RefreshCw, Users, Target, Zap, Dice5, Sparkles, FlaskConical, History } from 'lucide-react'
+import { Trophy, Goal, TrendingUp, RefreshCw, Users, Target, Zap, Dice5, Sparkles, FlaskConical, History, TrafficCone } from 'lucide-react'
 
 // Error boundary for graceful crash handling
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -19,6 +19,7 @@ import BacktestTab from '@/components/tabs/BacktestTab'
 import BttsCheckTab from '@/components/tabs/BttsCheckTab'
 import Over35Tab from '@/components/tabs/Over35Tab'
 import SummaryTab from '@/components/tabs/SummaryTab'
+import LeagueMatrixTab from '@/components/tabs/LeagueMatrixTab'
 
 import type { League, MatchResult, Analytics, PredictionResponse, H2HMatch, H2HAnalytics, TeamStats } from '@/lib/types'
 import { seasons, COLORS, PIE_COLORS } from '@/lib/constants'
@@ -344,13 +345,14 @@ export default function Home() {
         </Card>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 md:grid-cols-8 max-w-5xl mx-auto">
+          <TabsList className="grid w-full grid-cols-3 md:grid-cols-9 max-w-6xl mx-auto">
             <TabsTrigger value="overview" className="flex items-center gap-2"><Trophy className="w-4 h-4" />Overview</TabsTrigger>
             <TabsTrigger value="h2h" className="flex items-center gap-2"><Users className="w-4 h-4" />H2H</TabsTrigger>
             <TabsTrigger value="predict" className="flex items-center gap-2"><Sparkles className="w-4 h-4" />Predictions</TabsTrigger>
             <TabsTrigger value="models" className="flex items-center gap-2"><Dice5 className="w-4 h-4" />Models</TabsTrigger>
             <TabsTrigger value="backtest" className="flex items-center gap-2"><FlaskConical className="w-4 h-4" />Backtest</TabsTrigger>
-            <TabsTrigger value="btts-checklist" className="flex items-center gap-2"><Target className="w-4 h-4" />BTTS Check</TabsTrigger>
+            <TabsTrigger value="matrix" className="flex items-center gap-2"><TrafficCone className="w-4 h-4" />Matrix</TabsTrigger>
+            <TabsTrigger value="btts-checklist" className="flex items-center gap-2"><Target className="w-4 h-4" />BTTS</TabsTrigger>
             <TabsTrigger value="over35-checklist" className="flex items-center gap-2"><Goal className="w-4 h-4" />Over 3.5</TabsTrigger>
             <TabsTrigger value="summary" className="flex items-center gap-2"><History className="w-4 h-4" />Summary</TabsTrigger>
           </TabsList>
@@ -375,6 +377,10 @@ export default function Home() {
 
           <TabsContent value="backtest" className="space-y-6">
             <BacktestTab selectedLeague={selectedLeague} setSelectedLeague={setSelectedLeague} leagues={leagues} />
+          </TabsContent>
+
+          <TabsContent value="matrix" className="space-y-6">
+            <LeagueMatrixTab />
           </TabsContent>
 
           <TabsContent value="btts-checklist" className="space-y-6">
