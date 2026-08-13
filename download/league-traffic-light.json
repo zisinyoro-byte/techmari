@@ -1,0 +1,1042 @@
+[
+  {
+    "league": "E0",
+    "name": "Premier League",
+    "country": "England",
+    "totalMatches": 1088,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 8.3,
+        "brier": 0.264,
+        "calibration": 0.996,
+        "accuracy": 52.5,
+        "totalMatches": 1088,
+        "totalBets60": 503,
+        "hitRate": 58.4,
+        "reason": "+8.3% ROI, Brier 0.264"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -0.3,
+        "brier": 0.258,
+        "calibration": 1.116,
+        "accuracy": 51.9,
+        "totalMatches": 1088,
+        "totalBets60": 163,
+        "hitRate": 55.2,
+        "reason": "-0.3% ROI, Brier 0.258"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.905,
+        "accuracy": 59.8,
+        "totalMatches": 1088,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.701,
+        "calibration": null,
+        "accuracy": 45.1,
+        "totalMatches": 1088,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.701, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "E1",
+    "name": "Championship",
+    "country": "England",
+    "totalMatches": 1376,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -20.7,
+        "brier": 0.272,
+        "calibration": 0.905,
+        "accuracy": 49.3,
+        "totalMatches": 1376,
+        "totalBets60": 350,
+        "hitRate": 42.3,
+        "reason": "-20.7% ROI, Brier 0.272"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -11.8,
+        "brier": 0.258,
+        "calibration": 1.061,
+        "accuracy": 51.7,
+        "totalMatches": 1376,
+        "totalBets60": 194,
+        "hitRate": 49,
+        "reason": "-11.8% ROI, Brier 0.258"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.77,
+        "accuracy": 71.7,
+        "totalMatches": 1376,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.717,
+        "calibration": null,
+        "accuracy": 42.6,
+        "totalMatches": 1376,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.717, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "E2",
+    "name": "League One",
+    "country": "England",
+    "totalMatches": 908,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 9.3,
+        "brier": 0.257,
+        "calibration": 1.019,
+        "accuracy": 53.4,
+        "totalMatches": 908,
+        "totalBets60": 202,
+        "hitRate": 58.4,
+        "reason": "+9.3% ROI, Brier 0.257"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -4.9,
+        "brier": 0.261,
+        "calibration": 1.112,
+        "accuracy": 50.8,
+        "totalMatches": 908,
+        "totalBets60": 118,
+        "hitRate": 50,
+        "reason": "-4.9% ROI, Brier 0.261"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.929,
+        "accuracy": 69.2,
+        "totalMatches": 908,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.708,
+        "calibration": null,
+        "accuracy": 43.8,
+        "totalMatches": 908,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.708, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "E3",
+    "name": "League Two",
+    "country": "England",
+    "totalMatches": 1260,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -2.6,
+        "brier": 0.262,
+        "calibration": 0.989,
+        "accuracy": 49.7,
+        "totalMatches": 1260,
+        "totalBets60": 308,
+        "hitRate": 52.6,
+        "reason": "-2.6% ROI, Brier 0.262"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -4.6,
+        "brier": 0.26,
+        "calibration": 1.086,
+        "accuracy": 50.1,
+        "totalMatches": 1260,
+        "totalBets60": 178,
+        "hitRate": 53.4,
+        "reason": "-4.6% ROI, Brier 0.260"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.934,
+        "accuracy": 70.1,
+        "totalMatches": 1260,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.712,
+        "calibration": null,
+        "accuracy": 41.2,
+        "totalMatches": 1260,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.712, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "EC",
+    "name": "National League",
+    "country": "England",
+    "totalMatches": 1136,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": 0,
+        "brier": 0.259,
+        "calibration": 1.021,
+        "accuracy": 53.4,
+        "totalMatches": 1136,
+        "totalBets60": 334,
+        "hitRate": 53,
+        "reason": "-0.0% ROI, Brier 0.259"
+      },
+      "BTTS": {
+        "light": "YELLOW",
+        "roi": 2.8,
+        "brier": 0.254,
+        "calibration": 1.127,
+        "accuracy": 53.7,
+        "totalMatches": 1136,
+        "totalBets60": 247,
+        "hitRate": 57.1,
+        "reason": "+2.8% ROI, Brier 0.254"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 1.015,
+        "accuracy": 65.3,
+        "totalMatches": 1136,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.687,
+        "calibration": null,
+        "accuracy": 43.2,
+        "totalMatches": 1136,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.687, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "SC0",
+    "name": "Premiership",
+    "country": "Scotland",
+    "totalMatches": 874,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 13.2,
+        "brier": 0.25,
+        "calibration": 0.976,
+        "accuracy": 56.6,
+        "totalMatches": 874,
+        "totalBets60": 382,
+        "hitRate": 61.8,
+        "reason": "+13.2% ROI, Brier 0.250"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -9.4,
+        "brier": 0.258,
+        "calibration": 1.011,
+        "accuracy": 50.4,
+        "totalMatches": 874,
+        "totalBets60": 183,
+        "hitRate": 51.9,
+        "reason": "-9.4% ROI, Brier 0.258"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.908,
+        "accuracy": 63.9,
+        "totalMatches": 874,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.606,
+        "calibration": null,
+        "accuracy": 51.7,
+        "totalMatches": 874,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.606, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "SC1",
+    "name": "Championship",
+    "country": "Scotland",
+    "totalMatches": 364,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -17.7,
+        "brier": 0.257,
+        "calibration": 1.027,
+        "accuracy": 53.9,
+        "totalMatches": 364,
+        "totalBets60": 70,
+        "hitRate": 45.7,
+        "reason": "modest sample, -17.7% ROI, Brier 0.257"
+      },
+      "BTTS": {
+        "light": "YELLOW",
+        "roi": 5,
+        "brier": 0.265,
+        "calibration": 1.177,
+        "accuracy": 49.9,
+        "totalMatches": 364,
+        "totalBets60": 16,
+        "hitRate": 50,
+        "reason": "modest sample, +5.0% ROI, Brier 0.265, only 16 confident bets"
+      },
+      "O3.5": {
+        "light": "RED",
+        "roi": null,
+        "brier": null,
+        "calibration": 1.081,
+        "accuracy": 74.6,
+        "totalMatches": 364,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "modest sample, no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.732,
+        "calibration": null,
+        "accuracy": 34.7,
+        "totalMatches": 364,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "modest sample, no ROI data, Brier 0.732, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "D1",
+    "name": "Bundesliga",
+    "country": "Germany",
+    "totalMatches": 934,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 24.3,
+        "brier": 0.252,
+        "calibration": 1.107,
+        "accuracy": 53.6,
+        "totalMatches": 934,
+        "totalBets60": 351,
+        "hitRate": 67.2,
+        "reason": "+24.3% ROI, Brier 0.252"
+      },
+      "BTTS": {
+        "light": "GREEN",
+        "roi": 20.7,
+        "brier": 0.255,
+        "calibration": 1.185,
+        "accuracy": 50,
+        "totalMatches": 934,
+        "totalBets60": 103,
+        "hitRate": 67,
+        "reason": "+20.7% ROI, Brier 0.255"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 1.148,
+        "accuracy": 57.8,
+        "totalMatches": 934,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.649,
+        "calibration": null,
+        "accuracy": 48.5,
+        "totalMatches": 934,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.649, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "D2",
+    "name": "2. Bundesliga",
+    "country": "Germany",
+    "totalMatches": 792,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 5.7,
+        "brier": 0.274,
+        "calibration": 1.218,
+        "accuracy": 46.8,
+        "totalMatches": 792,
+        "totalBets60": 207,
+        "hitRate": 57.5,
+        "reason": "+5.7% ROI, Brier 0.274"
+      },
+      "BTTS": {
+        "light": "GREEN",
+        "roi": 9.4,
+        "brier": 0.272,
+        "calibration": 1.249,
+        "accuracy": 48.7,
+        "totalMatches": 792,
+        "totalBets60": 167,
+        "hitRate": 60.5,
+        "reason": "+9.4% ROI, Brier 0.272"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 1.205,
+        "accuracy": 61.2,
+        "totalMatches": 792,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.679,
+        "calibration": null,
+        "accuracy": 44.3,
+        "totalMatches": 792,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.679, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "I1",
+    "name": "Serie A",
+    "country": "Italy",
+    "totalMatches": 1090,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -17.6,
+        "brier": 0.289,
+        "calibration": 0.814,
+        "accuracy": 47.9,
+        "totalMatches": 1090,
+        "totalBets60": 463,
+        "hitRate": 44.7,
+        "reason": "-17.6% ROI, Brier 0.289"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -20.2,
+        "brier": 0.265,
+        "calibration": 0.973,
+        "accuracy": 45.6,
+        "totalMatches": 1090,
+        "totalBets60": 193,
+        "hitRate": 44,
+        "reason": "-20.2% ROI, Brier 0.265"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.654,
+        "accuracy": 63.1,
+        "totalMatches": 1090,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.63,
+        "calibration": null,
+        "accuracy": 50,
+        "totalMatches": 1090,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.630, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "I2",
+    "name": "Serie B",
+    "country": "Italy",
+    "totalMatches": 766,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -16.3,
+        "brier": 0.274,
+        "calibration": 0.904,
+        "accuracy": 49,
+        "totalMatches": 766,
+        "totalBets60": 206,
+        "hitRate": 45.6,
+        "reason": "-16.3% ROI, Brier 0.274"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -17.7,
+        "brier": 0.285,
+        "calibration": 1.279,
+        "accuracy": 46.2,
+        "totalMatches": 766,
+        "totalBets60": 50,
+        "hitRate": 44,
+        "reason": "-17.7% ROI, Brier 0.285"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.873,
+        "accuracy": 73.1,
+        "totalMatches": 766,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.755,
+        "calibration": null,
+        "accuracy": 39.1,
+        "totalMatches": 766,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.755, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "SP1",
+    "name": "La Liga",
+    "country": "Spain",
+    "totalMatches": 1264,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -4.4,
+        "brier": 0.267,
+        "calibration": 0.857,
+        "accuracy": 53.6,
+        "totalMatches": 1264,
+        "totalBets60": 493,
+        "hitRate": 51.7,
+        "reason": "-4.4% ROI, Brier 0.267"
+      },
+      "BTTS": {
+        "light": "GREEN",
+        "roi": 13.4,
+        "brier": 0.253,
+        "calibration": 1.09,
+        "accuracy": 51.4,
+        "totalMatches": 1264,
+        "totalBets60": 183,
+        "hitRate": 62.8,
+        "reason": "+13.4% ROI, Brier 0.253"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.638,
+        "accuracy": 67.2,
+        "totalMatches": 1264,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.634,
+        "calibration": null,
+        "accuracy": 50.5,
+        "totalMatches": 1264,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.634, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "SP2",
+    "name": "La Liga 2",
+    "country": "Spain",
+    "totalMatches": 846,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -15.1,
+        "brier": 0.255,
+        "calibration": 0.882,
+        "accuracy": 53,
+        "totalMatches": 846,
+        "totalBets60": 141,
+        "hitRate": 46.8,
+        "reason": "-15.1% ROI, Brier 0.255"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -6.2,
+        "brier": 0.26,
+        "calibration": 1.193,
+        "accuracy": 50.6,
+        "totalMatches": 846,
+        "totalBets60": 21,
+        "hitRate": 52.4,
+        "reason": "-6.2% ROI, Brier 0.260, only 21 confident bets"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.832,
+        "accuracy": 76.5,
+        "totalMatches": 846,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.719,
+        "calibration": null,
+        "accuracy": 43.3,
+        "totalMatches": 846,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.719, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "F1",
+    "name": "Ligue 1",
+    "country": "France",
+    "totalMatches": 842,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 16.5,
+        "brier": 0.254,
+        "calibration": 1.05,
+        "accuracy": 55.2,
+        "totalMatches": 842,
+        "totalBets60": 300,
+        "hitRate": 62.7,
+        "reason": "+16.5% ROI, Brier 0.254"
+      },
+      "BTTS": {
+        "light": "GREEN",
+        "roi": 19.5,
+        "brier": 0.255,
+        "calibration": 1.219,
+        "accuracy": 51.7,
+        "totalMatches": 842,
+        "totalBets60": 78,
+        "hitRate": 65.4,
+        "reason": "+19.5% ROI, Brier 0.255"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.984,
+        "accuracy": 63.1,
+        "totalMatches": 842,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.644,
+        "calibration": null,
+        "accuracy": 48.6,
+        "totalMatches": 842,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.644, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "F2",
+    "name": "Ligue 2",
+    "country": "France",
+    "totalMatches": 607,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -7.4,
+        "brier": 0.257,
+        "calibration": 0.986,
+        "accuracy": 54.3,
+        "totalMatches": 607,
+        "totalBets60": 106,
+        "hitRate": 48.1,
+        "reason": "-7.4% ROI, Brier 0.257"
+      },
+      "BTTS": {
+        "light": "GREEN",
+        "roi": 26.9,
+        "brier": 0.257,
+        "calibration": 1.145,
+        "accuracy": 54,
+        "totalMatches": 607,
+        "totalBets60": 62,
+        "hitRate": 69.4,
+        "reason": "+26.9% ROI, Brier 0.257"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.911,
+        "accuracy": 74,
+        "totalMatches": 607,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.713,
+        "calibration": null,
+        "accuracy": 40.9,
+        "totalMatches": 607,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.713, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "N1",
+    "name": "Eredivisie",
+    "country": "Netherlands",
+    "totalMatches": 1024,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 14,
+        "brier": 0.257,
+        "calibration": 0.969,
+        "accuracy": 55.8,
+        "totalMatches": 1024,
+        "totalBets60": 586,
+        "hitRate": 61.6,
+        "reason": "+14.0% ROI, Brier 0.257"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -4.3,
+        "brier": 0.255,
+        "calibration": 1.067,
+        "accuracy": 52.5,
+        "totalMatches": 1024,
+        "totalBets60": 239,
+        "hitRate": 53.1,
+        "reason": "-4.3% ROI, Brier 0.255"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.906,
+        "accuracy": 59.4,
+        "totalMatches": 1024,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.631,
+        "calibration": null,
+        "accuracy": 51.7,
+        "totalMatches": 1024,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.631, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "B1",
+    "name": "Pro League",
+    "country": "Belgium",
+    "totalMatches": 888,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -4.4,
+        "brier": 0.27,
+        "calibration": 0.885,
+        "accuracy": 48.9,
+        "totalMatches": 888,
+        "totalBets60": 391,
+        "hitRate": 52.7,
+        "reason": "-4.4% ROI, Brier 0.270"
+      },
+      "BTTS": {
+        "light": "GREEN",
+        "roi": 5.8,
+        "brier": 0.253,
+        "calibration": 1.052,
+        "accuracy": 51.4,
+        "totalMatches": 888,
+        "totalBets60": 140,
+        "hitRate": 60,
+        "reason": "+5.8% ROI, Brier 0.253"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.8,
+        "accuracy": 64,
+        "totalMatches": 888,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.697,
+        "calibration": null,
+        "accuracy": 45.5,
+        "totalMatches": 888,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.697, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "P1",
+    "name": "Primeira Liga",
+    "country": "Portugal",
+    "totalMatches": 786,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 12.2,
+        "brier": 0.263,
+        "calibration": 0.982,
+        "accuracy": 52.2,
+        "totalMatches": 786,
+        "totalBets60": 290,
+        "hitRate": 60.7,
+        "reason": "+12.2% ROI, Brier 0.263"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -18.1,
+        "brier": 0.263,
+        "calibration": 1.01,
+        "accuracy": 47.4,
+        "totalMatches": 786,
+        "totalBets60": 93,
+        "hitRate": 47.3,
+        "reason": "-18.1% ROI, Brier 0.263"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.822,
+        "accuracy": 62.2,
+        "totalMatches": 786,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.557,
+        "calibration": null,
+        "accuracy": 56,
+        "totalMatches": 786,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.557, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "T1",
+    "name": "Süper Lig",
+    "country": "Turkey",
+    "totalMatches": 702,
+    "markets": {
+      "O2.5": {
+        "light": "GREEN",
+        "roi": 13.4,
+        "brier": 0.253,
+        "calibration": 0.918,
+        "accuracy": 56.9,
+        "totalMatches": 702,
+        "totalBets60": 396,
+        "hitRate": 61.1,
+        "reason": "+13.4% ROI, Brier 0.253"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -4.2,
+        "brier": 0.257,
+        "calibration": 1.046,
+        "accuracy": 54.1,
+        "totalMatches": 702,
+        "totalBets60": 168,
+        "hitRate": 53.6,
+        "reason": "-4.2% ROI, Brier 0.257"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.781,
+        "accuracy": 59.3,
+        "totalMatches": 702,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.642,
+        "calibration": null,
+        "accuracy": 48.2,
+        "totalMatches": 702,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.642, no ROI data"
+      }
+    }
+  },
+  {
+    "league": "G1",
+    "name": "Super League",
+    "country": "Greece",
+    "totalMatches": 719,
+    "markets": {
+      "O2.5": {
+        "light": "RED",
+        "roi": -6.2,
+        "brier": 0.279,
+        "calibration": 0.889,
+        "accuracy": 51.8,
+        "totalMatches": 719,
+        "totalBets60": 281,
+        "hitRate": 51.6,
+        "reason": "-6.2% ROI, Brier 0.279"
+      },
+      "BTTS": {
+        "light": "RED",
+        "roi": -11.1,
+        "brier": 0.266,
+        "calibration": 1.08,
+        "accuracy": 47.7,
+        "totalMatches": 719,
+        "totalBets60": 59,
+        "hitRate": 50.8,
+        "reason": "-11.1% ROI, Brier 0.266"
+      },
+      "O3.5": {
+        "light": "YELLOW",
+        "roi": null,
+        "brier": null,
+        "calibration": 0.684,
+        "accuracy": 63.1,
+        "totalMatches": 719,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, no ROI data"
+      },
+      "1X2": {
+        "light": "RED",
+        "roi": null,
+        "brier": 0.642,
+        "calibration": null,
+        "accuracy": 48.8,
+        "totalMatches": 719,
+        "totalBets60": 0,
+        "hitRate": null,
+        "reason": "no ROI data, Brier 0.642, no ROI data"
+      }
+    }
+  }
+]
