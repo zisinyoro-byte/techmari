@@ -891,8 +891,11 @@ export default function ModelsTab({
                               'Strong Bet',
                               'Grey Result Predictor',
                               'Goal Fest',
+                              'BTTS Qualification Tier',
                               'Third Goal Tier',
                               'Third Goal Score',
+                              'Dominant Over 2.5 Rec',
+                              'Dominant BTTS Rec',
                             ]
 
 
@@ -919,8 +922,11 @@ export default function ModelsTab({
                               strongBetIndicator,
                               greyResultIndicator,
                               goalFestIndicator,
+                              csvBttsQual.tier,
                               csvThirdGoal.tier,
                               `${csvThirdGoal.score}`,
+                              `"${csvDominantResult.over25Rec}"`,
+                              `"${csvDominantResult.bttsRec}"`,
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')
