@@ -887,33 +887,15 @@ export default function ModelsTab({
                               'Regression Overall Signal',
                               'Z-Score Analysis & Confidence Intervals Overall Signal',
                               'xG Overperformance Signal',
-                              'BTTS Check list',
-                              'Over 3.5 Check list',
-                              'Home Team SOT Conversion %',
-                              'Away Team SOT Conversion %',
-                              'Avg SOT Conversion %',
+                              'Quarter Kelly O2.5 %',
                               'Strong Bet',
                               'Grey Result Predictor',
                               'Goal Fest',
-                              'BTTS Qualification Tier',
-                              'BTTS Qual Score',
                               'Third Goal Tier',
                               'Third Goal Score',
-                              'Momentum Match Signal',
-                              'Home Momentum',
-                              'Away Momentum',
-                              'Dominant Team Tier',
-                              'Dominant Team Score',
-                              'Dominant Over 2.5 Rec',
-                              'Dominant BTTS Rec',
-                              'BTTS-BH Tier',
-                              'BTTS-BH Score',
                             ]
 
-                            // Format check lists for export - matching display exactly
-                            const bttsChecklistExport = `${bttsChecks.length} of 5`;
-                            const over35ChecklistExport = `${over35Checks.length} of 4`;
-                            
+
                             const row = [
                               `"${selectedLeague}"`,
                               `"${predHomeTeam}"`,
@@ -930,27 +912,15 @@ export default function ModelsTab({
                               regressionOverallSignal,
                               zScoreOverallSignal,
                               xgOverallSignal,
-                              bttsChecklistExport,
-                              over35ChecklistExport,
-                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 ? ((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
-                              `${awayTeamData && awayTeamData.shotsOnTarget > 0 ? ((awayTeamData.goalsScored / awayTeamData.shotsOnTarget) * 100).toFixed(1) : 'N/A'}%`,
-                              `${homeTeamData && homeTeamData.shotsOnTarget > 0 && awayTeamData && awayTeamData.shotsOnTarget > 0 ? (((homeTeamData.goalsScored / homeTeamData.shotsOnTarget) + (awayTeamData.goalsScored / awayTeamData.shotsOnTarget)) / 2 * 100).toFixed(1) : 'N/A'}%`,
+                              (() => {
+                                const stake = prediction.prediction.kellyStakes?.over25;
+                                return stake && stake > 0 ? `${(stake * 100).toFixed(2)}%` : 'No Edge';
+                              })(),
                               strongBetIndicator,
                               greyResultIndicator,
                               goalFestIndicator,
-                              csvBttsQual.tier,
-                              `${csvBttsQual.score}`,
                               csvThirdGoal.tier,
                               `${csvThirdGoal.score}`,
-                              `"${csvMomentumResult.matchSignal}"`,
-                              `"${csvMomentumResult.homeSignal}"`,
-                              `"${csvMomentumResult.awaySignal}"`,
-                              `"${csvDominantResult.tier}"`,
-                              `${csvDominantResult.score}`,
-                              `"${csvDominantResult.over25Rec}"`,
-                              `"${csvDominantResult.bttsRec}"`,
-                              `"${csvBttsBH.tier}"`,
-                              `${csvBttsBH.score}`,
                             ]
 
                             const csv = [headers.join(','), row.join(',')].join('\n')
